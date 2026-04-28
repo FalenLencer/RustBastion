@@ -122,7 +122,7 @@ static void draw_tabs(const MenuState *m, int virt_w) {
 
     for (int i = 0; i < TAB_COUNT; i++) {
         int tx = start_x + i * (tab_w + pad);
-        int active = (m->active_tab == i);
+        int active = (m->active_tab == (MenuTab)i);
         Color bg  = active ? C_TAB_ACT : C_TAB_IDLE;
         Color brd = active ? C_GOLD    : C_BORDER;
         DrawRectangle(tx, tab_y, tab_w, tab_h, bg);

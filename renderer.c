@@ -11,28 +11,8 @@
 #include "game_state.h"
 #include "ui.h"
 
-/*
-// Palette post-apocalyptique
-static Color TILE_COLORS[] = {
-    [TILE_GROUND] = {45, 30, 10, 255},   // terre sombre
-    [TILE_RUIN]   = {74, 53, 32, 255},   // béton rouillé
-    [TILE_WATER]  = {13, 43, 26, 255},   // vert toxique
-    [TILE_PATH]   = {92, 61,  0, 255},   // poussière ocre
-    [TILE_SPAWN]  = {107, 16, 16, 255},  // rouge danger
-    [TILE_BASE]   = {13, 61, 26, 255},   // vert survie
-};
-
-static Color TILE_BORDERS[] = {
-    [TILE_GROUND] = {61, 42, 16, 255},
-    [TILE_RUIN]   = {107, 76, 40, 255},
-    [TILE_WATER]  = {26, 74, 46, 255},
-    [TILE_PATH]   = {139, 94,  0, 255},
-    [TILE_SPAWN]  = {192, 57, 43, 255},
-    [TILE_BASE]   = {39, 174, 96, 255},
-};
-*/
-
-// En haut de renderer.c — sans static
+// ── Couleurs des tours, unités et projectiles ─────────────────
+// Sans static → accessibles via extern dans renderer.h
 Color TOWER_FILL[TOWER_TYPE_COUNT] = {
     [TOWER_GUN]    = {192, 57,  43,  255},
     [TOWER_SNIPER] = { 52,152, 219,  255},
@@ -52,18 +32,19 @@ Color PROJ_COLOR[TOWER_TYPE_COUNT] = {
     [TOWER_TESLA]  = {218,112,214,  255},
 };
 
-// Fonctions d'accès
 Color renderer_tower_color(TowerType type) { return TOWER_FILL[type]; }
 Color renderer_unit_color (UnitType  type) { return UNIT_FILL[type];  }
 
-
-// Une couleur ocre distincte par chemin
+// ── Une couleur ocre distincte par chemin ─────────────────────
 static Color PATH_COLORS[MAX_PATHS] = {
     {239, 159,  39, 160},   // chemin 0 — ocre
     { 39, 159, 239, 160},   // chemin 1 — bleu acier
     {159, 239,  39, 160},   // chemin 2 — vert radioactif
 };
 
+// ════════════════════════════════════════════════════
+// DÉTAILS PIXEL ART PAR THÈME
+// ════════════════════════════════════════════════════
 void render_tile_detail(int px, int py, TileType type, ThemeID theme) {
     switch (theme) {
         case THEME_WASTELAND:
@@ -96,6 +77,9 @@ void render_tile_detail(int px, int py, TileType type, ThemeID theme) {
     }
 }
 
+// ════════════════════════════════════════════════════
+// CARTE
+// ════════════════════════════════════════════════════
 void render_map(const Map *map) {
     const Theme *th = theme_get(map->theme);
     const ThemePalette *p = &th->palette;
@@ -106,7 +90,6 @@ void render_map(const Map *map) {
             int      px = x * TILE_SIZE;
             int      py = y * TILE_SIZE;
 
-            // Sélectionne fill/stroke selon le type
             Color fill, stroke;
             switch (t) {
                 case TILE_GROUND: fill=p->ground_fill; stroke=p->ground_stroke; break;
@@ -120,112 +103,91 @@ void render_map(const Map *map) {
 
             DrawRectangle(px, py, TILE_SIZE, TILE_SIZE, fill);
             DrawRectangleLines(px, py, TILE_SIZE, TILE_SIZE, stroke);
-
-            // Détails pixel art (identiques à avant)
             render_tile_detail(px, py, t, map->theme);
         }
     }
 }
 
-
+// ════════════════════════════════════════════════════
+// HUD IN-GAME
+// ════════════════════════════════════════════════════
 void render_hud(const GameState *gs) {
     const Theme *th = theme_get(gs->map.theme);
     int sw    = GetScreenWidth();
     int hud_y = MAP_H * TILE_SIZE;
     int line  = 22;
-    int pad   = 6;   // padding vertical en haut du HUD
+    int pad   = 6;
 
-    // ── Fond HUD ─────────────────────────────────────────────
     DrawRectangle(0, hud_y, sw, GetScreenHeight() - hud_y,
                   (Color){12, 8, 4, 255});
     DrawLine(0, hud_y, sw, hud_y, (Color){139, 94, 0, 255});
 
-    // ── 4 colonnes fixes ─────────────────────────────────────
-    int c1 = 10;          // Partie
-    int c2 = 220;         // Carte / timer
-    int c3 = 430;         // Placement (tour ou unité)
-    int c4 = 680;         // Chemins
+    int c1 = 10;
+    int c2 = 220;
+    int c3 = 430;
+    int c4 = 680;
 
-    // ── COL 1 : infos partie ─────────────────────────────────
+    // COL 1 : infos partie
     int y = hud_y + pad;
-    DrawText(TextFormat("OR    : %d",  gs->gold),
-             c1, y,          18, (Color){239,159, 39,255}); y += line;
-    DrawText(TextFormat("VIES  : %d",  gs->lives),
-             c1, y,          18, (Color){231, 76, 60,255}); y += line;
-    DrawText(TextFormat("VAGUE : %d",  gs->wave_manager.number),
-             c1, y,          18, (Color){180,180,160,255}); y += line;
-    DrawText(gs->phase == PHASE_PREP        ? "PREPARATION"  :
-             gs->phase == PHASE_WAVE        ? "VAGUE EN COURS" : "GAME OVER",
-             c1, y,          16, (Color){160,160,140,255});
+    DrawText(TextFormat("OR    : %d",  gs->gold),  c1, y, 18, (Color){239,159,39,255}); y += line;
+    DrawText(TextFormat("VIES  : %d",  gs->lives), c1, y, 18, (Color){231,76,60,255});  y += line;
+    DrawText(TextFormat("VAGUE : %d",  gs->wave_manager.number), c1, y, 18, (Color){180,180,160,255}); y += line;
+    DrawText(gs->phase == PHASE_PREP ? "PREPARATION" :
+             gs->phase == PHASE_WAVE ? "VAGUE EN COURS" : "GAME OVER",
+             c1, y, 16, (Color){160,160,140,255});
 
-    // ── COL 2 : carte + timer ────────────────────────────────
+    // COL 2 : carte + timer
     y = hud_y + pad;
-    DrawText(TextFormat("THEME : %s",  th->name),
-             c2, y,          18, (Color){180,220,180,255}); y += line;
-    DrawText(TextFormat("SEED  : %d",  gs->map.seed),
-             c2, y,          18, (Color){100,100, 80,255}); y += line;
-    DrawText(TextFormat("VOIES : %d",  gs->map.path_count),
-             c2, y,          18, (Color){100,100, 80,255}); y += line;
-
-    // Timer OU état vague — une seule ligne, pas de superposition
+    DrawText(TextFormat("THEME : %s", th->name),    c2, y, 18, (Color){180,220,180,255}); y += line;
+    DrawText(TextFormat("SEED  : %d", gs->map.seed),c2, y, 18, (Color){100,100,80,255});  y += line;
+    DrawText(TextFormat("VOIES : %d", gs->map.path_count), c2, y, 18, (Color){100,100,80,255}); y += line;
     if (gs->phase == PHASE_PREP)
         DrawText(TextFormat("Prochain: %.0fs", gs->wave_manager.prep_timer),
-                 c2, y,      18, (Color){239,159, 39,255});
+                 c2, y, 18, (Color){239,159,39,255});
     else
         DrawText(TextFormat("Ennemis: %d", enemy_pool_alive(&gs->enemies)),
-                 c2, y,      18, (Color){231, 76, 60,255});
+                 c2, y, 18, (Color){231,76,60,255});
 
-    // ── COL 3 : mode placement ───────────────────────────────
+    // COL 3 : mode placement
     y = hud_y + pad;
-
-    // Mode placement — affiché depuis UIState
     const char *mode_label = ui_tool_is_unit(gs->ui.selected_tool)
-                         ? "MODE : UNITE" : "MODE : TOUR";
+                             ? "MODE : UNITE" : "MODE : TOUR";
     Color mode_col = ui_tool_is_unit(gs->ui.selected_tool)
-                 ? (Color){39,174,96,255} : (Color){239,159,39,255};
+                     ? (Color){39,174,96,255} : (Color){239,159,39,255};
     DrawText(mode_label, c3, y, 16, mode_col); y += line;
-
-    DrawText("Clic droit = annuler", c3, y, 13,
-         (Color){100,100,80,255}); y += line;
-
-    // Outil sélectionné
+    DrawText("Clic droit = annuler", c3, y, 13, (Color){100,100,80,255}); y += line;
     if (gs->ui.selected_tool != TOOL_NONE) {
         Color col = ui_tool_is_unit(gs->ui.selected_tool)
-                ? renderer_unit_color(ui_tool_to_unit(gs->ui.selected_tool))
-                : renderer_tower_color(ui_tool_to_tower(gs->ui.selected_tool));
-        DrawText(TextFormat("Selectionne : %s",
-                 ui_tool_name(gs->ui.selected_tool)),
-             c3, y, 14, col); y += line;
+                    ? renderer_unit_color(ui_tool_to_unit(gs->ui.selected_tool))
+                    : renderer_tower_color(ui_tool_to_tower(gs->ui.selected_tool));
+        DrawText(TextFormat("Selectionne : %s", ui_tool_name(gs->ui.selected_tool)),
+                 c3, y, 14, col); y += line;
     } else {
-        DrawText("Rien selectionne", c3, y, 13,
-             (Color){80,70,50,255}); y += line;
+        DrawText("Rien selectionne", c3, y, 13, (Color){80,70,50,255}); y += line;
     }
-    DrawText("1-4:Tours  5-8:Unites", c3, y, 12,
-         (Color){80,70,50,255});
+    DrawText("1-4:Tours  5-8:Unites", c3, y, 12, (Color){80,70,50,255});
 
-    // ── COL 4 : chemins ──────────────────────────────────────
+    // COL 4 : chemins
     y = hud_y + pad;
     static Color path_colors[MAX_PATHS] = {
-        {239,159, 39,255},
-        { 39,159,239,255},
-        {159,239, 39,255},
+        {239,159,39,255}, {39,159,239,255}, {159,239,39,255},
     };
     const char *edge_names[] = {"GAUCHE","DROITE","HAUT","BAS"};
-
     for (int i = 0; i < gs->map.path_count; i++) {
         if (!gs->map.paths[i].active) continue;
-        DrawText(TextFormat("Voie %d : %s", i,
-                     edge_names[gs->map.paths[i].spawn_edge]),
-                 c4, y,      16, path_colors[i % MAX_PATHS]);
+        DrawText(TextFormat("Voie %d : %s", i, edge_names[gs->map.paths[i].spawn_edge]),
+                 c4, y, 16, path_colors[i % MAX_PATHS]);
         y += line;
     }
     if (gs->map.path_count > 0)
         DrawText(TextFormat("Base : (%d,%d)",
-                     gs->map.paths[0].base.x,
-                     gs->map.paths[0].base.y),
-                 c4, y,      16, (Color){46,204,113,255});
+                     gs->map.paths[0].base.x, gs->map.paths[0].base.y),
+                 c4, y, 16, (Color){46,204,113,255});
 }
 
+// ════════════════════════════════════════════════════
+// CHEMINS A*
+// ════════════════════════════════════════════════════
 void render_paths(const PathSet *ps) {
     for (int p = 0; p < ps->count; p++) {
         const Path *path = &ps->paths[p];
@@ -233,10 +195,10 @@ void render_paths(const PathSet *ps) {
         Color col = PATH_COLORS[path->path_id % MAX_PATHS];
         for (int i = 0; i < path->len - 1; i++) {
             DrawLineEx(
-                (Vector2){path->steps[i].x  *TILE_SIZE + TILE_SIZE/2,
-                          path->steps[i].y  *TILE_SIZE + TILE_SIZE/2},
-                (Vector2){path->steps[i+1].x*TILE_SIZE + TILE_SIZE/2,
-                          path->steps[i+1].y*TILE_SIZE + TILE_SIZE/2},
+                (Vector2){path->steps[i].x  *TILE_SIZE + TILE_SIZE/2.0f,
+                          path->steps[i].y  *TILE_SIZE + TILE_SIZE/2.0f},
+                (Vector2){path->steps[i+1].x*TILE_SIZE + TILE_SIZE/2.0f,
+                          path->steps[i+1].y*TILE_SIZE + TILE_SIZE/2.0f},
                 2.5f, col
             );
             DrawCircle(path->steps[i].x*TILE_SIZE+TILE_SIZE/2,
@@ -246,20 +208,20 @@ void render_paths(const PathSet *ps) {
     }
 }
 
-// Ajoute dans renderer.h :
-// void render_enemies(const EnemyPool *pool);
-
+// ════════════════════════════════════════════════════
+// ENNEMIS
+// ════════════════════════════════════════════════════
 void render_enemies(const EnemyPool *pool) {
     for (int i = 0; i < MAX_ENEMIES; i++) {
         const Enemy *e = &pool->enemies[i];
         if (!e->active || e->dead || e->spawn_delay > 0.0f) continue;
 
-        // ── Ombre ────────────────────────────────────────────
+        // Ombre
         DrawEllipse((int)e->x + 2, (int)e->y + (int)e->size,
                     (int)(e->size * 0.8f), (int)(e->size * 0.3f),
-                    (Color){0, 0, 0, 80});
+                    (Color){0,0,0,80});
 
-        // ── Corps ────────────────────────────────────────────
+        // Corps
         Color col;
         switch (e->type) {
             case ENEMY_RAIDER:  col = (Color){231, 76,  60,  255}; break;
@@ -269,38 +231,32 @@ void render_enemies(const EnemyPool *pool) {
             case ENEMY_MUTANT:  col = (Color){39,  174, 96,  255}; break;
             default:            col = WHITE;
         }
-
-        // Effet visuel si ralenti
         if (e->slow_timer > 0.0f)
             col = (Color){100, 180, 255, 255};
 
         DrawCircle((int)e->x, (int)e->y, e->size, col);
-        DrawCircleLines((int)e->x, (int)e->y, e->size,
-                        (Color){255, 255, 255, 60});
+        DrawCircleLines((int)e->x, (int)e->y, e->size, (Color){255,255,255,60});
 
-        // ── Barre de vie ──────────────────────────────────────
-        float ratio  = e->hp / e->max_hp;
-        int   bw     = (int)(e->size * 2.5f);
-        int   bx     = (int)e->x - bw / 2;
-        int   by     = (int)e->y - (int)e->size - 6;
+        // Barre de vie
+        float ratio = e->hp / e->max_hp;
+        int   bw    = (int)(e->size * 2.5f);
+        int   bx    = (int)e->x - bw / 2;
+        int   by    = (int)e->y - (int)e->size - 6;
+        DrawRectangle(bx, by, bw, 3, (Color){30,10,10,200});
+        Color hp_col = ratio > 0.6f ? (Color){46,204,113,255}
+                     : ratio > 0.3f ? (Color){243,156,18,255}
+                                    : (Color){231,76,60,255};
+        DrawRectangle(bx, by, (int)(bw*ratio), 3, hp_col);
 
-        DrawRectangle(bx, by, bw, 3, (Color){30, 10, 10, 200});
-        Color hp_col = ratio > 0.6f ? (Color){46, 204, 113, 255}
-                     : ratio > 0.3f ? (Color){243,156,  18, 255}
-                                    : (Color){231, 76,  60, 255};
-        DrawRectangle(bx, by, (int)(bw * ratio), 3, hp_col);
-
-        // ── Label type (debug, à retirer plus tard) ───────────
-        DrawText(ENEMY_BASE_STATS[e->type].name,
-                 bx, by - 12, 8, (Color){200, 200, 180, 180});
+        // Label type
+        DrawText(ENEMY_BASE_STATS[e->type].name, bx, by-12, 8,
+                 (Color){200,200,180,180});
     }
 }
 
-// Ajoute dans renderer.h :
-// void render_towers(const TowerPool *tp);
-// void render_projectiles(const TowerPool *tp);
-// void render_tower_preview(TowerType type, int tile_x, int tile_y);
-
+// ════════════════════════════════════════════════════
+// TOURS ET PROJECTILES
+// ════════════════════════════════════════════════════
 void render_towers(const TowerPool *tp) {
     for (int i = 0; i < MAX_TOWERS; i++) {
         const Tower *tw = &tp->towers[i];
@@ -311,28 +267,17 @@ void render_towers(const TowerPool *tp) {
         int s  = TILE_SIZE;
         Color col = TOWER_FILL[tw->type];
 
-        // Socle
         DrawRectangle(px+2, py+2, s-4, s-4, (Color){30,20,10,255});
-
-        // Corps de la tour
         DrawRectangle(px+6, py+6, s-12, s-12, col);
 
-        // Canon orienté vers la cible
         float cx = tw->cx, cy = tw->cy;
         float ex = cx + cosf(tw->angle) * (s*0.4f);
         float ey = cy + sinf(tw->angle) * (s*0.4f);
         DrawLineEx((Vector2){cx,cy}, (Vector2){ex,ey}, 3.0f, col);
+        DrawRectangleLines(px+6, py+6, s-12, s-12, (Color){255,255,255,60});
 
-        // Contour
-        DrawRectangleLines(px+6, py+6, s-12, s-12,
-                           (Color){255,255,255,60});
-
-        // Indicateur de niveau
-        if (tw->level > 0) {
-            for (int l = 0; l < tw->level && l < 3; l++)
-                DrawRectangle(px+4+l*4, py+s-6, 3, 3,
-                              (Color){255,215,0,255});
-        }
+        for (int l = 0; l < tw->level && l < 3; l++)
+            DrawRectangle(px+4+l*4, py+s-6, 3, 3, (Color){255,215,0,255});
     }
 }
 
@@ -342,19 +287,15 @@ void render_projectiles(const TowerPool *tp) {
         if (!p->active) continue;
 
         Color col = PROJ_COLOR[p->origin];
-
         if (p->splash) {
-            // Projectile de zone : cercle + halo
             DrawCircle((int)p->x, (int)p->y, 5, col);
-            DrawCircleLines((int)p->x, (int)p->y, 8,
-                            (Color){col.r,col.g,col.b,100});
+            DrawCircleLines((int)p->x, (int)p->y, 8, (Color){col.r,col.g,col.b,100});
         } else {
             DrawCircle((int)p->x, (int)p->y, 3, col);
         }
     }
 }
 
-// Prévisualisation au survol de la souris
 void render_tower_preview(const Map *map, const TowerPool *tp,
                            TowerType type, int tile_x, int tile_y)
 {
@@ -364,27 +305,23 @@ void render_tower_preview(const Map *map, const TowerPool *tp,
     Color col = TOWER_FILL[type];
     int px = tile_x * TILE_SIZE, py = tile_y * TILE_SIZE;
 
-    // Tour fantôme
     DrawRectangle(px+6, py+6, TILE_SIZE-12, TILE_SIZE-12,
                   (Color){col.r,col.g,col.b,100});
 
-    // Cercle de portée
     float range_px = st->range * TILE_SIZE;
-    DrawCircleLines(px + TILE_SIZE/2, py + TILE_SIZE/2,
+    DrawCircleLines(px+TILE_SIZE/2, py+TILE_SIZE/2,
                     range_px, (Color){col.r,col.g,col.b,150});
     DrawCircle(px+TILE_SIZE/2, py+TILE_SIZE/2,
                range_px, (Color){col.r,col.g,col.b,20});
 }
 
-// Dans renderer.h :
-// void render_units(const UnitPool *up);
-
-
+// ════════════════════════════════════════════════════
+// UNITÉS
+// ════════════════════════════════════════════════════
 void render_units(const UnitPool *up) {
-    // Cercle de zone d'interception (debug visuel)
     DrawCircleLines((int)up->base_px, (int)up->base_py,
                     UNIT_BASE_STATS[UNIT_SOLDIER].intercept_range * TILE_SIZE,
-                    (Color){231, 76, 60, 40});
+                    (Color){231,76,60,40});
 
     for (int i = 0; i < MAX_UNITS; i++) {
         const Unit *u = &up->units[i];
@@ -392,48 +329,35 @@ void render_units(const UnitPool *up) {
 
         Color col = UNIT_FILL[u->type];
 
-        // Ligne vers la cible ennemie
         if (u->target_idx != -1 && u->state != USTATE_PATROL) {
-            // ligne pointillée — on la dessine à la main
             DrawLineEx((Vector2){u->x, u->y},
                        (Vector2){u->x + cosf(u->patrol_angle)*20,
                                  u->y + sinf(u->patrol_angle)*20},
                        1.0f, (Color){col.r,col.g,col.b,80});
         }
 
-        // Aura médic
         if (u->type == UNIT_MEDIC) {
-            DrawCircle((int)u->x, (int)u->y,
-                       (int)(3.0f * TILE_SIZE),
+            DrawCircle((int)u->x, (int)u->y, (int)(3.0f*TILE_SIZE),
                        (Color){231,76,60,20});
-            DrawCircleLines((int)u->x, (int)u->y,
-                            (int)(3.0f * TILE_SIZE),
+            DrawCircleLines((int)u->x, (int)u->y, (int)(3.0f*TILE_SIZE),
                             (Color){231,76,60,80});
         }
 
-        // Ombre
         DrawEllipse((int)u->x+1, (int)u->y+(int)u->size,
                     (int)(u->size*0.8f), (int)(u->size*0.3f),
                     (Color){0,0,0,60});
-
-        // Corps
         DrawCircle((int)u->x, (int)u->y, (int)u->size, col);
         DrawCircleLines((int)u->x, (int)u->y, (int)u->size,
                         (Color){255,255,255,80});
 
-        // Icône état
         const char *icon =
-            u->state==USTATE_ATTACK  ? "X" :
-            u->state==USTATE_CHASE   ? ">" :
-            u->state==USTATE_RETURN  ? "<" :
-            u->state==USTATE_HEAL    ? "+" : ".";
-        DrawText(icon,
-                 (int)u->x - 3,
-                 (int)u->y - 4, 8,
-                 (Color){255,255,255,200});
+            u->state==USTATE_ATTACK ? "X" :
+            u->state==USTATE_CHASE  ? ">" :
+            u->state==USTATE_RETURN ? "<" :
+            u->state==USTATE_HEAL   ? "+" : ".";
+        DrawText(icon, (int)u->x-3, (int)u->y-4, 8, (Color){255,255,255,200});
 
-        // Barre de vie
-        int bw = (int)(u->size * 2.5f);
+        int bw = (int)(u->size*2.5f);
         int bx = (int)u->x - bw/2;
         int by = (int)u->y - (int)u->size - 6;
         DrawRectangle(bx, by, bw, 3, (Color){10,30,10,200});
@@ -444,106 +368,18 @@ void render_units(const UnitPool *up) {
     }
 }
 
-
-static int meta_get_level(const MetaProgress *meta, int id) {
-    switch ((UpgradeID)id) {
-        case UPGRADE_TOWER_DMG:   return meta->lvl_tower_dmg;
-        case UPGRADE_TOWER_RANGE: return meta->lvl_tower_range;
-        case UPGRADE_TOWER_RATE:  return meta->lvl_tower_rate;
-        case UPGRADE_UNIT_HP:     return meta->lvl_unit_hp;
-        case UPGRADE_UNIT_DMG:    return meta->lvl_unit_dmg;
-        case UPGRADE_START_GOLD:  return meta->lvl_start_gold;
-        case UPGRADE_LIVES:       return meta->lvl_lives;
-        case UPGRADE_SCRAP_BONUS: return meta->lvl_scrap_bonus;
-        default:                  return 0;
-    }
-}
-
-static int meta_get_max(int id) {
-    switch ((UpgradeID)id) {
-        case UPGRADE_TOWER_DMG:   return MAX_LVL_TOWER_DMG;
-        case UPGRADE_TOWER_RANGE: return MAX_LVL_TOWER_RANGE;
-        case UPGRADE_TOWER_RATE:  return MAX_LVL_TOWER_RATE;
-        case UPGRADE_UNIT_HP:     return MAX_LVL_UNIT_HP;
-        case UPGRADE_UNIT_DMG:    return MAX_LVL_UNIT_DMG;
-        case UPGRADE_START_GOLD:  return MAX_LVL_START_GOLD;
-        case UPGRADE_LIVES:       return MAX_LVL_LIVES;
-        case UPGRADE_SCRAP_BONUS: return MAX_LVL_SCRAP_BONUS;
-        default:                  return 0;
-    }
-}
-
-void render_meta_menu(const MetaProgress *meta, int selected) {
-    int sw = GetScreenWidth(), sh = GetScreenHeight();
-    (void)sh;
-    int cx = sw / 2;
-    int y  = 30;
-
-    // Titre
-    DrawText("RUST BASTION", cx - 100, y, 28,
-             (Color){239,159,39,255}); y += 36;
-    DrawText("— ARSENAL —", cx - 60, y, 16,
-             (Color){139,94,0,255}); y += 30;
-
-    // Stats
-    DrawText(TextFormat("Ferraille : %d  |  Parties : %d  |  Meilleure vague : %d",
-                 meta->scrap, meta->runs_completed, meta->best_wave),
-             cx - 220, y, 16, (Color){127,200,127,255}); y += 30;
-
-    DrawLine(40, y, sw-40, y, (Color){61,42,16,255}); y += 14;
-
-    // Grille d'améliorations
-    for (int i = 0; i < UPGRADE_COUNT; i++) {
-        int cost   = meta_upgrade_cost(meta, i);
-        int is_sel = (i == selected);
-        Color bg    = is_sel ? (Color){40,25,8,255}      : (Color){0,0,0,0};
-        Color label = is_sel ? (Color){239,159,39,255}   : (Color){160,140,110,255};
-
-        if (is_sel)
-            DrawRectangle(40, y-2, sw-80, 22, bg);
-
-        // Nom
-        DrawText(UPGRADE_NAMES[i], 50, y, 16, label);
-
-        // Niveau (étoiles) — sans pointeur ni cast
-        int  lvl  = meta_get_level(meta, i);
-        int  max  = meta_get_max(i);
-        char stars[16] = {0};
-        for (int s = 0; s < lvl; s++) stars[s] = '*';
-        for (int s = lvl; s < max; s++) stars[s] = '.';
-        DrawText(stars, cx - 60, y, 16, (Color){239,159,39,255});
-
-        // Coût
-        if (cost > 0)
-            DrawText(TextFormat("%d ferraille", cost),
-                     sw - 200, y, 14, (Color){100,80,50,255});
-        else
-            DrawText("MAX", sw - 200, y, 14, (Color){46,204,113,255});
-
-        // Description
-        DrawText(UPGRADE_DESC[i], cx + 60, y, 12,
-                 (Color){80,70,50,255});
-
-        y += 24;
-    }
-
-    DrawLine(40, y+4, sw-40, y+4, (Color){61,42,16,255}); y += 18;
-
-    // Instructions
-    DrawText("[HAUT/BAS] naviguer   [ENTREE] ameliorer   [ESPACE] lancer une partie",
-             cx - 260, y, 14, (Color){80,70,50,255});
-}
-
+// ════════════════════════════════════════════════════
+// GAME OVER
+// ════════════════════════════════════════════════════
 void render_gameover(const GameState *gs) {
     int sw = GetScreenWidth(), sh = GetScreenHeight();
-    (void)sh;
     DrawRectangle(0, 0, sw, sh, (Color){0,0,0,160});
 
     int cx = sw/2, cy = sh/2;
     DrawText("BASTION TOMBE",
              cx-110, cy-50, 28, (Color){231,76,60,255});
     DrawText(TextFormat("Vague atteinte : %d", gs->wave_manager.number),
-             cx-90,  cy-10, 18, (Color){180,160,130,255});
+             cx-90, cy-10, 18, (Color){180,160,130,255});
     DrawText("Ferraille gagnee : voir menu",
              cx-110, cy+15, 16, (Color){127,200,127,255});
     DrawText("[ESPACE] retour au menu",

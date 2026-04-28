@@ -10,19 +10,29 @@
 #include "enemy.h"
 #include "meta.h"
 #include "ui.h"
+#include "menu.h"
+#include "save.h"
 #include <stdio.h>
 #include <stdlib.h>
 
+// ════════════════════════════════════════════════════
+// ÉCRANS DE L'APPLICATION
+// ════════════════════════════════════════════════════
 typedef enum {
-    SCREEN_META = 0,
-    SCREEN_GAME,
+    SCREEN_MENU = 0,   // menu principal (slots, upgrades, options)
+    SCREEN_GAME,       // partie en cours
 } Screen;
 
-static void new_game(GameState *gs) {
+// ════════════════════════════════════════════════════
+// HELPERS : création / chargement de partie
+// ════════════════════════════════════════════════════
+
+// Génère une nouvelle carte jusqu'à avoir au moins un chemin valide
+static void new_game(GameState *gs, ThemeID theme) {
     int seed;
     do {
         seed = GetRandomValue(1, 99999);
-        generate_map(&gs->map, seed, 20, THEME_COUNT);
+        generate_map(&gs->map, seed, 20, theme);
         astar_all(&gs->map, &gs->enemy_paths);
         pathset_apply(&gs->map, &gs->enemy_paths);
     } while (gs->enemy_paths.count == 0 || gs->map.path_count == 0);
@@ -31,128 +41,164 @@ static void new_game(GameState *gs) {
     float base_py = gs->map.paths[0].base.y * TILE_SIZE + TILE_SIZE / 2.0f;
     unit_pool_init(&gs->units, base_px, base_py);
 
-    // Init UI après que la carte est générée
     ui_init(&gs->ui);
 
-    printf("Carte seed=%d : %d chemin(s) | theme=%d\n",
+    printf("Nouvelle partie — seed=%d chemins=%d theme=%d\n",
            seed, gs->enemy_paths.count, gs->map.theme);
 }
 
+// Applique la résolution choisie dans les options
+static void apply_window_size(int w, int h) {
+    SetWindowSize(w, h);
+    // Recentre sur le moniteur principal
+    int mw = GetMonitorWidth(0);
+    int mh = GetMonitorHeight(0);
+    Vector2 mpos = GetMonitorPosition(0);
+    SetWindowPosition(
+        (int)(mpos.x + (mw - w) / 2),
+        (int)(mpos.y + (mh - h) / 2)
+    );
+}
+
+// ════════════════════════════════════════════════════
+// MAIN
+// ════════════════════════════════════════════════════
 int main(void) {
-    InitWindow(MAP_W * TILE_SIZE, MAP_H * TILE_SIZE + UI_HUD_HEIGHT,
-               "RUST BASTION");
+    // Taille de fenêtre par défaut
+    const int DEFAULT_W = MAP_W * TILE_SIZE;          // 1120
+    const int DEFAULT_H = MAP_H * TILE_SIZE + UI_HUD_HEIGHT; // 770
+
+    InitWindow(DEFAULT_W, DEFAULT_H, "RUST BASTION");
     SetTargetFPS(60);
 
-    // ── Positionnement multi-écrans ───────────────────────────
-    int targetMonitor = 0;
-    int monitorCount  = GetMonitorCount();
-    if (targetMonitor >= monitorCount) targetMonitor = 0;
-
-    Vector2 monitorPos    = GetMonitorPosition(targetMonitor);
-    int     monitorWidth  = GetMonitorWidth(targetMonitor);
-    int     monitorHeight = GetMonitorHeight(targetMonitor);
-    int     windowWidth   = MAP_W * TILE_SIZE;
-    int     windowHeight  = MAP_H * TILE_SIZE + UI_HUD_HEIGHT;
-    SetWindowPosition(
-        (int)(monitorPos.x + (monitorWidth  - windowWidth)  / 2),
-        (int)(monitorPos.y + (monitorHeight - windowHeight) / 2)
-    );
+    // Centrage initial
+    {
+        int mw = GetMonitorWidth(0);
+        int mh = GetMonitorHeight(0);
+        Vector2 mpos = GetMonitorPosition(0);
+        SetWindowPosition(
+            (int)(mpos.x + (mw - DEFAULT_W) / 2),
+            (int)(mpos.y + (mh - DEFAULT_H) / 2)
+        );
+    }
 
     // ── Init état global ──────────────────────────────────────
     GameState gs     = {0};
-    Screen    screen = SCREEN_META;
-    int       sel_upg = 0;
+    Screen    screen = SCREEN_MENU;
+    int       active_slot = -1;   // slot actuellement en jeu (-1 = aucun)
 
     game_state_init(&gs);
 
+    // ── Init menu ─────────────────────────────────────────────
+    AppOptions opts = {
+        .fullscreen = 0,
+        .win_width  = DEFAULT_W,
+        .win_height = DEFAULT_H,
+    };
+    MenuState menu = {0};
+    menu_init(&menu, &opts);
+
+    // ── Boucle principale ─────────────────────────────────────
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
 
         // ════════════════════════════════════════════════════
-        // ÉCRAN MÉTA
+        // ÉCRAN MENU
         // ════════════════════════════════════════════════════
-        if (screen == SCREEN_META) {
+        if (screen == SCREEN_MENU) {
 
-            // Navigation clavier
-            if (IsKeyPressed(KEY_UP))
-                sel_upg = (sel_upg - 1 + UPGRADE_COUNT) % UPGRADE_COUNT;
-            if (IsKeyPressed(KEY_DOWN))
-                sel_upg = (sel_upg + 1) % UPGRADE_COUNT;
+            menu_update(&menu, &gs.meta);
 
-            // Achat clavier
-            if (IsKeyPressed(KEY_ENTER))
-                meta_upgrade(&gs.meta, sel_upg);
+            BeginDrawing();
 
-            // Navigation souris — survol des upgrades
-            Vector2 mouse = GetMousePosition();
-            int sw = GetScreenWidth();
-            for (int i = 0; i < UPGRADE_COUNT; i++) {
-                // Chaque ligne fait 24px, commence à y=130
-                Rectangle row = {40, 130 + i * 24, (float)(sw - 80), 22};
-                if (CheckCollisionPointRec(mouse, row)) {
-                    sel_upg = i;
-                    // Clic souris sur une amélioration
-                    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
-                        meta_upgrade(&gs.meta, sel_upg);
+            MenuAction act = menu_render_and_act(&menu, &gs.meta,
+                                                  GetScreenWidth(),
+                                                  GetScreenHeight());
+            EndDrawing();
+
+            // ── Interprète les actions ────────────────────────
+
+            // Quitter l'application
+            if (act.quit_app) break;
+
+            // Basculer plein écran
+            if (act.toggle_fs == 1) {
+                if (menu.opts.fullscreen)
+                    ToggleFullscreen();
+                else
+                    ToggleFullscreen();
+            }
+            // Changer de résolution fenêtrée
+            if (act.toggle_fs == 2) {
+                if (!IsWindowFullscreen())
+                    apply_window_size(menu.opts.win_width,
+                                      menu.opts.win_height);
+            }
+
+            // Nouvelle partie
+            if (act.start_new) {
+                game_state_init(&gs);
+                new_game(&gs, menu.new_theme);
+                active_slot = menu.new_slot;
+                // Sauvegarde initiale du slot
+                save_write(&gs, active_slot);
+                menu.screen = MENU_MAIN;
+                screen = SCREEN_GAME;
+            }
+
+            // Reprendre une partie sauvegardée
+            if (act.go_game && !act.start_new) {
+                int slot = act.resume_slot;
+                if (save_read(&gs, slot)) {
+                    active_slot = slot;
+                    menu.screen = MENU_MAIN;
+                    screen = SCREEN_GAME;
+                    printf("Partie chargée — slot %d\n", slot);
+                } else {
+                    // Sauvegarde corrompue — nouvelle partie dans ce slot
+                    game_state_init(&gs);
+                    new_game(&gs, THEME_COUNT);
+                    active_slot = slot;
+                    save_write(&gs, active_slot);
+                    screen = SCREEN_GAME;
                 }
             }
 
-            // Lance une partie — clavier ou souris sur bouton ESPACE
-            if (IsKeyPressed(KEY_SPACE)) {
-                game_state_init(&gs);
-                new_game(&gs);
-                screen = SCREEN_GAME;
-            }
-
-            // Bouton "JOUER" cliquable à la souris
-            Rectangle play_btn = {
-                (float)(sw/2 - 100),
-                (float)(130 + UPGRADE_COUNT*24 + 30),
-                200, 32
-            };
-            if (CheckCollisionPointRec(mouse, play_btn) &&
-                IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                game_state_init(&gs);
-                new_game(&gs);
-                screen = SCREEN_GAME;
-            }
-
-            BeginDrawing();
-                ClearBackground((Color){8, 5, 3, 255});
-                render_meta_menu(&gs.meta, sel_upg);
-
-                // Bouton JOUER dessiné ici pour avoir la position
-                int sh = GetScreenHeight();
-                (void)sh;
-                DrawRectangleRec(play_btn, (Color){13, 61, 26, 255});
-                DrawRectangleLinesEx(play_btn, 1.5f,
-                                     (Color){39, 174, 96, 255});
-                DrawText("▶  JOUER",
-                         (int)(play_btn.x + 50),
-                         (int)(play_btn.y + 8),
-                         16, (Color){46, 204, 113, 255});
-            EndDrawing();
-
         // ════════════════════════════════════════════════════
-        // ÉCRAN DE JEU
+        // ÉCRAN JEU
         // ════════════════════════════════════════════════════
         } else {
 
-            // ── Mise à jour UI (clics, hover, placement) ─────
-            ui_update(&gs.ui, &gs);
+            // ── Touche ECHAP → bascule pause ─────────────────
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                menu.paused ^= 1;
+                menu.screen = menu.paused ? MENU_PAUSE : MENU_MAIN;
+            }
 
-            // ── Mise à jour état du jeu ───────────────────────
-            game_state_update(&gs, dt);
+            // ── Mise à jour jeu (seulement hors pause) ───────
+            if (!menu.paused) {
+                ui_update(&gs.ui, &gs);
+                game_state_update(&gs, dt);
+            }
 
-            // ── Retour au menu après game over ────────────────
-            if (gs.phase == PHASE_GAMEOVER && IsKeyPressed(KEY_SPACE))
-                screen = SCREEN_META;
+            // ── Game over → retour menu ───────────────────────
+            if (gs.phase == PHASE_GAMEOVER) {
+                if (IsKeyPressed(KEY_SPACE)) {
+                    // Supprime le slot (partie terminée)
+                    if (active_slot >= 0)
+                        save_delete(active_slot);
+                    active_slot = -1;
+                    menu_refresh_slots(&menu);
+                    menu.paused = 0;
+                    menu.screen = MENU_MAIN;
+                    screen = SCREEN_MENU;
+                }
+            }
 
-            // ── Rendu ─────────────────────────────────────────
+            // ── Rendu jeu ─────────────────────────────────────
             BeginDrawing();
                 ClearBackground(theme_get(gs.map.theme)->palette.bg);
 
-                // Carte et entités
                 render_map(&gs.map);
                 render_paths(&gs.enemy_paths);
                 render_towers(&gs.towers);
@@ -160,15 +206,60 @@ int main(void) {
                 render_enemies(&gs.enemies);
                 render_projectiles(&gs.towers);
 
-                // UI (HUD + boutons + tooltip + preview)
                 ui_render(&gs.ui, &gs);
 
-                // Écran game over par-dessus tout
                 if (gs.phase == PHASE_GAMEOVER)
                     render_gameover(&gs);
+
+                // ── Overlay pause (par-dessus tout) ──────────
+                if (menu.paused) {
+                    MenuAction pact = menu_render_and_act(
+                        &menu, &gs.meta,
+                        GetScreenWidth(), GetScreenHeight());
+
+                    // Reprendre depuis le menu pause
+                    if (!menu.paused)   // draw_pause a mis paused=0
+                        (void)0;        // déjà géré dans draw_pause
+
+                    // Sauvegarder seulement
+                    if (pact.save_and_quit == 2 && active_slot >= 0) {
+                        save_write(&gs, active_slot);
+                        menu_refresh_slots(&menu);
+                    }
+
+                    // Sauvegarder + retour menu
+                    if (pact.save_and_quit == 1) {
+                        if (active_slot >= 0)
+                            save_write(&gs, active_slot);
+                        menu_refresh_slots(&menu);
+                        menu.paused = 0;
+                        menu.screen = MENU_MAIN;
+                        screen = SCREEN_MENU;
+                    }
+
+                    // Quitter sans sauvegarder
+                    if (pact.quit_app) {
+                        if (active_slot >= 0)
+                            save_write(&gs, active_slot);
+                        break;
+                    }
+
+                    // Options depuis la pause
+                    if (pact.toggle_fs == 1)
+                        ToggleFullscreen();
+                    if (pact.toggle_fs == 2 && !IsWindowFullscreen())
+                        apply_window_size(menu.opts.win_width,
+                                          menu.opts.win_height);
+                }
+
             EndDrawing();
         }
     }
+
+    // Sauvegarde automatique à la fermeture si partie en cours
+    if (screen == SCREEN_GAME && active_slot >= 0 &&
+        gs.phase != PHASE_GAMEOVER)
+        save_write(&gs, active_slot);
 
     CloseWindow();
     return 0;

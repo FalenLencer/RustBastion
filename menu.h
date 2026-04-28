@@ -61,21 +61,25 @@ typedef struct {
     char        msg_buf[128];      // texte du message
 } MenuState;
 
-// ── API ──────────────────────────────────────────────────────
-void menu_init   (MenuState *m, const AppOptions *opts);
-void menu_refresh_slots(MenuState *m);   // relit les fichiers de sauvegarde
-
-// Retourne 1 si le menu consomme l'input (ne pas updater le jeu)
-// action_* sont des signaux sortants vers main.c :
+// ── Actions renvoyées vers main.c ────────────────────────────
 typedef struct {
-    int start_new;      // 1 = lancer new_game avec m->new_theme, m->new_slot
+    int start_new;      // 1 = lancer new_game avec new_theme, new_slot
     int resume_slot;    // >= 0 : charger ce slot et jouer
     int go_game;        // aller en SCREEN_GAME (après start ou resume)
     int quit_app;       // quitter l'application
-    int save_and_quit;  // sauvegarder puis aller menu principal
-    int toggle_fs;      // basculer plein écran
+    int save_and_quit;  // 1=sauver+menu, 2=sauver seulement
+    int toggle_fs;      // 1=toggle fullscreen, 2=resize fenêtre
 } MenuAction;
 
-MenuAction menu_update(MenuState *m, const MetaProgress *meta);
-void       menu_render(const MenuState *m, const MetaProgress *meta,
-                       int virt_w, int virt_h);
+// ── API ──────────────────────────────────────────────────────
+void       menu_init          (MenuState *m, const AppOptions *opts);
+void       menu_refresh_slots (MenuState *m);
+MenuAction menu_update        (MenuState *m, const MetaProgress *meta);
+
+// Rendu pur (sans retour d'action) — usage interne ou debug
+void       menu_render        (const MenuState *m, const MetaProgress *meta,
+                               int virt_w, int virt_h);
+
+// Rendu + retour d'action — version utilisée par main.c
+MenuAction menu_render_and_act(MenuState *m, const MetaProgress *meta,
+                               int virt_w, int virt_h);
