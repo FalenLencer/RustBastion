@@ -1,10 +1,10 @@
 #include "ui.h"
 #include "renderer.h"
-#include "meta.h"
-#include "pathfinding.h"
+#include "../meta/meta.h"
+#include "../map/pathfinding.h"
 #include <string.h>
 #include <math.h>
-#include "game_state.h"
+#include "../core/game_state.h"
 #include "menu.h"
 #include <stdio.h>
 #include <stdlib.h>

@@ -4,11 +4,14 @@
 # ═══════════════════════════════════════════════════════════════
 
 # ── Sources ─────────────────────────────────────────────────────
-SRC = Src/main.c       Src/game_state.c  Src/map_gen.c    \
-      Src/pathfinding.c Src/renderer.c   Src/theme.c      \
-      Src/enemy.c       Src/wave.c       Src/tower.c      \
-      Src/unit.c        Src/meta.c       Src/ui.c      	  \
-	  Src/save.c        Src/menu.c      \
+SRC = Src/main.c          Src/core/game_state.c  Src/core/save.c    \
+      Src/core/window.c        Src/core/canvas.c      Src/core/game_init.c \
+      Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c    \
+      Src/combat/enemy.c       Src/combat/wave.c       Src/combat/tower.c \
+      Src/combat/unit.c        Src/combat/projectile.c                    \
+      Src/meta/meta.c                                                      \
+      Src/ui/renderer.c        Src/ui/ui.c           Src/ui/menu.c       \
+      Src/ui/interlude.c                                                  \
 
 # ── Dossiers ────────────────────────────────────────────────────
 ASSETS_DIR   = assets

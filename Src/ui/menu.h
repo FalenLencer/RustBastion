@@ -1,8 +1,8 @@
 #pragma once
 #include "raylib.h"
-#include "save.h"
-#include "theme.h"
-#include "meta.h"
+#include "../core/save.h"
+#include "../map/theme.h"
+#include "../meta/meta.h"
 
 // ════════════════════════════════════════════════════
 // ÉTATS DU MENU

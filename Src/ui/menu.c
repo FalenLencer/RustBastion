@@ -1,6 +1,6 @@
 #include "menu.h"
 #include "renderer.h"
-#include "meta.h"
+#include "../meta/meta.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>

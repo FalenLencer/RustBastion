@@ -1,8 +1,8 @@
 #pragma once
 #include "raylib.h"
-#include "tower.h"
-#include "unit.h"
-#include "meta.h"
+#include "../combat/tower.h"
+#include "../combat/unit.h"
+#include "../meta/meta.h"
 
 // Forward declaration — évite l'inclusion circulaire
 typedef struct GameState GameState;

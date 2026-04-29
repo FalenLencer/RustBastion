@@ -1,7 +1,7 @@
 #pragma once
 #include "enemy.h"
-#include "pathfinding.h"
-#include "theme.h"
+#include "../map/pathfinding.h"
+#include "../map/theme.h"
 
 typedef enum {
     WAVE_IDLE = 0,    // entre deux vagues

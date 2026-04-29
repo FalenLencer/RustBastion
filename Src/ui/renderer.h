@@ -1,12 +1,12 @@
 #pragma once
 #include "raylib.h"
-#include "map_gen.h"
-#include "pathfinding.h"
-#include "enemy.h"
-#include "tower.h"
-#include "unit.h"
+#include "../map/map_gen.h"
+#include "../map/pathfinding.h"
+#include "../combat/enemy.h"
+#include "../combat/tower.h"
+#include "../combat/unit.h"
 #include "ui.h"
-#include "meta.h"
+#include "../meta/meta.h"
 
 // Forward declaration — évite l'inclusion circulaire avec game_state.h
 typedef struct GameState GameState;

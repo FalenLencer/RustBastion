@@ -1,14 +1,14 @@
 // renderer.c
 #include "renderer.h"
 #include "raylib.h"
-#include "pathfinding.h"
-#include "map_gen.h"
-#include "theme.h"
-#include "enemy.h"
-#include "tower.h"
+#include "../map/pathfinding.h"
+#include "../map/map_gen.h"
+#include "../map/theme.h"
+#include "../combat/enemy.h"
+#include "../combat/tower.h"
 #include <math.h>
-#include "unit.h"
-#include "game_state.h"
+#include "../combat/unit.h"
+#include "../core/game_state.h"
 #include "ui.h"
 
 // ── Macros de scaling ─────────────────────────────────────────

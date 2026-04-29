@@ -1,7 +1,7 @@
 #pragma once
 #include "raylib.h"
-#include "pathfinding.h"
-#include "theme.h"
+#include "../map/pathfinding.h"
+#include "../map/theme.h"
 
 #define MAX_ENEMIES 256
 

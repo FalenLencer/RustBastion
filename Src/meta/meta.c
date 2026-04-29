@@ -1,5 +1,5 @@
 #include "meta.h"
-#include "theme.h"
+#include "../map/theme.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

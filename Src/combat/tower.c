@@ -1,9 +1,9 @@
 #include "tower.h"
-#include "pathfinding.h"
+#include "../map/pathfinding.h"
 #include <string.h>
 #include <math.h>
 #include <float.h>
-#include "meta.h"
+#include "../meta/meta.h"
 
 // ════════════════════════════════════════════════════
 // STATS DE BASE

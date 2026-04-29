@@ -1,12 +1,12 @@
 #pragma once
-#include "map_gen.h"
-#include "pathfinding.h"
-#include "enemy.h"
-#include "wave.h"
-#include "tower.h"
-#include "unit.h"
-#include "meta.h"
-#include "ui.h"
+#include "../map/map_gen.h"
+#include "../map/pathfinding.h"
+#include "../combat/enemy.h"
+#include "../combat/wave.h"
+#include "../combat/tower.h"
+#include "../combat/unit.h"
+#include "../meta/meta.h"
+#include "../ui/ui.h"
 
 typedef enum { PHASE_PREP, PHASE_WAVE, PHASE_GAMEOVER } GamePhase;
 

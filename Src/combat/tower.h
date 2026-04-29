@@ -1,8 +1,8 @@
 #pragma once
 #include "raylib.h"
-#include "map_gen.h"
+#include "../map/map_gen.h"
 #include "enemy.h"
-#include "meta.h"
+#include "../meta/meta.h"
 
 #define MAX_TOWERS      64
 #define MAX_PROJECTILES 256

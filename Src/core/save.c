@@ -1,7 +1,7 @@
 #include "save.h"
-#include "theme.h"
-#include "pathfinding.h"
-#include "map_gen.h"
+#include "../map/theme.h"
+#include "../map/pathfinding.h"
+#include "../map/map_gen.h"
 #include <stdio.h>
 #include <string.h>
 

@@ -1,8 +1,8 @@
 #pragma once
 #include "raylib.h"
 #include "enemy.h"
-#include "map_gen.h"
-#include "meta.h"
+#include "../map/map_gen.h"
+#include "../meta/meta.h"
 
 #define MAX_UNITS 32
 
