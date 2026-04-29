@@ -11,6 +11,10 @@
 #include "game_state.h"
 #include "ui.h"
 
+// ── Macros de scaling ─────────────────────────────────────────
+#define S(x) ((int)((x) * RENDER_SCALE))
+#define SF(x) ((float)(x) * RENDER_SCALE)
+
 // ── Couleurs des tours, unités et projectiles ─────────────────
 // Sans static → accessibles via extern dans renderer.h
 Color TOWER_FILL[TOWER_TYPE_COUNT] = {
@@ -31,6 +35,9 @@ Color PROJ_COLOR[TOWER_TYPE_COUNT] = {
     [TOWER_FLAME]  = {255,107, 53,  255},
     [TOWER_TESLA]  = {218,112,214,  255},
 };
+
+// ── Scaling global pour adaptation fenêtre ───────────────────
+float RENDER_SCALE = 1.0f;
 
 Color renderer_tower_color(TowerType type) { return TOWER_FILL[type]; }
 Color renderer_unit_color (UnitType  type) { return UNIT_FILL[type];  }
@@ -114,39 +121,39 @@ void render_map(const Map *map) {
 void render_hud(const GameState *gs) {
     const Theme *th = theme_get(gs->map.theme);
     int sw    = GetScreenWidth();
-    int hud_y = MAP_H * TILE_SIZE;
-    int line  = 22;
-    int pad   = 6;
+    int hud_y = (int)(MAP_H * TILE_SIZE * RENDER_SCALE);
+    int line  = S(22);
+    int pad   = S(6);
 
     DrawRectangle(0, hud_y, sw, GetScreenHeight() - hud_y,
                   (Color){12, 8, 4, 255});
     DrawLine(0, hud_y, sw, hud_y, (Color){139, 94, 0, 255});
 
-    int c1 = 10;
-    int c2 = 220;
-    int c3 = 430;
-    int c4 = 680;
+    int c1 = S(10);
+    int c2 = S(220);
+    int c3 = S(430);
+    int c4 = S(680);
 
     // COL 1 : infos partie
     int y = hud_y + pad;
-    DrawText(TextFormat("OR    : %d",  gs->gold),  c1, y, 18, (Color){239,159,39,255}); y += line;
-    DrawText(TextFormat("VIES  : %d",  gs->lives), c1, y, 18, (Color){231,76,60,255});  y += line;
-    DrawText(TextFormat("VAGUE : %d",  gs->wave_manager.number), c1, y, 18, (Color){180,180,160,255}); y += line;
+    DrawText(TextFormat("OR    : %d",  gs->gold),  c1, y, S(18), (Color){239,159,39,255}); y += line;
+    DrawText(TextFormat("VIES  : %d",  gs->lives), c1, y, S(18), (Color){231,76,60,255});  y += line;
+    DrawText(TextFormat("VAGUE : %d",  gs->wave_manager.number), c1, y, S(18), (Color){180,180,160,255}); y += line;
     DrawText(gs->phase == PHASE_PREP ? "PREPARATION" :
              gs->phase == PHASE_WAVE ? "VAGUE EN COURS" : "GAME OVER",
-             c1, y, 16, (Color){160,160,140,255});
+             c1, y, S(16), (Color){160,160,140,255});
 
     // COL 2 : carte + timer
     y = hud_y + pad;
-    DrawText(TextFormat("THEME : %s", th->name),    c2, y, 18, (Color){180,220,180,255}); y += line;
-    DrawText(TextFormat("SEED  : %d", gs->map.seed),c2, y, 18, (Color){100,100,80,255});  y += line;
-    DrawText(TextFormat("VOIES : %d", gs->map.path_count), c2, y, 18, (Color){100,100,80,255}); y += line;
+    DrawText(TextFormat("THEME : %s", th->name),    c2, y, S(18), (Color){180,220,180,255}); y += line;
+    DrawText(TextFormat("SEED  : %d", gs->map.seed),c2, y, S(18), (Color){100,100,80,255});  y += line;
+    DrawText(TextFormat("VOIES : %d", gs->map.path_count), c2, y, S(18), (Color){100,100,80,255}); y += line;
     if (gs->phase == PHASE_PREP)
         DrawText(TextFormat("Prochain: %.0fs", gs->wave_manager.prep_timer),
-                 c2, y, 18, (Color){239,159,39,255});
+                 c2, y, S(18), (Color){239,159,39,255});
     else
         DrawText(TextFormat("Ennemis: %d", enemy_pool_alive(&gs->enemies)),
-                 c2, y, 18, (Color){231,76,60,255});
+                 c2, y, S(18), (Color){231,76,60,255});
 
     // COL 3 : mode placement
     y = hud_y + pad;
@@ -154,18 +161,18 @@ void render_hud(const GameState *gs) {
                              ? "MODE : UNITE" : "MODE : TOUR";
     Color mode_col = ui_tool_is_unit(gs->ui.selected_tool)
                      ? (Color){39,174,96,255} : (Color){239,159,39,255};
-    DrawText(mode_label, c3, y, 16, mode_col); y += line;
-    DrawText("Clic droit = annuler", c3, y, 13, (Color){100,100,80,255}); y += line;
+    DrawText(mode_label, c3, y, S(16), mode_col); y += line;
+    DrawText("Clic droit = annuler", c3, y, S(13), (Color){100,100,80,255}); y += line;
     if (gs->ui.selected_tool != TOOL_NONE) {
         Color col = ui_tool_is_unit(gs->ui.selected_tool)
                     ? renderer_unit_color(ui_tool_to_unit(gs->ui.selected_tool))
                     : renderer_tower_color(ui_tool_to_tower(gs->ui.selected_tool));
         DrawText(TextFormat("Selectionne : %s", ui_tool_name(gs->ui.selected_tool)),
-                 c3, y, 14, col); y += line;
+                 c3, y, S(14), col); y += line;
     } else {
-        DrawText("Rien selectionne", c3, y, 13, (Color){80,70,50,255}); y += line;
+        DrawText("Rien selectionne", c3, y, S(13), (Color){80,70,50,255}); y += line;
     }
-    DrawText("1-4:Tours  5-8:Unites", c3, y, 12, (Color){80,70,50,255});
+    DrawText("1-4:Tours  5-8:Unites", c3, y, S(12), (Color){80,70,50,255});
 
     // COL 4 : chemins
     y = hud_y + pad;
@@ -176,13 +183,13 @@ void render_hud(const GameState *gs) {
     for (int i = 0; i < gs->map.path_count; i++) {
         if (!gs->map.paths[i].active) continue;
         DrawText(TextFormat("Voie %d : %s", i, edge_names[gs->map.paths[i].spawn_edge]),
-                 c4, y, 16, path_colors[i % MAX_PATHS]);
+                 c4, y, S(16), path_colors[i % MAX_PATHS]);
         y += line;
     }
     if (gs->map.path_count > 0)
         DrawText(TextFormat("Base : (%d,%d)",
                      gs->map.paths[0].base.x, gs->map.paths[0].base.y),
-                 c4, y, 16, (Color){46,204,113,255});
+                 c4, y, S(16), (Color){46,204,113,255});
 }
 
 // ════════════════════════════════════════════════════
@@ -369,19 +376,33 @@ void render_units(const UnitPool *up) {
 }
 
 // ════════════════════════════════════════════════════
-// GAME OVER
+// GAME OVER — coordonnées virtuelles (RenderTexture 1120×770)
 // ════════════════════════════════════════════════════
 void render_gameover(const GameState *gs) {
-    int sw = GetScreenWidth(), sh = GetScreenHeight();
-    DrawRectangle(0, 0, sw, sh, (Color){0,0,0,160});
+    const int VIRT_W = MAP_W * TILE_SIZE;
+    const int VIRT_H = MAP_H * TILE_SIZE + UI_HUD_HEIGHT;
+    int cx = VIRT_W / 2, cy = VIRT_H / 2;
 
-    int cx = sw/2, cy = sh/2;
+    DrawRectangle(0, 0, VIRT_W, VIRT_H, (Color){0, 0, 0, 160});
+
+    int pw = 340, ph = 160;
+    int px = cx - pw/2, py = cy - ph/2;
+    DrawRectangle(px, py, pw, ph, (Color){12, 4, 4, 245});
+    DrawRectangleLinesEx(
+        (Rectangle){(float)px,(float)py,(float)pw,(float)ph},
+        2.0f, (Color){231, 76, 60, 255});
+
+    int tw = MeasureText("BASTION TOMBE", 26);
     DrawText("BASTION TOMBE",
-             cx-110, cy-50, 28, (Color){231,76,60,255});
+             cx - tw/2, py + 16, 26, (Color){231, 76, 60, 255});
+    DrawLine(px + 20, py + 50, px + pw - 20, py + 50,
+             (Color){80, 20, 20, 180});
+
     DrawText(TextFormat("Vague atteinte : %d", gs->wave_manager.number),
-             cx-90, cy-10, 18, (Color){180,160,130,255});
-    DrawText("Ferraille gagnee : voir menu",
-             cx-110, cy+15, 16, (Color){127,200,127,255});
+             cx - 92, py + 62, 16, (Color){180, 160, 130, 255});
+    DrawText("Ferraille gagnee — voir menu",
+             cx - 108, py + 84, 14, (Color){127, 200, 127, 255});
+    tw = MeasureText("[ESPACE] retour au menu", 13);
     DrawText("[ESPACE] retour au menu",
-             cx-100, cy+50, 16, (Color){100,80,50,255});
+             cx - tw/2, py + ph - 24, 13, (Color){100, 80, 50, 255});
 }

@@ -5,7 +5,6 @@
 #include "meta.h"
 
 // Forward declaration — évite l'inclusion circulaire
-// ui.h ← game_state.h ← ui.h
 typedef struct GameState GameState;
 
 #define UI_HUD_HEIGHT    130
@@ -43,11 +42,16 @@ typedef struct {
 } UIState;
 
 // ── API ──────────────────────────────────────────────────────
-void       ui_init         (UIState *ui);
-void       ui_update       (UIState *ui, GameState *gs);
-void       ui_render       (const UIState *ui, const GameState *gs);
-int        ui_tool_is_tower(ToolID id);
-int        ui_tool_is_unit (ToolID id);
-TowerType  ui_tool_to_tower(ToolID id);
-UnitType   ui_tool_to_unit (ToolID id);
-const char *ui_tool_name   (ToolID id);
+void       ui_init            (UIState *ui);
+
+// Appelé chaque frame par main.c pour que l'UI convertisse
+// les coordonnées souris (fenêtre réelle → canvas virtuel).
+void       ui_set_mouse_offset(float ox, float oy, float scale);
+
+void       ui_update          (UIState *ui, GameState *gs);
+void       ui_render          (const UIState *ui, const GameState *gs);
+int        ui_tool_is_tower   (ToolID id);
+int        ui_tool_is_unit    (ToolID id);
+TowerType  ui_tool_to_tower   (ToolID id);
+UnitType   ui_tool_to_unit    (ToolID id);
+const char *ui_tool_name      (ToolID id);

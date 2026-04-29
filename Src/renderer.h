@@ -16,6 +16,9 @@ extern Color TOWER_FILL[TOWER_TYPE_COUNT];
 extern Color UNIT_FILL [UNIT_TYPE_COUNT];
 extern Color PROJ_COLOR[TOWER_TYPE_COUNT];
 
+// ── Scaling global pour adaptation fenêtre ───────────────────
+extern float RENDER_SCALE;  // ratio de scaling (1.0 = taille par défaut)
+
 // ── Fonctions de couleur ──────────────────────────────────────
 Color renderer_tower_color(TowerType type);
 Color renderer_unit_color (UnitType  type);

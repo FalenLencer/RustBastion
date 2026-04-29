@@ -2,7 +2,7 @@
 
 #define META_SAVE_FILE "rustbastion.sav"
 #define META_MAGIC     0x52425354u  // "RBST"
-#define META_VERSION   1
+#define META_VERSION   2            // ← bump pour invalider les anciens saves
 
 // ── Niveaux maximum par amélioration ─────────────────────────
 #define MAX_LVL_TOWER_DMG    5
@@ -15,9 +15,6 @@
 #define MAX_LVL_SCRAP_BONUS  3
 
 // ── Coûts par niveau ─────────────────────────────────────────
-// ← CORRECTION bug #6 : extern au lieu de static const dans le header.
-//   Les tableaux sont définis une seule fois dans meta.c.
-//   (static dans un header = copie silencieuse par unité de compilation)
 extern const int COST_TOWER_DMG  [MAX_LVL_TOWER_DMG];
 extern const int COST_TOWER_RANGE[MAX_LVL_TOWER_RANGE];
 extern const int COST_TOWER_RATE [MAX_LVL_TOWER_RATE];
@@ -27,17 +24,23 @@ extern const int COST_START_GOLD [MAX_LVL_START_GOLD];
 extern const int COST_LIVES      [MAX_LVL_LIVES];
 extern const int COST_SCRAP_BONUS[MAX_LVL_SCRAP_BONUS];
 
+// ── Ordre des thèmes en campagne (cycle fixe) ─────────────────
+// Les 5 thèmes sont parcourus dans cet ordre, aléatoirement tirés
+// parmi la liste complète. L'ordre est dérivé du numéro de campagne.
+#define CAMPAIGN_STAGES  5   // = THEME_COUNT
+
 // ── Structure de méta-progression ────────────────────────────
 typedef struct {
-    unsigned int magic;    // validation du fichier
+    unsigned int magic;
     int          version;
 
-    // Monnaie persistante
+    // Monnaie persistante (gagnée uniquement en campagne)
     int scrap;
     int total_scrap_earned;
 
-    // Statistiques
-    int runs_completed;
+    // Statistiques globales
+    int runs_completed;       // parties arcade terminées
+    int campaigns_completed;  // campagnes complètes (tous les stages)
     int best_wave;
     int total_kills;
 
@@ -54,33 +57,38 @@ typedef struct {
 
 // ── Multiplicateurs calculés depuis les niveaux ───────────────
 typedef struct {
-    float tower_dmg_mult;    // ex: 1.0 + lvl * 0.15
+    float tower_dmg_mult;
     float tower_range_mult;
     float tower_rate_mult;
     float unit_hp_mult;
     float unit_dmg_mult;
-    int   start_gold;        // or de départ
-    int   start_lives;       // vies de départ
-    float scrap_mult;        // multiplicateur de ferraille gagnée
+    int   start_gold;
+    int   start_lives;
+    float scrap_mult;
 } MetaBonuses;
 
 // ── API ──────────────────────────────────────────────────────
 void meta_init        (MetaProgress *meta);
 void meta_save        (const MetaProgress *meta);
-int  meta_load        (MetaProgress *meta);   // 0=échec, 1=succès
+int  meta_load        (MetaProgress *meta);
 void meta_compute     (const MetaProgress *meta, MetaBonuses *out);
 
-// Appelé en fin de partie
+// Fin de partie arcade (pas de ferraille)
 void meta_end_of_run  (MetaProgress *meta, int wave_reached,
                        int kills, int gold_remaining);
 
-// Coût de la prochaine amélioration (-1 si déjà au max)
-int  meta_upgrade_cost(const MetaProgress *meta, int upgrade_id);
+// Fin d'un stage de campagne — retourne la ferraille gagnée
+int  meta_end_of_campaign_stage(MetaProgress *meta, int wave_reached,
+                                int kills, int gold_remaining,
+                                int stage_index);
 
-// Effectue une amélioration (retourne 1 si succès)
+// Retourne l'ordre des CAMPAIGN_STAGES thèmes pour une campagne donnée
+// (out_themes doit avoir CAMPAIGN_STAGES entrées)
+void meta_campaign_theme_order(int campaign_num, int out_themes[CAMPAIGN_STAGES]);
+
+int  meta_upgrade_cost(const MetaProgress *meta, int upgrade_id);
 int  meta_upgrade     (MetaProgress *meta, int upgrade_id);
 
-// IDs des améliorations (pour meta_upgrade / meta_upgrade_cost)
 typedef enum {
     UPGRADE_TOWER_DMG   = 0,
     UPGRADE_TOWER_RANGE,

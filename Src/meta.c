@@ -1,10 +1,12 @@
 #include "meta.h"
+#include "theme.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <time.h>
 
 // ════════════════════════════════════════════════════
-// TABLEAUX DE COÛTS (définis ici, extern dans meta.h)
-// ← CORRECTION bug #6 : déplacés hors du header
+// COÛTS
 // ════════════════════════════════════════════════════
 const int COST_TOWER_DMG  [MAX_LVL_TOWER_DMG]    = {30, 50, 80, 120, 180};
 const int COST_TOWER_RANGE[MAX_LVL_TOWER_RANGE]   = {40, 70, 110};
@@ -62,14 +64,11 @@ void meta_save(const MetaProgress *meta) {
 int meta_load(MetaProgress *meta) {
     FILE *f = fopen(META_SAVE_FILE, "rb");
     if (!f) return 0;
-
     MetaProgress tmp;
     int ok = (fread(&tmp, sizeof(MetaProgress), 1, f) == 1);
     fclose(f);
-
     if (!ok || tmp.magic != META_MAGIC || tmp.version != META_VERSION)
         return 0;
-
     *meta = tmp;
     return 1;
 }
@@ -89,30 +88,75 @@ void meta_compute(const MetaProgress *meta, MetaBonuses *out) {
 }
 
 // ════════════════════════════════════════════════════
-// FIN DE PARTIE
+// ORDRE DES THÈMES EN CAMPAGNE
+// Chaque campagne a un ordre aléatoire différent.
+// Fisher-Yates shuffle avec seed aléatoire.
+// ════════════════════════════════════════════════════
+void meta_campaign_theme_order(int campaign_num, int out_themes[CAMPAIGN_STAGES]) {
+    (void)campaign_num;  // non utilisé maintenant
+
+    // Initialise le RNG avec le temps actuel pour aléatoire réel
+    srand((unsigned int)time(NULL));
+
+    // Remplit 0..4
+    for (int i = 0; i < CAMPAIGN_STAGES; i++)
+        out_themes[i] = i;
+
+    // Fisher-Yates shuffle
+    for (int i = CAMPAIGN_STAGES - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        int tmp = out_themes[i];
+        out_themes[i] = out_themes[j];
+        out_themes[j] = tmp;
+    }
+}
+
+// ════════════════════════════════════════════════════
+// FIN DE PARTIE ARCADE (pas de ferraille)
 // ════════════════════════════════════════════════════
 void meta_end_of_run(MetaProgress *meta, int wave_reached,
                      int kills, int gold_remaining)
 {
-    // Ferraille gagnée = vague * 10 + kills * 2 + or restant / 5
-    float base_scrap = wave_reached * 10.0f
-                     + kills        *  2.0f
-                     + gold_remaining / 5.0f;
+    // En arcade, on enregistre les stats mais pas de ferraille
+    meta->runs_completed++;
+    meta->total_kills += kills;
+    if (wave_reached > meta->best_wave)
+        meta->best_wave = wave_reached;
+    (void)gold_remaining;
+    meta_save(meta);
+}
 
-    // Applique le bonus de ferraille
+// ════════════════════════════════════════════════════
+// FIN D'UN STAGE DE CAMPAGNE — ferraille gagnée ici
+// ════════════════════════════════════════════════════
+int meta_end_of_campaign_stage(MetaProgress *meta, int wave_reached,
+                                int kills, int gold_remaining,
+                                int stage_index)
+{
+    // Ferraille = vague * 12 + kills * 3 + or/4
+    // Bonus si stage avancé dans la campagne
+    float stage_mult = 1.0f + stage_index * 0.25f;   // +25% par stage
+    float base_scrap = (wave_reached * 12.0f
+                      + kills        *  3.0f
+                      + gold_remaining / 4.0f) * stage_mult;
+
     MetaBonuses bonuses;
     meta_compute(meta, &bonuses);
     int earned = (int)(base_scrap * bonuses.scrap_mult);
-    if (earned < 5) earned = 5;   // minimum garanti
+    if (earned < 8) earned = 8;   // minimum garanti
 
     meta->scrap              += earned;
     meta->total_scrap_earned += earned;
-    meta->runs_completed++;
     meta->total_kills        += kills;
     if (wave_reached > meta->best_wave)
         meta->best_wave = wave_reached;
 
+    // Si c'est le dernier stage, on compte une campagne complète
+    if (stage_index == CAMPAIGN_STAGES - 1)
+        meta->campaigns_completed++;
+
     meta_save(meta);
+    return earned;
 }
 
 // ════════════════════════════════════════════════════
@@ -154,7 +198,6 @@ int meta_upgrade_cost(const MetaProgress *meta, int id) {
 int meta_upgrade(MetaProgress *meta, int id) {
     int cost = meta_upgrade_cost(meta, id);
     if (cost < 0 || meta->scrap < cost) return 0;
-
     meta->scrap -= cost;
     switch ((UpgradeID)id) {
         case UPGRADE_TOWER_DMG:   meta->lvl_tower_dmg++;   break;

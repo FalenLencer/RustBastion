@@ -6,11 +6,10 @@
 #include "tower.h"
 #include "unit.h"
 #include "meta.h"
-#include "ui.h"      // ← en dernier, après tous les autres
+#include "ui.h"
 
 typedef enum { PHASE_PREP, PHASE_WAVE, PHASE_GAMEOVER } GamePhase;
 
-// La struct s'appelle bien GameState — correspond à la forward decl dans ui.h
 struct GameState {
     Map          map;
     PathSet      enemy_paths;
@@ -25,9 +24,14 @@ struct GameState {
     int          gold;
     int          lives;
     int          kills;
+
+    // ── Infos mode de jeu ──────────────────────────────────
+    int is_campaign;      // 0 = arcade, 1 = campagne
+    int campaign_num;     // numéro de campagne (0-based)
+    int campaign_stage;   // stage dans le cycle 0..CAMPAIGN_STAGES-1
+                          // (thème joué = campaign_theme_order[campaign_stage])
 };
 
-// Typedef pour usage normal partout
 typedef struct GameState GameState;
 
 void game_state_init  (GameState *gs);
