@@ -4,13 +4,14 @@
 #include "../combat/unit.h"
 #include "../meta/meta.h"
 
-// Forward declaration — évite l'inclusion circulaire
 typedef struct GameState GameState;
 
-#define UI_HUD_HEIGHT    130
+#define UI_HUD_HEIGHT    150
 #define UI_PANEL_W       190
 #define UI_BTN_W          58
-#define UI_BTN_H          52
+#define UI_BTN_H          56
+#define UI_MARGIN          8
+#define UI_RADIUS          4
 
 typedef enum {
     TOOL_NONE = -1,
@@ -22,7 +23,8 @@ typedef enum {
     TOOL_UNIT_HEAVY,
     TOOL_UNIT_MEDIC,
     TOOL_UNIT_DOG,
-    TOOL_COUNT
+    TOOL_UNIT_WORKER,
+    TOOL_COUNT,
 } ToolID;
 
 typedef struct {
@@ -36,18 +38,18 @@ typedef struct {
     Rectangle     tool_btns[TOOL_COUNT];
     Rectangle     wave_btn;
     Rectangle     sell_btn;
+    Rectangle     apply_mat_btn;
+    int           apply_mat_visible;
     int           hovered_tool;
     int           hovered_tile_x;
     int           hovered_tile_y;
+    int           show_fps;
+    int           speed_mult;
+    int           worker_selected_idx;
 } UIState;
 
-// ── API ──────────────────────────────────────────────────────
 void       ui_init            (UIState *ui);
-
-// Appelé chaque frame par main.c pour que l'UI convertisse
-// les coordonnées souris (fenêtre réelle → canvas virtuel).
 void       ui_set_mouse_offset(float ox, float oy, float scale);
-
 void       ui_update          (UIState *ui, GameState *gs);
 void       ui_render          (const UIState *ui, const GameState *gs);
 int        ui_tool_is_tower   (ToolID id);

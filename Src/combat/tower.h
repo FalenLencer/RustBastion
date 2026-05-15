@@ -3,78 +3,87 @@
 #include "../map/map_gen.h"
 #include "enemy.h"
 #include "../meta/meta.h"
+#include "../combat/material.h"
 
-#define MAX_TOWERS      64
-#define MAX_PROJECTILES 256
+#define MAX_TOWERS_HARD  64
+#define MAX_TOWERS_BASE  12
+#define MAX_TOWERS_UPGR   2
+#define MAX_TOWERS       MAX_TOWERS_HARD
+#define MAX_PROJECTILES  256
+#define SPAWN_EXCLUSION_RADIUS  3
 
-// ── Types de tours ───────────────────────────────────────────
 typedef enum {
-    TOWER_GUN     = 0,  // tourelle polyvalente
-    TOWER_SNIPER,       // longue portée, gros dégâts
-    TOWER_FLAME,        // courte portée, zone, ralentit
-    TOWER_TESLA,        // électrique, rebond sur plusieurs cibles
+    TOWER_GUN    = 0,
+    TOWER_SNIPER,
+    TOWER_FLAME,
+    TOWER_TESLA,
     TOWER_TYPE_COUNT
 } TowerType;
 
-// ── Statistiques de base d'un type de tour ───────────────────
 typedef struct {
     const char *name;
-    int         cost;        // coût en or
-    float       damage;      // dégâts par tir
-    float       range;       // portée en tuiles
-    float       fire_rate;   // tirs par seconde
-    float       proj_speed;  // vitesse projectile (tuiles/s)
-    int         splash;      // 1 = dégâts de zone
-    float       slow_factor; // 0 = pas de ralentissement, 0.5 = -50%
+    int         cost;
+    float       damage;
+    float       range;
+    float       fire_rate;
+    float       proj_speed;
+    int         splash;
+    float       slow_factor;
     float       slow_duration;
-    int         chain_count; // TESLA : nombre de rebonds
+    int         chain_count;
     const char *description;
 } TowerStats;
 
 extern const TowerStats TOWER_BASE_STATS[TOWER_TYPE_COUNT];
 
-// ── Structure d'une tour placée ──────────────────────────────
 typedef struct {
-    TowerType type;
-    int       tile_x, tile_y;   // position en tuiles
-    float     cx, cy;           // centre en pixels
-    float     fire_timer;       // temps avant prochain tir
-    int       level;            // niveau méta (0 = base)
-    int       active;
-    float     angle;            // angle visuel vers la cible
-    float damage;      // ← stocke la valeur bonifiée
-    float range;
-    float fire_rate;
+    TowerType    type;
+    int          tile_x, tile_y;
+    float        cx, cy;
+    float        fire_timer;
+    int          level;
+    int          active;
+    float        angle;
+    float        damage;
+    float        range;
+    float        fire_rate;
+    DamageType   dmg_type;
+    MaterialType material;
+    float        hp;          // ← points de vie (pour Artillery)
 } Tower;
 
-// ── Projectile ───────────────────────────────────────────────
 typedef struct {
-    float  x, y;           // position actuelle
-    float  tx, ty;         // position cible (snapshot)
-    int    target_idx;     // index dans EnemyPool
-    float  damage;
-    float  speed;          // pixels/seconde
-    int    splash;
-    float  splash_radius;
-    float  slow_duration;
-    int    chain_left;     // rebonds Tesla restants
-    int    active;
-    TowerType origin;
+    float     x, y;
+    float     tx, ty;
+    int       target_idx;
+    float     damage;
+    float     speed;
+    int       splash;
+    float     splash_radius;
+    float     slow_duration;
+    int       chain_left;
+    int       active;
+    TowerType  origin;
+    DamageType dmg_type;
 } Projectile;
 
-// ── Pool de tours et projectiles ─────────────────────────────
-typedef struct {
-    Tower       towers[MAX_TOWERS];
-    int         tower_count;
-    Projectile  projectiles[MAX_PROJECTILES];
-    int         proj_count;
+// ── Pool ─────────────────────────────────────────────────────
+typedef struct TowerPool {
+    Tower      towers[MAX_TOWERS];
+    int        tower_count;
+    int        tower_limit;
+    Projectile projectiles[MAX_PROJECTILES];
+    int        proj_count;
 } TowerPool;
 
 // ── API ──────────────────────────────────────────────────────
-void tower_pool_init  (TowerPool *tp);
-int  tower_place(TowerPool *tp, TowerType type,
-                 int tile_x, int tile_y, Map *map,
-                 int *gold, const MetaBonuses *bonuses);
-void tower_pool_update(TowerPool *tp, EnemyPool *ep, float dt);
-int  tower_can_place  (const TowerPool *tp, const Map *map,
-                       int tile_x, int tile_y);
+void tower_pool_init   (TowerPool *tp);
+int  tower_place       (TowerPool *tp, TowerType type,
+                        int tile_x, int tile_y, Map *map,
+                        int *gold, const MetaBonuses *bonuses);
+void tower_pool_update (TowerPool *tp, EnemyPool *ep, float dt);
+int  tower_can_place   (const TowerPool *tp, const Map *map,
+                        int tile_x, int tile_y);
+int  tower_cost_on_tile(TowerType type, const Map *map,
+                        int tile_x, int tile_y);
+int  tower_active_limit(const MetaBonuses *bonuses);

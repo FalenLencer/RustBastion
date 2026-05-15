@@ -2,7 +2,7 @@
 
 #define META_SAVE_FILE "rustbastion.sav"
 #define META_MAGIC     0x52425354u  // "RBST"
-#define META_VERSION   2            // ← bump pour invalider les anciens saves
+#define META_VERSION   3            // ← bump pour invalider les anciens saves
 
 // ── Niveaux maximum par amélioration ─────────────────────────
 #define MAX_LVL_TOWER_DMG    5
@@ -13,6 +13,9 @@
 #define MAX_LVL_START_GOLD   4
 #define MAX_LVL_LIVES        3
 #define MAX_LVL_SCRAP_BONUS  3
+#define MAX_LVL_TOWER_LIMIT  3
+#define MAX_LVL_UNIT_LIMIT   3
+
 
 // ── Coûts par niveau ─────────────────────────────────────────
 extern const int COST_TOWER_DMG  [MAX_LVL_TOWER_DMG];
@@ -23,6 +26,8 @@ extern const int COST_UNIT_DMG   [MAX_LVL_UNIT_DMG];
 extern const int COST_START_GOLD [MAX_LVL_START_GOLD];
 extern const int COST_LIVES      [MAX_LVL_LIVES];
 extern const int COST_SCRAP_BONUS[MAX_LVL_SCRAP_BONUS];
+extern const int COST_TOWER_LIMIT[MAX_LVL_TOWER_LIMIT];
+extern const int COST_UNIT_LIMIT [MAX_LVL_UNIT_LIMIT];
 
 // ── Ordre des thèmes en campagne (cycle fixe) ─────────────────
 // Les 5 thèmes sont parcourus dans cet ordre, aléatoirement tirés
@@ -53,6 +58,10 @@ typedef struct {
     int lvl_start_gold;
     int lvl_lives;
     int lvl_scrap_bonus;
+    int lvl_tower_limit;
+    int lvl_unit_limit;
+    int   endless_best_score;   // meilleur score (vague × mult × 10)
+    int   endless_best_wave;    // meilleure vague atteinte en endless
 } MetaProgress;
 
 // ── Multiplicateurs calculés depuis les niveaux ───────────────
@@ -65,6 +74,8 @@ typedef struct {
     int   start_gold;
     int   start_lives;
     float scrap_mult;
+    int   tower_limit_bonus;
+    int   unit_limit_bonus;
 } MetaBonuses;
 
 // ── API ──────────────────────────────────────────────────────
@@ -84,7 +95,7 @@ int  meta_end_of_campaign_stage(MetaProgress *meta, int wave_reached,
 
 // Retourne l'ordre des CAMPAIGN_STAGES thèmes pour une campagne donnée
 // (out_themes doit avoir CAMPAIGN_STAGES entrées)
-void meta_campaign_theme_order(int campaign_num, int out_themes[CAMPAIGN_STAGES]);
+void meta_campaign_theme_order(int seed, int out_themes[CAMPAIGN_STAGES]);
 
 int  meta_upgrade_cost(const MetaProgress *meta, int upgrade_id);
 int  meta_upgrade     (MetaProgress *meta, int upgrade_id);
@@ -98,6 +109,8 @@ typedef enum {
     UPGRADE_START_GOLD,
     UPGRADE_LIVES,
     UPGRADE_SCRAP_BONUS,
+    UPGRADE_TOWER_LIMIT,
+    UPGRADE_UNIT_LIMIT,
     UPGRADE_COUNT
 } UpgradeID;
 

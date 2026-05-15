@@ -8,58 +8,70 @@
 // ÉTATS DU MENU
 // ════════════════════════════════════════════════════
 typedef enum {
-    MENU_TITLE       = 0, // écran titre : Jouer / Options / Quitter
-    MENU_PLAY_HUB,        // hub : Campagne / Arcade / Améliorations / Retour
-    MENU_CAMPAIGN,        // liste des slots de campagne
-    MENU_ARCADE,          // liste des slots arcade
-    MENU_NEW_CAMPAIGN,    // choisir slot pour nouvelle campagne
-    MENU_NEW_ARCADE,      // choisir thème + slot pour arcade
-    MENU_UPGRADES,        // arbre d'améliorations
-    MENU_OPTIONS,         // options fenêtre/résolution
-    MENU_CONFIRM_DEL,     // confirmation suppression slot
-    MENU_PAUSE,           // overlay pause in-game
+    MENU_TITLE       = 0,
+    MENU_PLAY_HUB,
+    MENU_CAMPAIGN,
+    MENU_ARCADE,
+    MENU_NEW_CAMPAIGN,
+    MENU_NEW_ARCADE,
+    MENU_UPGRADES,
+    MENU_OPTIONS,
+    MENU_CONFIRM_DEL,
+    MENU_PAUSE,
 } MenuScreen;
 
 typedef struct {
     int fullscreen;
     int win_width;
     int win_height;
+    int target_fps;
+    int master_volume;
+    int music_volume;
+    int sfx_volume;
 } AppOptions;
 
 typedef struct {
     MenuScreen  screen;
-    MenuScreen  back_screen;   // écran cible du bouton Retour
+    MenuScreen  back_screen;
+    MenuScreen  back_screen_stack[8];
+    int         back_stack_top;
 
     SaveInfo    slots[SAVE_SLOT_COUNT];
     int         confirm_del_slot;
 
-    ThemeID     new_theme;     // THEME_COUNT = aléatoire
+    ThemeID     new_theme;
     int         new_slot;
+    int         campaign_order_seed;
 
-    int         sel_upg;       // upgrade survolé/sélectionné
+    int         sel_upg;
 
     AppOptions  opts;
     int         paused;
 
     float       msg_timer;
     char        msg_buf[128];
+
+    int         opt_tab;            // 0=General, 1=Audio, 2=Graphismes
+    int         opt_dropdown_open;  // -1=none, 0=FPS, 1=Resolution, etc
 } MenuState;
 
 typedef struct {
-    int     start_arcade;   // 1 = lancer une arcade
-    int     start_campaign; // 1 = lancer une campagne (stage 0)
-    int     resume_slot;    // >= 0 : reprendre ce slot
-    int     go_game;        // basculer vers SCREEN_GAME
+    int     start_arcade;
+    int     start_campaign;
+    int     resume_slot;
+    int     go_game;
     int     quit_app;
-    int     save_and_quit;  // 1=sauver+menu, 2=sauver seulement
-    int     toggle_fs;      // 1=fullscreen toggle, 2=resize
+    int     save_and_quit;
+    int     toggle_fs;
     ThemeID new_theme;
     int     new_slot;
+    int     campaign_order_seed;
 } MenuAction;
 
 void       menu_init             (MenuState *m, const AppOptions *opts);
 void       menu_refresh_slots    (MenuState *m);
 void       menu_set_mouse_offset (float ox, float oy, float scale);
+void       menu_cleanup          (MenuState *m);
 MenuAction menu_update           (MenuState *m, const MetaProgress *meta);
 MenuAction menu_render_and_act   (MenuState *m, const MetaProgress *meta,
                                   int virt_w, int virt_h);

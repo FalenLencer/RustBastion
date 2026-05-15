@@ -5,69 +5,102 @@
 
 #define MAX_ENEMIES 256
 
-// ── Types d'ennemis ──────────────────────────────────────────
 typedef enum {
-    ENEMY_RAIDER  = 0,  // rapide, fragile
-    ENEMY_BRUTE,        // lent, très résistant
-    ENEMY_RUNNER,       // très rapide, très fragile
-    ENEMY_VEHICLE,      // blindé, mini-boss
-    ENEMY_MUTANT,       // régénère, résiste poison
+    ENEMY_RAIDER      = 0,
+    ENEMY_BRUTE,
+    ENEMY_RUNNER,
+    ENEMY_VEHICLE,
+    ENEMY_MUTANT,
+    ENEMY_GHOST,
+    ENEMY_PATHBREAKER,
+    ENEMY_HEALER,       // soigne les ennemis proches, priorité de ciblage max
+    ENEMY_HUNTER,       // traque les unités alliées, ignore le chemin
+    ENEMY_ARTILLERY,    // s'arrête à portée et détruit les tours
     ENEMY_TYPE_COUNT
 } EnemyType;
 
-// ── Structure d'un ennemi ────────────────────────────────────
 typedef struct {
     EnemyType type;
 
     float hp, max_hp;
-    float speed;         // tuiles/seconde
-    float size;          // rayon visuel en pixels
-    int   reward;        // or donné à la mort
-    int   damage;        // dégâts infligés à la base
-
-    // Position en pixels (interpolée entre tuiles)
-    float x, y;
-
-    // Progression sur le chemin A*
-    int   path_id;       // quel chemin cet ennemi emprunte
-    int   path_index;    // tuile actuelle dans path->steps[]
-
-    // État
-    int   active;        // 1 = en jeu
-    int   dead;          // 1 = tué par une tour
-    int   reached_base;  // 1 = a atteint la base
-
-    // Effets de statut
-    float slow_timer;    // secondes de ralentissement restantes
-    float regen_timer;   // pour ENEMY_MUTANT
-    float spawn_delay;   // délai avant apparition (échelonnement vague)
-} Enemy;
-
-// ── Pool d'ennemis ───────────────────────────────────────────
-typedef struct {
-    Enemy enemies[MAX_ENEMIES];
-    int   count;         // nombre d'ennemis actifs
-} EnemyPool;
-
-// ── Stats de base par type (indépendantes du thème) ─────────
-typedef struct {
-    float hp;
     float speed;
     float size;
     int   reward;
     int   damage;
+
+    float x, y;
+
+    int   path_id;
+    int   path_index;
+
+    int   active;
+    int   dead;
+    int   reached_base;
+
+    // Effets de statut
+    float slow_timer;
+    float poison_timer;
+    float poison_damage;
+    float regen_timer;
+    float spawn_delay;
+
+    // Ghost
+    int   invisible;
+
+    // Pathbreaker
+    int   path_broken;
+    int   break_at;
+    float target_x;
+    float target_y;
+
+    // Combat mêlée
+    float melee_range;
+    float engage_timer;
+    float atk_timer;
+
+    // Healer
+    float heal_timer;
+    float heal_range;
+    float heal_amount;
+
+    // Hunter
+    int   hunt_target;
+    float hunt_range;
+
+    // Artillery
+    float arty_range;
+    float arty_timer;
+    int   arty_target;
+} Enemy;
+
+typedef struct {
+    Enemy enemies[MAX_ENEMIES];
+    int   count;
+} EnemyPool;
+
+typedef struct {
+    float      hp;
+    float      speed;
+    float      size;
+    int        reward;
+    int        damage;
+    float      melee_range;
     const char *name;
 } EnemyStats;
 
 extern const EnemyStats ENEMY_BASE_STATS[ENEMY_TYPE_COUNT];
 
-// ── API ──────────────────────────────────────────────────────
+// Forward declarations
+typedef struct UnitPool  UnitPool;
+typedef struct TowerPool TowerPool;
+
 void  enemy_pool_init  (EnemyPool *pool);
 void  enemy_pool_update(EnemyPool *pool, const PathSet *paths,
+                        UnitPool *units, TowerPool *towers,
                         float dt, int *lives, int *gold, int *kills);
 void  enemy_spawn      (EnemyPool *pool, EnemyType type,
                         int path_id, const PathSet *paths,
                         float spawn_delay, float wave_scale,
                         float speed_mult);
-int   enemy_pool_alive (const EnemyPool *pool);  // nb d'ennemis encore actifs
-void  enemy_damage     (Enemy *e, float dmg);    // inflige des dégâts
+int   enemy_pool_alive (const EnemyPool *pool);
+void  enemy_damage     (Enemy *e, float dmg);

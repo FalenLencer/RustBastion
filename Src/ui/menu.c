@@ -1,25 +1,36 @@
 #include "menu.h"
 #include "renderer.h"
+#include "ui_utils.h"
+#include "../audio.h"
 #include "../meta/meta.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
 
 // ════════════════════════════════════════════════════
-// PALETTE
+// PALETTE — couleurs communes à tout le menu
 // ════════════════════════════════════════════════════
 #define C_BG      ((Color){  8,   5,   3, 255})
 #define C_PANEL   ((Color){ 14,   9,   4, 255})
-#define C_BORDER  ((Color){ 61,  42,  16, 255})
-#define C_GOLD    ((Color){239, 159,  39, 255})
-#define C_GREEN   ((Color){ 46, 204, 113, 255})
-#define C_RED     ((Color){231,  76,  60, 255})
-#define C_DIM     ((Color){ 80,  70,  50, 255})
-#define C_TEXT    ((Color){180, 160, 110, 255})
-#define C_HOV     ((Color){ 30,  20,   6, 255})
-#define C_BLUE    ((Color){ 52, 152, 219, 255})
-#define C_DARK    ((Color){ 10,   6,   2, 255})
-#define C_ORANGE  ((Color){230, 126,  34, 255})
+#define C_BORDER  ((Color){ 55,  36,  12, 255})
+#define C_GOLD    ((Color){232, 152,  32, 255})
+#define C_GREEN   ((Color){ 42, 190, 105, 255})
+#define C_RED     ((Color){218,  68,  52, 255})
+#define C_DIM     ((Color){ 72,  58,  38, 255})
+#define C_TEXT    ((Color){168, 148, 102, 255})
+#define C_HOV     ((Color){ 26,  17,   5, 255})
+#define C_BLUE    ((Color){ 48, 140, 205, 255})
+#define C_DARK    ((Color){  9,   5,   2, 255})
+#define C_ORANGE  ((Color){215, 118,  28, 255})
+
+// ── Constantes de layout ─────────────────────────────────────
+#define M_PAD     16    // marge extérieure des panneaux
+#define M_IN       8    // marge intérieure entre éléments
+#define M_LINE    12    // espacement entre lignes de texte
+#define M_SECT    18    // espacement entre sections
+#define BTN_H     36    // hauteur standard des boutons
+#define BTN_R      5    // rayon coins arrondis boutons
+#define PANEL_R    6    // rayon coins arrondis panneaux
 
 // ════════════════════════════════════════════════════
 // SOURIS VIRTUELLE
@@ -33,7 +44,7 @@ void menu_set_mouse_offset(float ox, float oy, float scale) {
 
 static Vector2 vmouse(void) {
     Vector2 r = GetMousePosition();
-    return (Vector2){(r.x - g_ox) / g_sc, (r.y - g_oy) / g_sc};
+    return (Vector2){(r.x - g_ox)/g_sc, (r.y - g_oy)/g_sc};
 }
 
 static int vhov(int x, int y, int w, int h) {
@@ -41,105 +52,236 @@ static int vhov(int x, int y, int w, int h) {
     return m.x >= x && m.x < x+w && m.y >= y && m.y < y+h;
 }
 
-static int vclick(int x, int y, int w, int h) {
-    return vhov(x,y,w,h) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+static int vhov_r(Rectangle r) {
+    Vector2 m = vmouse();
+    return CheckCollisionPointRec(m, r);
+}
+
+static int vclick_r(Rectangle r) {
+    return vhov_r(r) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+}
+
+static void push_back_screen(MenuState *m) {
+    if (m->back_stack_top < (int)(sizeof(m->back_screen_stack)/sizeof(m->back_screen_stack[0]))) {
+        m->back_screen_stack[m->back_stack_top++] = m->back_screen;
+    }
+}
+
+static void pop_back_screen(MenuState *m) {
+    if (m->back_stack_top > 0) {
+        m->back_screen = m->back_screen_stack[--m->back_stack_top];
+    }
 }
 
 // ════════════════════════════════════════════════════
 // HELPERS DE DESSIN
 // ════════════════════════════════════════════════════
+
+// Texte centré horizontalement
 static void txt_c(const char *s, int cx, int y, int fs, Color col) {
     DrawText(s, cx - MeasureText(s, fs)/2, y, fs, col);
 }
 
+// Ligne de séparation horizontale
 static void draw_sep(int x, int y, int w, Color col) {
     DrawLine(x, y, x+w, y, col);
 }
 
-// Bouton rectangle — retourne 1 si cliqué
+// Fond quadrillage décoratif ou image de fond de menu
+typedef enum {
+    MENU_BG_TITLE = 0,
+    MENU_BG_PLAY_HUB,
+    MENU_BG_CAMPAIGN,
+    MENU_BG_ARCADE,
+    MENU_BG_UPGRADES,
+    MENU_BG_COUNT,
+} MenuBgID;
+
+static Texture2D g_menu_bg[MENU_BG_COUNT];
+static int g_menu_bg_loaded = 0;
+
+static Texture2D *menu_bg_for_screen(MenuScreen screen) {
+    switch (screen) {
+        case MENU_TITLE:      return &g_menu_bg[MENU_BG_TITLE];
+        case MENU_PLAY_HUB:   return &g_menu_bg[MENU_BG_PLAY_HUB];
+        case MENU_CAMPAIGN:   return &g_menu_bg[MENU_BG_CAMPAIGN];
+        case MENU_ARCADE:     return &g_menu_bg[MENU_BG_ARCADE];
+        case MENU_UPGRADES:   return &g_menu_bg[MENU_BG_UPGRADES];
+        default:              return NULL;
+    }
+}
+
+static void menu_load_bg_textures(void) {
+    if (g_menu_bg_loaded) return;
+    g_menu_bg_loaded = 1;
+
+    g_menu_bg[MENU_BG_TITLE]    = LoadTexture("assets/textures/Menue/ecran_titre.png");
+    g_menu_bg[MENU_BG_PLAY_HUB] = LoadTexture("assets/textures/Menue/menue_hub.png");
+    g_menu_bg[MENU_BG_CAMPAIGN] = LoadTexture("assets/textures/Menue/menu_campagne.png");
+    g_menu_bg[MENU_BG_ARCADE]   = LoadTexture("assets/textures/Menue/menue_arcade.png");
+    g_menu_bg[MENU_BG_UPGRADES] = LoadTexture("assets/textures/Menue/menue_upgrade.png");
+}
+
+static void menu_unload_bg_textures(void) {
+    if (!g_menu_bg_loaded) return;
+    g_menu_bg_loaded = 0;
+
+    for (int i = 0; i < MENU_BG_COUNT; i++) {
+        if (IsTextureValid(g_menu_bg[i])) UnloadTexture(g_menu_bg[i]);
+    }
+}
+
+static void draw_bg(const MenuState *m, int vw, int vh) {
+    Texture2D *bg = menu_bg_for_screen(m->screen);
+    if (g_menu_bg_loaded && bg && IsTextureValid(*bg)) {
+        DrawTexturePro(*bg,
+            (Rectangle){0, 0, (float)bg->width, (float)bg->height},
+            (Rectangle){0, 0, (float)vw, (float)vh},
+            (Vector2){0,0}, 0.0f, WHITE);
+        return;
+    }
+
+    ClearBackground(C_BG);
+    for (int x = 0; x < vw; x += 72)
+        DrawLine(x, 0, x, vh, (Color){18, 12, 5, 50});
+    for (int y = 0; y < vh; y += 72)
+        DrawLine(0, y, vw, y, (Color){18, 12, 5, 50});
+}
+
+// En-tête commune : titre RUST BASTION + sous-titre + séparateur
+static void draw_header(const char *subtitle, int vw) {
+    int cx = vw/2;
+    txt_c("RUST BASTION", cx, M_PAD, 28, C_GOLD);
+    draw_sep(M_PAD*2, M_PAD + 36, vw - M_PAD*4, C_BORDER);
+    if (subtitle && subtitle[0])
+        txt_c(subtitle, cx, M_PAD + 44, 13, C_TEXT);
+}
+
+// Panneau centré avec fond et bordure arrondis
+static void draw_panel(int cx, int cy, int pw, int ph, Color border) {
+    DrawRectangleRounded(
+        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
+        (float)PANEL_R/ph, 8, (Color){10, 6, 2, 250});
+    DrawRectangleRoundedLinesEx(
+        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
+        (float)PANEL_R/ph, 8, 2.0f, border);
+}
+
+// Bouton rectangulaire arrondi — retourne 1 si cliqué
 static int draw_btn(const char *label, int x, int y, int w, int h,
                     Color col, int active)
 {
-    int hovered = vhov(x, y, w, h);
-    Color bg  = active  ? (Color){col.r/4, col.g/4, col.b/4, 255} :
-                hovered ? C_HOV : C_PANEL;
-    DrawRectangle(x, y, w, h, bg);
-    DrawRectangleLinesEx((Rectangle){(float)x,(float)y,(float)w,(float)h},
-                         (active||hovered) ? 2.0f : 1.0f,
-                         (active||hovered) ? col : C_BORDER);
-    int fs = 15;
-    txt_c(label, x + w/2, y + h/2 - fs/2, fs, col);
-    return vclick(x, y, w, h);
+    Rectangle r = {(float)x,(float)y,(float)w,(float)h};
+    int hov = vhov_r(r);
+    float rnd = (float)BTN_R / h;
+
+    Color bg = active  ? (Color){col.r/5, col.g/5, col.b/5, 255} :
+               hov     ? (Color){col.r/7, col.g/7, col.b/7, 255} :
+                         C_PANEL;
+    float bw = (active || hov) ? 2.0f : 1.2f;
+    Color bc = (active || hov) ? col : C_BORDER;
+
+    DrawRectangleRounded(r, rnd, 6, bg);
+    DrawRectangleRoundedLinesEx(r, rnd, 6, bw, bc);
+
+    int fs = 14;
+    int tw = MeasureText(label, fs);
+    DrawText(label, x + w/2 - tw/2, y + h/2 - fs/2, fs, col);
+    if (vclick_r(r)) {
+        audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+        return 1;
+    }
+    return 0;
 }
 
-// Grand bouton de navigation (avec icône + description)
+static int draw_volume_slider(const char *label, int x, int y, int w,
+                              int value, int *out_value)
+{
+    DrawText(label, x, y, 11, C_GOLD);
+    y += 18;
+
+    Rectangle track = {(float)x, (float)y, (float)w, 12.0f};
+    DrawRectangleRec(track, C_DIM);
+
+    float fraction = value / 100.0f;
+    Rectangle fill = {track.x, track.y, track.width * fraction, track.height};
+    DrawRectangleRec(fill, C_BLUE);
+
+    float knob_x = track.x + (track.width - 18.0f) * fraction;
+    Vector2 knob_center = {knob_x + 9.0f, track.y + track.height * 0.5f};
+    DrawCircle(knob_center.x, knob_center.y, 9.0f, C_GOLD);
+    DrawCircleLines(knob_center.x, knob_center.y, 9.0f, C_BORDER);
+
+    char percent_text[16];
+    snprintf(percent_text, sizeof(percent_text), "%d%%", value);
+    DrawText(percent_text, x + w - MeasureText(percent_text, 11), y + track.height + 6, 11, C_TEXT);
+
+    if (vclick_r(track)) {
+        Vector2 m = vmouse();
+        int new_value = (int)(((m.x - track.x) / track.width) * 100.0f + 0.5f);
+        if (new_value < 0) new_value = 0;
+        if (new_value > 100) new_value = 100;
+        *out_value = new_value;
+        return 1;
+    }
+    return 0;
+}
+
+// Grand bouton de navigation avec barre latérale colorée
 static int draw_nav_btn(const char *icon, const char *title,
                         const char *desc, Color col,
                         int x, int y, int w, int h)
 {
-    int hovered = vhov(x, y, w, h);
-    Color bg = hovered ? (Color){col.r/6, col.g/6, col.b/6, 255} : C_PANEL;
-    DrawRectangle(x, y, w, h, bg);
-    DrawRectangleLinesEx((Rectangle){(float)x,(float)y,(float)w,(float)h},
-                         hovered ? 2.5f : 1.5f,
-                         hovered ? col : (Color){col.r/2,col.g/2,col.b/2,200});
+    Rectangle r = {(float)x,(float)y,(float)w,(float)h};
+    int hov = vhov_r(r);
+    float rnd = (float)BTN_R / h;
 
-    // Barre de couleur à gauche
-    DrawRectangle(x, y, 4, h, (Color){col.r, col.g, col.b, hovered ? 255 : 120});
+    Color bg = hov ? (Color){col.r/7, col.g/7, col.b/7, 255} : C_PANEL;
+    float bw = hov ? 2.0f : 1.2f;
+    Color bc = hov ? col : (Color){col.r/3, col.g/3, col.b/3, 180};
+
+    DrawRectangleRounded(r, rnd, 6, bg);
+    DrawRectangleRoundedLinesEx(r, rnd, 6, bw, bc);
+
+    // Barre colorée gauche
+    DrawRectangleRounded(
+        (Rectangle){(float)x, (float)(y+4), 4, (float)(h-8)},
+        0.5f, 4,
+        (Color){col.r, col.g, col.b, hov ? 255 : 110});
 
     // Icône
-    DrawText(icon, x + 20, y + h/2 - 14, 28, col);
+    DrawText(icon, x + M_PAD + 4, y + h/2 - 13, 26, col);
 
     // Titre
-    DrawText(title, x + 64, y + 10, 18, hovered ? col : C_TEXT);
+    DrawText(title, x + M_PAD + 36, y + M_IN + 2, 16,
+             hov ? col : C_TEXT);
 
-    // Description
-    DrawText(desc,  x + 64, y + 34, 11, C_DIM);
+    // Description clippée
+    char dbuf[72];
+    clip_text(desc, w - M_PAD - 36 - M_IN, 10, dbuf, sizeof(dbuf));
+    DrawText(dbuf, x + M_PAD + 36, y + M_IN + 22, 10, C_DIM);
 
-    return vclick(x, y, w, h);
+    if (vclick_r(r)) {
+        audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+        return 1;
+    }
+    return 0;
 }
 
-// Fond décoratif du canvas
-static void draw_bg(int virt_w, int virt_h) {
-    ClearBackground(C_BG);
-    // Lignes de grille légères
-    for (int x = 0; x < virt_w; x += 80)
-        DrawLine(x, 0, x, virt_h, (Color){20, 14, 6, 60});
-    for (int y = 0; y < virt_h; y += 80)
-        DrawLine(0, y, virt_w, y, (Color){20, 14, 6, 60});
+// Bouton Retour
+static int draw_back_btn(int vw, int vh) {
+    return draw_btn("< RETOUR", M_PAD, vh - M_PAD - BTN_H,
+                    110, BTN_H, C_DIM, 0);
+    (void)vw;
 }
 
-// En-tête commun (titre + sous-titre)
-static void draw_header(const char *title, const char *subtitle,
-                        int virt_w) {
-    int cx = virt_w / 2;
-    txt_c("RUST BASTION", cx, 18, 30, C_GOLD);
-    draw_sep(40, 56, virt_w - 80, C_BORDER);
-    if (title && title[0])
-        txt_c(title, cx, 66, 16, C_TEXT);
-    if (subtitle && subtitle[0])
-        txt_c(subtitle, cx, 88, 11, C_DIM);
-}
-
-// Panneau centré avec fond et bordure
-static void draw_panel(int cx, int cy, int pw, int ph, Color border) {
-    DrawRectangle(cx - pw/2, cy - ph/2, pw, ph, (Color){10, 6, 2, 248});
-    DrawRectangleLinesEx(
-        (Rectangle){(float)(cx-pw/2),(float)(cy-ph/2),(float)pw,(float)ph},
-        2.0f, border);
-}
-
-// Bouton Retour en bas à gauche
-static int draw_back_btn(int virt_h) {
-    return draw_btn("< RETOUR", 40, virt_h - 52, 120, 30, C_DIM, 0);
-}
-
-// Message temporaire
-static void draw_msg(MenuState *m, int virt_w, int virt_h) {
+// Message temporaire centré en bas
+static void draw_msg(MenuState *m, int vw, int vh) {
     if (m->msg_timer <= 0.0f) return;
-    int alpha = (int)(fminf(m->msg_timer / 0.5f, 1.0f) * 220.0f);
-    txt_c(m->msg_buf, virt_w/2, virt_h - 28, 13,
-          (Color){239,159,39,(unsigned char)alpha});
+    float a = fminf(m->msg_timer / 0.4f, 1.0f);
+    int alpha = (int)(a * 210.0f);
+    txt_c(m->msg_buf, vw/2, vh - M_PAD - 16, 12,
+          (Color){232,152,32,(unsigned char)alpha});
 }
 
 static void set_msg(MenuState *m, const char *s) {
@@ -153,318 +295,386 @@ static void set_msg(MenuState *m, const char *s) {
 // ════════════════════════════════════════════════════
 void menu_init(MenuState *m, const AppOptions *opts) {
     memset(m, 0, sizeof(MenuState));
-    m->screen     = MENU_TITLE;
-    m->back_screen= MENU_TITLE;
-    m->new_theme  = THEME_COUNT;
-    m->new_slot   = 0;
-    m->paused     = 0;
+    m->screen      = MENU_TITLE;
+    m->back_screen = MENU_TITLE;
+    m->new_theme   = THEME_COUNT;
+    m->new_slot    = 0;
+    m->paused      = 0;
+    m->opts.fullscreen = 0;
+    m->opts.win_width = GetScreenWidth();
+    m->opts.win_height = GetScreenHeight();
+    m->opts.target_fps = 60;
+    m->opts.master_volume = (int)(audio_get_master_volume() * 100.0f + 0.5f);
+    m->opts.music_volume = (int)(audio_get_music_volume() * 100.0f + 0.5f);
+    m->opts.sfx_volume = (int)(audio_get_sfx_volume() * 100.0f + 0.5f);
     if (opts) m->opts = *opts;
+    if (m->opts.target_fps == 0) m->opts.target_fps = 60;
+    if (m->opts.master_volume < 0 || m->opts.master_volume > 100) m->opts.master_volume = (int)(audio_get_master_volume() * 100.0f + 0.5f);
+    if (m->opts.music_volume < 0 || m->opts.music_volume > 100) m->opts.music_volume = (int)(audio_get_music_volume() * 100.0f + 0.5f);
+    if (m->opts.sfx_volume < 0 || m->opts.sfx_volume > 100) m->opts.sfx_volume = (int)(audio_get_sfx_volume() * 100.0f + 0.5f);
     menu_refresh_slots(m);
+    menu_load_bg_textures();
 }
 
 void menu_refresh_slots(MenuState *m) {
     save_scan(m->slots);
 }
 
-// ════════════════════════════════════════════════════
-// ÉCRAN TITRE  — Jouer / Options / Quitter
-// ════════════════════════════════════════════════════
-static MenuAction draw_title(MenuState *m, int virt_w, int virt_h) {
-    MenuAction act = {0};
-    int cx = virt_w / 2;
+void menu_cleanup(MenuState *m) {
+    (void)m;
+    menu_unload_bg_textures();
+}
 
-    draw_bg(virt_w, virt_h);
+// ════════════════════════════════════════════════════
+// ÉCRAN TITRE
+// ════════════════════════════════════════════════════
+static MenuAction draw_title(MenuState *m, int vw, int vh) {
+    MenuAction act = {0};
+    int cx = vw/2;
+    draw_bg(m, vw, vh);
 
     // Titre principal
-    txt_c("RUST BASTION", cx, virt_h/2 - 160, 48, C_GOLD);
-    txt_c("Tower Defense Post-Apocalyptique", cx, virt_h/2 - 104, 14, C_DIM);
-    draw_sep(cx - 200, virt_h/2 - 82, 400, C_BORDER);
+    txt_c("RUST BASTION", cx, vh/2 - 170, 46, C_GOLD);
+    txt_c("Tower Defense Post-Apocalyptique", cx, vh/2 - 114, 13, C_DIM);
+    draw_sep(cx - 180, vh/2 - 94, 360, C_BORDER);
 
-    // 3 boutons verticaux centrés
-    int bw = 260, bh = 48, gap = 16;
+    // Boutons
+    int bw = 240, bh = BTN_H + 4;
     int bx = cx - bw/2;
-    int by = virt_h/2 - 48;
+    int by = vh/2 - 52;
 
-    if (draw_btn("JOUER",   bx, by,          bw, bh, C_GREEN, 0))
-        { m->screen = MENU_PLAY_HUB; m->back_screen = MENU_TITLE; }
-    by += bh + gap;
+    if (draw_btn("JOUER",   bx, by, bw, bh, C_GREEN, 0)) {
+        m->screen = MENU_PLAY_HUB;
+        m->back_screen = MENU_TITLE;
+    }
+    by += bh + M_IN;
 
-    if (draw_btn("OPTIONS", bx, by,          bw, bh, C_BLUE, 0))
-        { m->back_screen = MENU_TITLE; m->screen = MENU_OPTIONS; }
-    by += bh + gap;
+    if (draw_btn("OPTIONS", bx, by, bw, bh, C_BLUE, 0)) {
+        m->screen = MENU_OPTIONS;
+        m->back_screen = MENU_TITLE;
+    }
+    by += bh + M_IN;
 
-    if (draw_btn("QUITTER", bx, by,          bw, bh, C_RED, 0))
+    if (draw_btn("QUITTER", bx, by, bw, bh, C_RED, 0))
         act.quit_app = 1;
 
     // Version
-    DrawText("v0.1", virt_w - 52, virt_h - 20, 10, C_DIM);
-
+    DrawText("v0.1", vw - M_PAD - 28, vh - M_PAD - 12, 9, C_DIM);
     return act;
 }
 
 // ════════════════════════════════════════════════════
-// HUB JOUER — Campagne / Arcade / Améliorations / Retour
+// HUB JOUER
 // ════════════════════════════════════════════════════
 static MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
-                                 int virt_w, int virt_h)
+                                int vw, int vh)
 {
     MenuAction act = {0};
-    int cx  = virt_w / 2;
+    int cx = vw/2;
+    draw_bg(m, vw, vh);
+    draw_header("CHOISIR UN MODE", vw);
 
-    draw_bg(virt_w, virt_h);
-    draw_header("CHOISIR UN MODE", NULL, virt_w);
-
-    // 3 grands boutons de navigation
-    int bw = 560, bh = 80, gap = 18;
+    int bw = 520, bh = 72, gap = M_IN + 2;
     int bx = cx - bw/2;
-    int by = 118;
+    int by = M_PAD + 76;
 
-    // ── CAMPAGNE ─────────────────────────────────────────
     if (draw_nav_btn("C", "CAMPAGNE",
-                     "Parcourez les 5 environnements dans l'ordre. Gagnez de la ferraille.",
+                     "Parcourez les 5 environnements. Gagnez de la ferraille.",
                      C_GOLD, bx, by, bw, bh)) {
-        m->screen      = MENU_CAMPAIGN;
+        push_back_screen(m);
+        m->screen = MENU_CAMPAIGN;
         m->back_screen = MENU_PLAY_HUB;
     }
     by += bh + gap;
 
-    // ── ARCADE ───────────────────────────────────────────
     if (draw_nav_btn("A", "ARCADE",
                      "Choisissez un environnement et jouez librement.",
                      C_BLUE, bx, by, bw, bh)) {
-        m->screen      = MENU_ARCADE;
+        push_back_screen(m);
+        m->screen = MENU_ARCADE;
         m->back_screen = MENU_PLAY_HUB;
     }
     by += bh + gap;
 
-    // ── AMÉLIORATIONS ────────────────────────────────────
-    // Indique la ferraille disponible
     char upg_desc[80];
     snprintf(upg_desc, sizeof(upg_desc),
              "Depensez vos %d ferrailles pour ameliorer vos defenses.",
              meta->scrap);
     if (draw_nav_btn("*", "AMELIORATIONS", upg_desc,
                      C_ORANGE, bx, by, bw, bh)) {
-        m->screen      = MENU_UPGRADES;
+        push_back_screen(m);
+        m->screen = MENU_UPGRADES;
         m->back_screen = MENU_PLAY_HUB;
     }
 
-    if (draw_back_btn(virt_h)) m->screen = MENU_TITLE;
-
+    if (draw_back_btn(vw, vh)) {
+        m->screen = m->paused ? MENU_PAUSE : m->back_screen;
+        if (!m->paused) pop_back_screen(m);
+    }
     return act;
 }
 
 // ════════════════════════════════════════════════════
-// HELPER COMMUN : liste de slots (campagne ou arcade)
+// LISTE DE SLOTS
 // ════════════════════════════════════════════════════
-static MenuAction draw_slot_list(MenuState *m, int virt_w, int virt_h,
-                                  int is_campaign)
+static MenuAction draw_slot_list(MenuState *m, int vw, int vh,
+                                 int is_campaign)
 {
     MenuAction act = {0};
-    int cx = virt_w / 2;
+    int cx = vw/2;
+    draw_bg(m, vw, vh);
+    draw_header(is_campaign ? "CAMPAGNE" : "ARCADE", vw);
 
-    draw_bg(virt_w, virt_h);
-    draw_header(is_campaign ? "CAMPAGNE" : "ARCADE",
-                is_campaign
-                  ? "5 environnements en sequence — la ferraille se gagne ici"
-                  : "Mode libre — choisissez votre terrain",
-                virt_w);
+    // Sous-titre
+    const char *sub = is_campaign
+        ? "5 environnements en sequence — la ferraille se gagne ici"
+        : "Mode libre — choisissez votre terrain";
+    txt_c(sub, cx, M_PAD + 46, 10, C_DIM);
 
-    int sw  = 560, sh = 72, sg = 10;
-    int sx  = cx - sw/2;
-    int y   = 112;
+    int sw = 540, sh = 68, sg = M_IN;
+    int sx = cx - sw/2;
+    int y  = M_PAD + 70;
 
     for (int i = 0; i < SAVE_SLOT_COUNT; i++) {
         const SaveInfo *si = &m->slots[i];
-
-        // Filtre : n'affiche que les slots du bon mode (ou vides)
         int slot_matches = !si->exists ||
                            ((int)si->mode == (is_campaign
-                                              ? SAVE_MODE_CAMPAIGN
-                                              : SAVE_MODE_ARCADE));
+                                ? SAVE_MODE_CAMPAIGN : SAVE_MODE_ARCADE));
 
-        int hov = vhov(sx, y, sw, sh);
-        Color brd = si->exists && slot_matches ? (is_campaign ? C_GOLD : C_BLUE)
-                                               : C_BORDER;
-        DrawRectangle(sx, y, sw, sh, hov ? C_HOV : C_PANEL);
-        DrawRectangleLinesEx(
-            (Rectangle){(float)sx,(float)y,(float)sw,(float)sh},
-            1.5f, brd);
+        Rectangle r = {(float)sx,(float)y,(float)sw,(float)sh};
+        int hov = vhov_r(r);
+        Color brd = (si->exists && slot_matches)
+                  ? (is_campaign ? C_GOLD : C_BLUE) : C_BORDER;
+        Color bg  = hov ? C_HOV : C_PANEL;
+
+        DrawRectangleRounded(r, (float)PANEL_R/sh, 6, bg);
+        DrawRectangleRoundedLinesEx(r, (float)PANEL_R/sh, 6,
+                                    1.5f, brd);
+
+        int tx = sx + M_IN + 4;
+        int ty = y  + M_IN;
 
         if (si->exists && slot_matches) {
-            // Slot occupé du bon type
             if (is_campaign) {
                 int themes[CAMPAIGN_STAGES];
-                meta_campaign_theme_order(si->campaign_num, themes);
-                const Theme *stage_th = theme_get((ThemeID)themes[si->campaign_stage]);
-                DrawText(TextFormat("CAMPAGNE %d  —  Stage %d/%d : %s",
-                             si->campaign_num + 1,
-                             si->campaign_stage + 1, CAMPAIGN_STAGES,
-                             stage_th->name),
-                         sx+12, y+8, 13, C_GOLD);
+                meta_campaign_theme_order(si->campaign_order_seed, themes);
+                const Theme *sth = theme_get((ThemeID)themes[si->campaign_stage]);
+
+                char raw[80];
+                snprintf(raw, sizeof(raw), "CAMPAGNE %d  —  Stage %d/%d : %s",
+                         si->campaign_num+1, si->campaign_stage+1,
+                         CAMPAIGN_STAGES, sth->name);
+                char cbuf[80];
+                int max_cw = sw - 120 - M_IN*2;
+                clip_text(raw, max_cw, 12, cbuf, sizeof(cbuf));
+                DrawText(cbuf, tx, ty, 12, C_GOLD);
             } else {
                 DrawText(TextFormat("ARCADE  —  %s", si->theme_name),
-                         sx+12, y+8, 13, C_BLUE);
+                         tx, ty, 12, C_BLUE);
             }
-            DrawText(TextFormat("Vague %d  |  %d vies  |  %dor",
+            ty += 16;
+            DrawText(TextFormat("Vague %d  |  %d vies  |  %d or",
                          si->wave, si->lives, si->gold),
-                     sx+12, y+26, 11, C_TEXT);
-            DrawText(TextFormat("Kills : %d", si->wave * 4),
-                     sx+12, y+44, 10, C_DIM);
+                     tx, ty, 10, C_TEXT);
+            ty += M_LINE;
+            DrawText(TextFormat("Slot %d", i+1),
+                     tx, ty, 9, C_DIM);
 
-            // Bouton Reprendre
-            int bx = sx + sw - 108, bw = 88, bh = 28;
-            int by2 = y + (sh - bh)/2;
-            if (draw_btn("REPRENDRE", bx, by2, bw, bh, C_GREEN, 0)) {
+            // Bouton REPRENDRE
+            int bw2 = 88, bh2 = 26;
+            int bx2 = sx + sw - bw2 - M_IN - 22;
+            int by2 = y  + sh/2 - bh2/2;
+            if (draw_btn("REPRENDRE", bx2, by2, bw2, bh2, C_GREEN, 0)) {
                 act.resume_slot = i;
                 act.go_game     = 1;
             }
 
-            // Bouton Effacer
-            int dx = sx + sw - 24, dw = 18, dh = 18, dy = y + 4;
-            DrawRectangle(dx, dy, dw, dh, (Color){40,8,8,255});
-            DrawRectangleLinesEx((Rectangle){(float)dx,(float)dy,(float)dw,(float)dh},
-                                 1.0f, C_RED);
-            DrawText("X", dx+4, dy+2, 11, C_RED);
-            if (vclick(dx, dy, dw, dh)) {
+            // Bouton X (supprimer)
+            Rectangle xr = {(float)(sx+sw-M_IN-18),
+                             (float)(y+M_IN/2), 18, 18};
+            int xhov = vhov_r(xr);
+            DrawRectangleRounded(xr, 0.3f, 4,
+                xhov ? (Color){48,6,6,255} : (Color){28,4,4,255});
+            DrawRectangleRoundedLinesEx(xr, 0.3f, 4, 1.2f,
+                xhov ? C_RED : (Color){90,16,16,255});
+            int xw = MeasureText("x", 10);
+            DrawText("x", (int)(xr.x + xr.width/2 - xw/2),
+                     (int)(xr.y + xr.height/2 - 5), 10, C_RED);
+            if (vclick_r(xr)) {
                 m->confirm_del_slot = i;
                 m->screen = MENU_CONFIRM_DEL;
             }
 
         } else if (!si->exists) {
-            // Slot vide — proposer de commencer
+            // Slot vide
             DrawText(TextFormat("Emplacement %d — vide", i+1),
-                     sx+12, y+26, 12, C_DIM);
-            int bx = sx + sw - 168, bw = 148, bh = 28;
-            int by2 = y + (sh - bh)/2;
+                     tx, y + sh/2 - 8, 11, C_DIM);
+            int bw2 = 148, bh2 = 26;
+            int bx2 = sx + sw - bw2 - M_IN;
+            int by2 = y  + sh/2 - bh2/2;
             const char *lbl = is_campaign ? "NOUVELLE CAMPAGNE"
                                           : "NOUVELLE ARCADE";
             Color lc = is_campaign ? C_GOLD : C_BLUE;
-            if (draw_btn(lbl, bx, by2, bw, bh, lc, 0)) {
-                m->new_slot = i;
-                m->screen   = is_campaign ? MENU_NEW_CAMPAIGN
-                                          : MENU_NEW_ARCADE;
+            if (draw_btn(lbl, bx2, by2, bw2, bh2, lc, 0)) {
+                m->new_slot            = i;
+                m->campaign_order_seed = 0;
+                m->screen = is_campaign ? MENU_NEW_CAMPAIGN
+                                        : MENU_NEW_ARCADE;
             }
         } else {
-            // Slot d'un autre mode — affiché grisé
             DrawText(TextFormat("Emplacement %d — autre mode", i+1),
-                     sx+12, y+26, 12, C_DIM);
+                     tx, y + sh/2 - 8, 11, C_DIM);
         }
 
         y += sh + sg;
     }
 
-    if (draw_back_btn(virt_h))
-        m->screen = m->back_screen;
-
+    if (draw_back_btn(vw, vh)) {
+        m->screen = m->paused ? MENU_PAUSE : m->back_screen;
+        if (!m->paused) pop_back_screen(m);
+    }
     return act;
 }
 
 // ════════════════════════════════════════════════════
-// NOUVEAU — CAMPAGNE : confirmation + affichage de l'ordre
+// NOUVELLE CAMPAGNE
 // ════════════════════════════════════════════════════
 static MenuAction draw_new_campaign(MenuState *m,
-                                     const MetaProgress *meta,
-                                     int virt_w, int virt_h)
+                                    const MetaProgress *meta,
+                                    int vw, int vh)
 {
     MenuAction act = {0};
-    int cx = virt_w / 2, cy = virt_h / 2;
-    (void)meta;
+    int cx = vw/2, cy = vh/2;
+    draw_bg(m, vw, vh);
+    draw_header("NOUVELLE CAMPAGNE", vw);
 
-    draw_bg(virt_w, virt_h);
-    draw_header("NOUVELLE CAMPAGNE", NULL, virt_w);
+    // Génère le seed une seule fois
+    if (m->campaign_order_seed == 0)
+        m->campaign_order_seed = GetRandomValue(1, 999999);
 
-    // Numéro de campagne = campaigns_completed du meta
-    int camp_num = meta->campaigns_completed;
     int themes[CAMPAIGN_STAGES];
-    meta_campaign_theme_order(camp_num, themes);
+    meta_campaign_theme_order(m->campaign_order_seed, themes);
 
-    // Panneau central
-    int pw = 500, ph = 320;
+    int pw = 480, ph = 310;
     draw_panel(cx, cy, pw, ph, C_GOLD);
 
-    DrawText(TextFormat("Emplacement : %d", m->new_slot + 1),
-             cx - pw/2 + 20, cy - ph/2 + 16, 13, C_TEXT);
-    DrawText(TextFormat("Campagne n°%d", camp_num + 1),
-             cx - pw/2 + 20, cy - ph/2 + 36, 18, C_GOLD);
+    int px = cx - pw/2 + M_PAD;
+    int py = cy - ph/2 + M_PAD;
 
-    DrawText("Ordre des environnements :",
-             cx - pw/2 + 20, cy - ph/2 + 68, 12, C_DIM);
+    DrawText(TextFormat("Emplacement : %d", m->new_slot+1),
+             px, py, 10, C_DIM);
+    py += M_LINE + 2;
+    DrawText(TextFormat("Campagne n°%d", meta->campaigns_completed+1),
+             px, py, 17, C_GOLD);
+    py += 22;
+    draw_sep(px, py, pw - M_PAD*2, C_BORDER);
+    py += M_IN + 2;
+    DrawText("Ordre des environnements :", px, py, 10, C_DIM);
+    py += M_LINE + 2;
 
-    static Color stage_cols[CAMPAIGN_STAGES] = {
-        {239,159, 39,255},{46,204,113,255},{52,152,219,255},
-        {155, 89,182,255},{230,126, 34,255},
+    static const Color stage_cols[CAMPAIGN_STAGES] = {
+        {232,152, 32,255},{42,190,105,255},{48,140,205,255},
+        {142, 80,168,255},{215,118, 28,255},
     };
 
     for (int i = 0; i < CAMPAIGN_STAGES; i++) {
         const Theme *th = theme_get((ThemeID)themes[i]);
-        int iy = cy - ph/2 + 90 + i * 36;
-        DrawRectangle(cx - pw/2 + 20, iy, pw - 40, 30,
-                      (Color){20,12,4,200});
-        DrawRectangleLinesEx(
-            (Rectangle){(float)(cx-pw/2+20),(float)iy,(float)(pw-40),30},
-            1.0f, (Color){stage_cols[i].r/2,stage_cols[i].g/2,stage_cols[i].b/2,200});
-        DrawText(TextFormat("%d.", i+1),
-                 cx - pw/2 + 30, iy + 7, 13, C_DIM);
-        DrawText(th->name,
-                 cx - pw/2 + 56, iy + 7, 13, stage_cols[i]);
-        DrawText(th->description,
-                 cx + 20,        iy + 9, 10, C_DIM);
+        Rectangle row = {(float)px,(float)py,(float)(pw - M_PAD*2), 28};
+        DrawRectangleRounded(row, (float)PANEL_R/28, 5,
+                             (Color){18,10,3,210});
+        DrawRectangleRoundedLinesEx(row, (float)PANEL_R/28, 5, 1.0f,
+            (Color){stage_cols[i].r/3,stage_cols[i].g/3,
+                    stage_cols[i].b/3, 180});
+
+        DrawText(TextFormat("%d.", i+1), px + M_IN, py + 8, 11, C_DIM);
+
+        DrawText(th->name, px + M_IN + 22, py + 8, 11, stage_cols[i]);
+
+        // Description clippée à droite
+        int avail = pw - M_PAD*2 - M_IN - 22 -
+                    MeasureText(th->name, 11) - M_IN*2;
+        if (avail > 40) {
+            char dbuf[48];
+            clip_text(th->description, avail, 9, dbuf, sizeof(dbuf));
+            DrawText(dbuf,
+                     px + M_IN + 22 + MeasureText(th->name,11) + M_IN,
+                     py + 10, 9, C_DIM);
+        }
+        py += 28 + 4;
     }
 
     // Boutons
-    int by = cy + ph/2 - 40;
-    if (draw_btn("LANCER",  cx - 80, by, 130, 32, C_GREEN, 0)) {
-        act.start_campaign = 1;
-        act.new_slot       = m->new_slot;
-    }
-    if (draw_btn("ANNULER", cx + 80, by, 130, 32, C_DIM, 0))
-        m->screen = MENU_CAMPAIGN;
+    py = cy + ph/2 - M_PAD - BTN_H;
+    int half = (pw - M_PAD*2 - M_IN) / 2;
 
+    if (draw_btn("LANCER", px, py, half, BTN_H, C_GREEN, 0)) {
+        act.start_campaign      = 1;
+        act.new_slot            = m->new_slot;
+        act.campaign_order_seed = m->campaign_order_seed;
+    }
+    if (draw_btn("ANNULER", px + half + M_IN, py,
+                 pw - M_PAD*2 - M_IN - half, BTN_H, C_DIM, 0)) {
+        m->campaign_order_seed = 0;
+        m->screen = MENU_CAMPAIGN;
+    }
     return act;
 }
 
 // ════════════════════════════════════════════════════
-// NOUVEAU — ARCADE : choix du thème
+// NOUVELLE ARCADE
 // ════════════════════════════════════════════════════
-static const char *THEME_LABELS[THEME_COUNT + 1] = {
+static const char *THEME_LABELS[THEME_COUNT+1] = {
     "Terres devastees","Marais toxique","Desert irradie",
     "Ville en ruine","Usine abandonnee","Aleatoire",
 };
 
-static MenuAction draw_new_arcade(MenuState *m, int virt_w, int virt_h) {
+static MenuAction draw_new_arcade(MenuState *m, int vw, int vh) {
     MenuAction act = {0};
-    int cx = virt_w / 2;
+    int cx = vw/2;
+    draw_bg(m, vw, vh);
+    draw_header("NOUVELLE PARTIE ARCADE", vw);
 
-    draw_bg(virt_w, virt_h);
-    draw_header("NOUVELLE PARTIE ARCADE",
-                TextFormat("Emplacement %d", m->new_slot + 1), virt_w);
+    DrawText(TextFormat("Emplacement : %d", m->new_slot+1),
+             cx - 100, M_PAD + 48, 11, C_TEXT);
 
-    DrawText("Choisir un environnement :", cx - 160, 110, 13, C_GOLD);
+    int bw = 300, bh = 30, gap = 5;
+    int bx = cx - bw/2;
+    int by = M_PAD + 70;
 
-    int bx = cx - 160, bw = 320, bh = 30, by = 132;
+    DrawText("Choisir un environnement :", bx, by, 11, C_GOLD);
+    by += M_LINE + 4;
+
     for (int i = 0; i <= THEME_COUNT; i++) {
         int is_sel = ((int)m->new_theme == i);
-        Color c = is_sel ? C_BLUE : C_TEXT;
-        DrawRectangle(bx, by, bw, bh,
-                      is_sel ? (Color){8,20,36,255} : C_PANEL);
-        DrawRectangleLinesEx(
-            (Rectangle){(float)bx,(float)by,(float)bw,(float)bh},
-            is_sel ? 2.0f : 1.0f,
-            is_sel ? C_BLUE : C_BORDER);
-        DrawText(THEME_LABELS[i], bx + 10, by + 8, 12, c);
-        if (is_sel) DrawText("◀", bx + bw - 20, by + 8, 12, C_BLUE);
-        if (vclick(bx, by, bw, bh)) m->new_theme = (ThemeID)i;
-        by += bh + 6;
+        Rectangle r = {(float)bx,(float)by,(float)bw,(float)bh};
+        float rnd = (float)BTN_R/bh;
+
+        Color bg  = is_sel ? (Color){6,18,32,255} : C_PANEL;
+        Color brd = is_sel ? C_BLUE : C_BORDER;
+        float lw  = is_sel ? 2.0f : 1.0f;
+
+        DrawRectangleRounded(r, rnd, 5, bg);
+        DrawRectangleRoundedLinesEx(r, rnd, 5, lw, brd);
+        DrawText(THEME_LABELS[i], bx + M_IN, by + bh/2 - 5, 11,
+                 is_sel ? C_BLUE : C_TEXT);
+        if (is_sel) {
+            const char *chk = "✓";
+            DrawText(chk, bx + bw - M_IN - MeasureText(chk,11),
+                     by + bh/2 - 5, 11, C_BLUE);
+        }
+        if (vclick_r(r)) m->new_theme = (ThemeID)i;
+        by += bh + gap;
     }
 
-    by += 8;
-    if (draw_btn("LANCER",  cx - 80, by + 18, 130, 32, C_GREEN, 0)) {
+    by += M_IN;
+    int half = (bw - M_IN) / 2;
+    if (draw_btn("LANCER",  bx,            by, half, BTN_H, C_GREEN, 0)) {
         act.start_arcade = 1;
         act.new_theme    = m->new_theme;
         act.new_slot     = m->new_slot;
     }
-    if (draw_btn("ANNULER", cx + 80, by + 18, 130, 32, C_DIM, 0))
+    if (draw_btn("ANNULER", bx+half+M_IN,  by,
+                 bw-M_IN-half, BTN_H, C_DIM, 0))
         m->screen = MENU_ARCADE;
 
     return act;
@@ -474,44 +684,55 @@ static MenuAction draw_new_arcade(MenuState *m, int virt_w, int virt_h) {
 // AMÉLIORATIONS
 // ════════════════════════════════════════════════════
 static MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
-                                 int virt_w, int virt_h)
+                                int vw, int vh)
 {
     MenuAction act = {0};
-    int cx = virt_w / 2;
+    int cx = vw/2;
+    draw_bg(m, vw, vh);
+    draw_header("AMELIORATIONS", vw);
 
-    draw_bg(virt_w, virt_h);
-    draw_header("AMELIORATIONS",
-                "La ferraille se gagne uniquement en completant des stages de campagne.",
-                virt_w);
+    // Sous-titre
+    txt_c("La ferraille se gagne uniquement en completant des stages de campagne.",
+          cx, M_PAD + 46, 10, C_DIM);
 
-    // Ferraille disponible — bien visible
-    int fx = cx - 120, fy = 102;
-    DrawRectangle(fx, fy, 240, 28, (Color){8, 24, 8, 255});
-    DrawRectangleLinesEx((Rectangle){(float)fx,(float)fy,240,28},1.5f,C_GREEN);
-    txt_c(TextFormat("Ferraille : %d", meta->scrap), cx, fy + 7, 14, C_GREEN);
+    // Bandeau ferraille
+    {
+        int fw = 220, fh = 28;
+        int fx = cx - fw/2, fy = M_PAD + 62;
+        Rectangle fr = {(float)fx,(float)fy,(float)fw,(float)fh};
+        DrawRectangleRounded(fr, (float)PANEL_R/fh, 5, (Color){6,20,6,255});
+        DrawRectangleRoundedLinesEx(fr, (float)PANEL_R/fh, 5, 1.5f, C_GREEN);
+        txt_c(TextFormat("Ferraille : %d", meta->scrap),
+              cx, fy + fh/2 - 6, 13, C_GREEN);
+    }
 
-    int lx  = 80;
-    int rw  = virt_w - 160;
-    int y   = 142;
-
-    DrawText(TextFormat("Campagnes terminees : %d   Meilleures vague : %d",
+    // Stats globales
+    int lx = M_PAD * 3;
+    int rw = vw - lx * 2;
+    int y  = M_PAD + 100;
+    DrawText(TextFormat("Campagnes terminees : %d     Meilleure vague : %d",
                  meta->campaigns_completed, meta->best_wave),
-             lx, y, 10, C_DIM); y += 16;
-    draw_sep(lx, y, rw, C_BORDER); y += 10;
+             lx, y, 9, C_DIM);
+    y += M_LINE;
+    draw_sep(lx, y, rw, C_BORDER);
+    y += M_IN;
 
     for (int i = 0; i < UPGRADE_COUNT; i++) {
-        int is_h = vhov(lx, y, rw, 30);
-        if (is_h) m->sel_upg = i;
+        // Ligne de fond au survol
+        int hov = vhov(lx, y, rw, 30);
+        if (hov) m->sel_upg = i;
         int is_sel = (m->sel_upg == i);
 
-        DrawRectangle(lx, y, rw, 30,
-                      is_sel ? (Color){24,14,4,255} : (Color){0,0,0,0});
+        Rectangle row = {(float)lx,(float)y,(float)rw, 30};
+        if (is_sel)
+            DrawRectangleRounded(row, (float)PANEL_R/30, 5,
+                                 (Color){22,13,3,255});
 
         // Nom
-        DrawText(UPGRADE_NAMES[i], lx + 10, y + 8, 13,
+        DrawText(UPGRADE_NAMES[i], lx + M_IN, y + 9, 12,
                  is_sel ? C_GOLD : C_TEXT);
 
-        // Étoiles
+        // Niveaux (pastilles)
         int lvl = 0, maxlvl = 0;
         switch (i) {
             case UPGRADE_TOWER_DMG:   lvl=meta->lvl_tower_dmg;   maxlvl=MAX_LVL_TOWER_DMG;   break;
@@ -524,102 +745,275 @@ static MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
             case UPGRADE_SCRAP_BONUS: lvl=meta->lvl_scrap_bonus;  maxlvl=MAX_LVL_SCRAP_BONUS;  break;
             default: break;
         }
-        // Barre de progression étoiles
-        int sx2 = cx - 30;
+
+        // Pastilles de niveau — centrées
+        int pip_w = 13, pip_h = 9, pip_gap = 3;
+        int pip_total = maxlvl * (pip_w + pip_gap) - pip_gap;
+        int pip_x = cx - pip_total/2;
+        int pip_y = y + 11;
         for (int s = 0; s < maxlvl; s++) {
-            Color sc = (s < lvl) ? C_GOLD : (Color){40,30,10,255};
-            DrawRectangle(sx2 + s * 16, y + 10, 12, 10, sc);
-            DrawRectangleLines(sx2 + s * 16, y + 10, 12, 10,
-                               (Color){80,60,20,180});
+            Color pc = (s < lvl) ? C_GOLD : (Color){35,25,8,255};
+            Rectangle pip = {(float)(pip_x + s*(pip_w+pip_gap)),
+                             (float)pip_y, (float)pip_w, (float)pip_h};
+            DrawRectangleRounded(pip, 0.4f, 3, pc);
+            DrawRectangleRoundedLinesEx(pip, 0.4f, 3, 0.8f,
+                (Color){65,48,15,160});
         }
 
-        // Description
-        DrawText(UPGRADE_DESC[i], cx + 60, y + 10, 10, C_DIM);
+        // Description clippée à droite du centre
+        int desc_x  = cx + pip_total/2 + M_IN*2;
+        int desc_max = lx + rw - 92 - desc_x - M_IN;
+        if (desc_max > 30) {
+            char udesc[48];
+            clip_text(UPGRADE_DESC[i], desc_max, 9, udesc, sizeof(udesc));
+            DrawText(udesc, desc_x, y + 11, 9, C_DIM);
+        }
 
-        // Coût / MAX
+        // Coût / MAX à droite
         int cost = meta_upgrade_cost(meta, i);
+        int cost_x = lx + rw - 82;
         if (cost > 0) {
             int can = meta->scrap >= cost;
-            DrawText(TextFormat("%d ", cost), lx + rw - 86, y + 8, 11,
+            DrawText(TextFormat("%d", cost),
+                     cost_x, y + 9, 11,
                      can ? C_GOLD : C_RED);
-            DrawText("ferr.", lx + rw - 50, y + 8, 11, C_DIM);
-            if (is_h && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            DrawText("ferr.", cost_x + 38, y + 10, 9, C_DIM);
+            if (hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                 if (meta_upgrade((MetaProgress*)meta, i))
                     set_msg(m, "Amelioration achetee !");
                 else
                     set_msg(m, "Ferraille insuffisante.");
             }
         } else {
-            DrawText("MAX", lx + rw - 46, y + 8, 11, C_GREEN);
+            DrawText("MAX", cost_x + 10, y + 9, 11, C_GREEN);
         }
 
-        draw_sep(lx, y+30, rw, (Color){30,20,8,160});
-        y += 32;
+        draw_sep(lx, y+30, rw, (Color){25,16,5,140});
+        y += 31;
     }
 
-    draw_msg(m, virt_w, virt_h);
-
-    if (draw_back_btn(virt_h))
-        m->screen = m->back_screen;
-
+    draw_msg(m, vw, vh);
+    if (draw_back_btn(vw, vh)) {
+        m->screen = m->paused ? MENU_PAUSE : m->back_screen;
+        if (!m->paused) pop_back_screen(m);
+    }
     return act;
 }
 
 // ════════════════════════════════════════════════════
 // OPTIONS
 // ════════════════════════════════════════════════════
-static MenuAction draw_options(MenuState *m, int virt_w, int virt_h) {
+static MenuAction draw_options(MenuState *m, int vw, int vh) {
     MenuAction act = {0};
-    int cx = virt_w / 2, cy = virt_h / 2;
+    int cx = vw/2, cy = vh/2;
 
     if (m->paused)
-        DrawRectangle(0, 0, virt_w, virt_h, (Color){0,0,0,160});
+        DrawRectangle(0, 0, vw, vh, (Color){0,0,0,155});
     else
-        draw_bg(virt_w, virt_h);
+        draw_bg(m, vw, vh);
 
-    int pw = 380, ph = 390;
+    int pw = 600, ph = 500;
     draw_panel(cx, cy, pw, ph, C_BORDER);
-    txt_c("OPTIONS", cx, cy - ph/2 + 16, 22, C_GOLD);
-    draw_sep(cx - pw/2 + 24, cy - ph/2 + 46, pw - 48, C_BORDER);
 
-    int y = cy - ph/2 + 62;
+    int px = cx - pw/2;
+    int py = cy - ph/2;
+    int iw = pw - M_PAD*2;
 
-    // Plein écran
-    txt_c("AFFICHAGE", cx, y, 12, C_DIM); y += 20;
-    const char *fsl = m->opts.fullscreen ? "[*] PLEIN ECRAN" : "[ ] PLEIN ECRAN";
-    int bw = pw - 48, bx = cx - bw/2;
-    if (draw_btn(fsl, bx, y, bw, 30, C_BLUE, m->opts.fullscreen)) {
-        m->opts.fullscreen ^= 1;
-        act.toggle_fs = 1;
+    txt_c("OPTIONS", cx, py + M_PAD, 19, C_GOLD);
+    py += 30;
+    draw_sep(px + M_PAD, py, iw, C_BORDER);
+    py += M_IN + 4;
+
+    // ── Onglets horizontaux ────────────────────────────────────
+    const char *tabs[3] = {"General", "Audio", "Graphismes"};
+    int tab_w = 120, tab_h = 24;
+    int tab_gap = 10;
+    int tabs_total = tab_w * 3 + tab_gap * 2;
+    int tab_start_x = cx - tabs_total/2;
+
+    for (int i = 0; i < 3; i++) {
+        int tx = tab_start_x + i * (tab_w + tab_gap);
+        Rectangle tr = {(float)tx, (float)py, (float)tab_w, (float)tab_h};
+        int is_sel = (m->opt_tab == i);
+        int hov = vhov_r(tr);
+
+        Color bg = is_sel ? (Color){20, 15, 5, 255} : C_PANEL;
+        Color bd = is_sel ? C_GOLD : C_BORDER;
+        float bw = is_sel ? 2.0f : 1.0f;
+
+        DrawRectangleRounded(tr, 0.3f, 4, bg);
+        DrawRectangleRoundedLinesEx(tr, 0.3f, 4, bw, bd);
+
+        int tlen = MeasureText(tabs[i], 11);
+        DrawText(tabs[i], tx + tab_w/2 - tlen/2, py + tab_h/2 - 6, 11,
+                 is_sel ? C_GOLD : C_TEXT);
+
+        if (hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+            m->opt_tab = i;
     }
-    y += 40;
 
-    // Résolutions
-    txt_c("RESOLUTION", cx, y, 12, C_DIM); y += 20;
-    static const int RES[][2] = {
-        {1120,770},{1400,962},{1680,1154},{1960,1346},{2240,1540}
-    };
-    static const char *RLBL[] = {
-        "1120x770  (1x)","1400x962  (1.25x)","1680x1154 (1.5x)",
-        "1960x1346 (1.75x)","2240x1540 (2x)",
-    };
-    for (int i = 0; i < 5; i++) {
-        int cur = (m->opts.win_width == RES[i][0]);
-        Color c = cur ? C_GREEN : C_TEXT;
-        if (draw_btn(RLBL[i], bx, y, bw, 26, c, cur) && !cur) {
-            m->opts.win_width  = RES[i][0];
-            m->opts.win_height = RES[i][1];
-            act.toggle_fs = 2;
+    py += tab_h + 16;
+
+    // ── Contenu des onglets ────────────────────────────────────
+    int content_x = px + M_PAD;
+    int content_y = py;
+    int content_w = iw;
+
+    switch (m->opt_tab) {
+    case 0: // General
+        {
+            int y = content_y;
+            DrawText("Plein écran", content_x, y, 11, C_GOLD);
+            y += 16;
+
+            const char *fsl = m->opts.fullscreen ? "[*] Activé" : "[ ] Désactivé";
+            if (draw_btn(fsl, content_x, y, content_w, BTN_H, C_BLUE, m->opts.fullscreen)) {
+                m->opts.fullscreen ^= 1;
+                act.toggle_fs = 1;
+            }
+            y += BTN_H + 20;
+
+            DrawText("FPS Cible", content_x, y, 11, C_GOLD);
+            y += 16;
+
+            // Dropdown FPS
+            static const int   FPS_OPTS[] = {30, 60, 120, 165, 0};
+            static const char *FPS_LBL [] = {"30 FPS","60 FPS","120 FPS","165 FPS","Illimité"};
+            char fps_display[32];
+            if (m->opts.target_fps == 0)
+                snprintf(fps_display, sizeof(fps_display), "Illimité ▼");
+            else
+                snprintf(fps_display, sizeof(fps_display), "%d FPS ▼", m->opts.target_fps);
+
+            if (draw_btn(fps_display, content_x, y, content_w, BTN_H, C_BLUE, 0))
+                m->opt_dropdown_open = (m->opt_dropdown_open == 0) ? -1 : 0;
+
+            y += BTN_H + 4;
+
+            if (m->opt_dropdown_open == 0) {
+                for (int i = 0; i < 5; i++) {
+                    if (draw_btn(FPS_LBL[i], content_x, y, content_w, 26, C_TEXT,
+                                 m->opts.target_fps == FPS_OPTS[i])) {
+                        m->opts.target_fps = FPS_OPTS[i];
+                        SetTargetFPS(FPS_OPTS[i]);
+                        m->opt_dropdown_open = -1;
+                    }
+                    y += 30;
+                }
+            }
         }
-        y += 28;
+        break;
+
+    case 1: // Audio
+        {
+            int y = content_y;
+            DrawText("Paramètres Audio", content_x, y, 11, C_GOLD);
+            y += 22;
+
+            const char *music_toggle = m->opts.music_volume > 0 ? "[*] Musique" : "[ ] Musique";
+            if (draw_btn(music_toggle, content_x, y, content_w, BTN_H, C_BLUE, m->opts.music_volume > 0)) {
+                if (m->opts.music_volume > 0) {
+                    m->opts.music_volume = 0;
+                } else {
+                    m->opts.music_volume = 60;
+                }
+                audio_set_music_volume(m->opts.music_volume / 100.0f);
+                audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
+            }
+            y += BTN_H + 14;
+
+            if (draw_volume_slider("Volume Musique", content_x, y, content_w, m->opts.music_volume, &m->opts.music_volume)) {
+                audio_set_music_volume(m->opts.music_volume / 100.0f);
+                audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
+            }
+            y += 42;
+
+            const char *sfx_toggle = m->opts.sfx_volume > 0 ? "[*] Effets" : "[ ] Effets";
+            if (draw_btn(sfx_toggle, content_x, y, content_w, BTN_H, C_BLUE, m->opts.sfx_volume > 0)) {
+                if (m->opts.sfx_volume > 0) {
+                    m->opts.sfx_volume = 0;
+                } else {
+                    m->opts.sfx_volume = 95;
+                }
+                audio_set_sfx_volume(m->opts.sfx_volume / 100.0f);
+                audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
+            }
+            y += BTN_H + 14;
+
+            if (draw_volume_slider("Volume Effets", content_x, y, content_w, m->opts.sfx_volume, &m->opts.sfx_volume)) {
+                audio_set_sfx_volume(m->opts.sfx_volume / 100.0f);
+                audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
+            }
+            y += 42;
+
+            const char *master_toggle = m->opts.master_volume > 0 ? "[*] Volume général" : "[ ] Volume général";
+            if (draw_btn(master_toggle, content_x, y, content_w, BTN_H, C_BLUE, m->opts.master_volume > 0)) {
+                if (m->opts.master_volume > 0) {
+                    m->opts.master_volume = 0;
+                } else {
+                    m->opts.master_volume = 80;
+                }
+                audio_set_master_volume(m->opts.master_volume / 100.0f);
+                audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
+            }
+            y += BTN_H + 14;
+
+            if (draw_volume_slider("Volume général", content_x, y, content_w, m->opts.master_volume, &m->opts.master_volume)) {
+                audio_set_master_volume(m->opts.master_volume / 100.0f);
+                audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
+            }
+        }
+        break;
+
+    case 2: // Graphismes
+        {
+            int y = content_y;
+            DrawText("Résolution", content_x, y, 11, C_GOLD);
+            y += 16;
+
+            // Dropdown Résolution
+            static const int RES[][2] = {
+                {1120,770},{1400,962},{1680,1154},{1960,1346},{2240,1540}
+            };
+            static const char *RLBL[] = {
+                "1120 × 770  (1×)","1400 × 962  (1.25×)","1680 × 1154 (1.5×)",
+                "1960 × 1346 (1.75×)","2240 × 1540 (2×)",
+            };
+
+            char res_display[64];
+            snprintf(res_display, sizeof(res_display), "%d × %d ▼",
+                     m->opts.win_width, m->opts.win_height);
+
+            if (draw_btn(res_display, content_x, y, content_w, BTN_H, C_BLUE, 0))
+                m->opt_dropdown_open = (m->opt_dropdown_open == 1) ? -1 : 1;
+
+            y += BTN_H + 4;
+
+            if (m->opt_dropdown_open == 1) {
+                for (int i = 0; i < 5; i++) {
+                    int cur = (m->opts.win_width == RES[i][0]);
+                    if (draw_btn(RLBL[i], content_x, y, content_w, 26, C_TEXT, cur)) {
+                        m->opts.win_width  = RES[i][0];
+                        m->opts.win_height = RES[i][1];
+                        act.toggle_fs = 2;
+                        m->opt_dropdown_open = -1;
+                    }
+                    y += 30;
+                }
+            }
+        }
+        break;
     }
 
+    // Info résolution actuelle
     char info[48];
-    snprintf(info, sizeof(info), "Actuelle : %dx%d",
+    snprintf(info, sizeof(info), "%dx%d",
              GetScreenWidth(), GetScreenHeight());
-    txt_c(info, cx, cy + ph/2 - 52, 10, C_DIM);
+    txt_c(info, cx, cy + ph/2 - M_PAD - 26, 9, C_DIM);
 
-    if (draw_btn("RETOUR", cx, cy + ph/2 - 24, 120, 26, C_DIM, 0))
+    // Bouton retour
+    if (draw_btn("RETOUR", cx - 55, cy + ph/2 - M_PAD - BTN_H,
+                 110, BTN_H, C_DIM, 0))
         m->screen = m->paused ? MENU_PAUSE : m->back_screen;
 
     return act;
@@ -628,28 +1022,32 @@ static MenuAction draw_options(MenuState *m, int virt_w, int virt_h) {
 // ════════════════════════════════════════════════════
 // CONFIRMATION SUPPRESSION
 // ════════════════════════════════════════════════════
-static MenuAction draw_confirm_del(MenuState *m, int virt_w, int virt_h) {
+static MenuAction draw_confirm_del(MenuState *m, int vw, int vh) {
     MenuAction act = {0};
-    int cx = virt_w/2, cy = virt_h/2;
+    int cx = vw/2, cy = vh/2;
 
-    DrawRectangle(0, 0, virt_w, virt_h, (Color){0,0,0,140});
+    DrawRectangle(0, 0, vw, vh, (Color){0,0,0,140});
 
-    int pw = 380, ph = 130;
+    int pw = 360, ph = 120;
     draw_panel(cx, cy, pw, ph, C_RED);
-    txt_c(TextFormat("Effacer la partie %d ?", m->confirm_del_slot+1),
-          cx, cy - ph/2 + 18, 15, C_RED);
-    txt_c("Cette action est irreversible.", cx, cy - ph/2 + 40, 11, C_DIM);
 
-    if (draw_btn("EFFACER", cx - 70, cy + 26, 110, 28, C_RED, 0)) {
+    txt_c(TextFormat("Effacer la partie %d ?", m->confirm_del_slot+1),
+          cx, cy - ph/2 + M_PAD, 14, C_RED);
+    txt_c("Cette action est irreversible.",
+          cx, cy - ph/2 + M_PAD + 22, 10, C_DIM);
+
+    int bw2 = 110, bh2 = BTN_H;
+    int by2 = cy + ph/2 - M_PAD - bh2;
+
+    if (draw_btn("EFFACER",  cx - bw2 - M_IN/2, by2, bw2, bh2, C_RED, 0)) {
         save_delete(m->confirm_del_slot);
         menu_refresh_slots(m);
-        // Retour à l'écran de liste approprié
         m->screen = (m->back_screen == MENU_CAMPAIGN ||
                      m->back_screen == MENU_ARCADE)
                     ? m->back_screen : MENU_PLAY_HUB;
         set_msg(m, "Partie effacee.");
     }
-    if (draw_btn("ANNULER", cx + 70, cy + 26, 110, 28, C_TEXT, 0))
+    if (draw_btn("ANNULER",  cx + M_IN/2,         by2, bw2, bh2, C_TEXT, 0))
         m->screen = m->back_screen;
 
     return act;
@@ -658,44 +1056,51 @@ static MenuAction draw_confirm_del(MenuState *m, int virt_w, int virt_h) {
 // ════════════════════════════════════════════════════
 // MENU PAUSE
 // ════════════════════════════════════════════════════
-static MenuAction draw_pause(MenuState *m, int virt_w, int virt_h) {
+static MenuAction draw_pause(MenuState *m, int vw, int vh) {
     MenuAction act = {0};
-    int cx = virt_w/2, cy = virt_h/2;
+    int cx = vw/2, cy = vh/2;
 
-    DrawRectangle(0, 0, virt_w, virt_h, (Color){0,0,0,160});
+    DrawRectangle(0, 0, vw, vh, (Color){0,0,0,155});
 
-    int pw = 300, ph = 340;
+    int pw = 260, ph = 340;
     draw_panel(cx, cy, pw, ph, C_GOLD);
-    txt_c("PAUSE", cx, cy - ph/2 + 18, 26, C_GOLD);
-    draw_sep(cx - pw/2 + 32, cy - ph/2 + 52, pw - 64, C_BORDER);
 
-    int bw = 220, bh = 36, gap = 44;
-    int by = cy - ph/2 + 68;
+    int px = cx - pw/2 + M_PAD;
+    int iw = pw - M_PAD*2;
+    int py = cy - ph/2 + M_PAD;
 
-    if (draw_btn("REPRENDRE",     cx, by, bw, bh, C_GREEN, 0))
+    txt_c("PAUSE", cx, py, 22, C_GOLD);
+    py += 30;
+    draw_sep(px, py, iw, C_BORDER);
+    py += M_IN + 4;
+
+    int bh2 = BTN_H, gap = M_IN - 2;
+
+    if (draw_btn("REPRENDRE",     px, py, iw, bh2, C_GREEN, 0))
         { m->paused = 0; m->screen = MENU_TITLE; }
-    by += gap;
+    py += bh2 + gap;
 
-    if (draw_btn("SAUVEGARDER",   cx, by, bw, bh, C_GOLD, 0))
+    if (draw_btn("SAUVEGARDER",   px, py, iw, bh2, C_GOLD, 0))
         act.save_and_quit = 2;
-    by += gap;
+    py += bh2 + gap;
 
-    if (draw_btn("OPTIONS",        cx, by, bw, bh, C_BLUE, 0))
+    if (draw_btn("OPTIONS",        px, py, iw, bh2, C_BLUE, 0))
         m->screen = MENU_OPTIONS;
-    by += gap;
+    py += bh2 + gap;
 
-    if (draw_btn("MENU PRINCIPAL", cx, by, bw, bh, C_DIM, 0))
+    if (draw_btn("MENU PRINCIPAL", px, py, iw, bh2, C_DIM, 0))
         act.save_and_quit = 1;
-    by += gap;
+    py += bh2 + gap;
 
-    if (draw_btn("QUITTER",        cx, by, bw, bh, C_RED, 0))
+    if (draw_btn("QUITTER",        px, py, iw, bh2, C_RED, 0))
         act.quit_app = 1;
 
+    // Info résolution
     char sz[48];
     snprintf(sz, sizeof(sz), "%dx%d  %s",
              GetScreenWidth(), GetScreenHeight(),
              IsWindowFullscreen() ? "Plein ecran" : "Fenetre");
-    txt_c(sz, cx, cy + ph/2 - 18, 10, C_DIM);
+    txt_c(sz, cx, cy + ph/2 - M_PAD - 10, 9, C_DIM);
 
     return act;
 }
@@ -708,7 +1113,6 @@ MenuAction menu_update(MenuState *m, const MetaProgress *meta) {
     MenuAction act = {0};
     if (m->msg_timer > 0.0f) m->msg_timer -= GetFrameTime();
 
-    // Navigation clavier dans les améliorations
     if (m->screen == MENU_UPGRADES) {
         if (IsKeyPressed(KEY_UP))
             m->sel_upg = (m->sel_upg - 1 + UPGRADE_COUNT) % UPGRADE_COUNT;
@@ -725,73 +1129,46 @@ MenuAction menu_update(MenuState *m, const MetaProgress *meta) {
 // DISPATCH PRINCIPAL
 // ════════════════════════════════════════════════════
 MenuAction menu_render_and_act(MenuState *m, const MetaProgress *meta,
-                                int virt_w, int virt_h)
+                               int vw, int vh)
 {
     MenuAction act = {0};
 
-    // ── Overlays (toujours en premier) ────────────────────────
     if (m->paused && m->screen == MENU_PAUSE) {
-        act = draw_pause(m, virt_w, virt_h);
+        act = draw_pause(m, vw, vh);
         return act;
     }
     if (m->paused && m->screen == MENU_OPTIONS) {
-        act = draw_options(m, virt_w, virt_h);
+        act = draw_options(m, vw, vh);
         return act;
     }
 
-    // ── Écrans principaux ─────────────────────────────────────
     switch (m->screen) {
-        case MENU_TITLE:
-            act = draw_title(m, virt_w, virt_h);
-            break;
-
-        case MENU_PLAY_HUB:
-            act = draw_play_hub(m, meta, virt_w, virt_h);
-            break;
-
-        case MENU_CAMPAIGN:
-            act = draw_slot_list(m, virt_w, virt_h, 1);
-            break;
-
-        case MENU_ARCADE:
-            act = draw_slot_list(m, virt_w, virt_h, 0);
-            break;
-
-        case MENU_NEW_CAMPAIGN:
-            act = draw_new_campaign(m, meta, virt_w, virt_h);
-            break;
-
+        case MENU_TITLE:        act = draw_title(m, vw, vh);              break;
+        case MENU_PLAY_HUB:     act = draw_play_hub(m, meta, vw, vh);     break;
+        case MENU_CAMPAIGN:     act = draw_slot_list(m, vw, vh, 1);       break;
+        case MENU_ARCADE:       act = draw_slot_list(m, vw, vh, 0);       break;
+        case MENU_NEW_CAMPAIGN: act = draw_new_campaign(m, meta, vw, vh); break;
         case MENU_NEW_ARCADE:
             m->new_theme = (m->new_theme == (ThemeID)-1) ? THEME_COUNT : m->new_theme;
-            act = draw_new_arcade(m, virt_w, virt_h);
+            act = draw_new_arcade(m, vw, vh);
             break;
-
-        case MENU_UPGRADES:
-            act = draw_upgrades(m, meta, virt_w, virt_h);
-            break;
-
-        case MENU_OPTIONS:
-            act = draw_options(m, virt_w, virt_h);
-            break;
-
+        case MENU_UPGRADES:     act = draw_upgrades(m, meta, vw, vh);     break;
+        case MENU_OPTIONS:      act = draw_options(m, vw, vh);            break;
         case MENU_CONFIRM_DEL:
-            // Dessine l'écran précédent en arrière-plan
-            draw_slot_list(m, virt_w, virt_h,
-                           m->back_screen == MENU_CAMPAIGN);
-            act = draw_confirm_del(m, virt_w, virt_h);
+            draw_slot_list(m, vw, vh, m->back_screen == MENU_CAMPAIGN);
+            act = draw_confirm_del(m, vw, vh);
             break;
-
         default:
             m->screen = MENU_TITLE;
             break;
     }
 
-    draw_msg(m, virt_w, virt_h);
+    draw_msg(m, vw, vh);
     return act;
 }
 
 void menu_render(const MenuState *m_const, const MetaProgress *meta,
-                 int virt_w, int virt_h)
+                 int vw, int vh)
 {
-    menu_render_and_act((MenuState*)m_const, meta, virt_w, virt_h);
+    menu_render_and_act((MenuState*)m_const, meta, vw, vh);
 }

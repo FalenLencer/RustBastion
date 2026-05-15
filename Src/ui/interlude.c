@@ -4,44 +4,105 @@
 #include "../map/theme.h"
 #include <math.h>
 
+// ── Constantes layout (cohérentes avec menu.c) ───────────────
+#define M_PAD  16
+#define M_IN    8
+#define M_LINE 12
+#define BTN_H  36
+#define BTN_R   5
+#define PNL_R   6
+
 void interlude_render(const GameState *gs, int scrap_earned, int last_stage) {
     const int CX = VIRT_W/2, CY = VIRT_H/2;
-    DrawRectangle(0, 0, VIRT_W, VIRT_H, (Color){0,0,0,200});
 
-    int pw = 460, ph = last_stage ? 260 : 220;
-    DrawRectangle(CX-pw/2, CY-ph/2, pw, ph, (Color){10,6,2,250});
-    DrawRectangleLinesEx(
-        (Rectangle){(float)(CX-pw/2),(float)(CY-ph/2),(float)pw,(float)ph},
-        2.5f, (Color){46,204,113,255});
+    // Fond assombri
+    DrawRectangle(0, 0, VIRT_W, VIRT_H, (Color){0,0,0,195});
 
+    int pw = 440, ph = last_stage ? 252 : 222;
+    float rnd = (float)PNL_R / ph;
+
+    // Panneau principal
+    DrawRectangleRounded(
+        (Rectangle){CX-pw/2.0f, CY-ph/2.0f, (float)pw, (float)ph},
+        rnd, 8, (Color){10,6,2,252});
+    DrawRectangleRoundedLinesEx(
+        (Rectangle){CX-pw/2.0f, CY-ph/2.0f, (float)pw, (float)ph},
+        rnd, 8, 2.0f,
+        last_stage ? (Color){232,152,32,255} : (Color){42,190,105,255});
+
+    int px = CX - pw/2 + M_PAD;
+    int iw = pw - M_PAD*2;
+    int py = CY - ph/2 + M_PAD;
+
+    // Titre
     const char *title = last_stage ? "CAMPAGNE TERMINEE !" : "STAGE TERMINE !";
-    int tw = MeasureText(title, 22);
-    DrawText(title, CX-tw/2, CY-ph/2+18, 22,
-             last_stage ? (Color){239,159,39,255} : (Color){46,204,113,255});
-    DrawLine(CX-pw/2+20, CY-ph/2+48, CX+pw/2-20, CY-ph/2+48,
-             (Color){50,35,15,200});
+    int fs_title = 20;
+    int tw = MeasureText(title, fs_title);
+    Color title_col = last_stage ? (Color){232,152,32,255}
+                                 : (Color){42,190,105,255};
+    DrawText(title, CX - tw/2, py, fs_title, title_col);
+    py += fs_title + M_IN;
 
+    // Séparateur
+    DrawLine(px, py, px+iw, py, (Color){45,28,8,180});
+    py += M_IN;
+
+    // Stats
     DrawText(TextFormat("Vague atteinte  : %d", gs->wave_manager.number),
-             CX-pw/2+24, CY-ph/2+60, 14, (Color){180,160,130,255});
+             px, py, 12, (Color){168,148,102,255});
+    py += M_LINE + 2;
+
     DrawText(TextFormat("Ferraille gagnee : +%d", scrap_earned),
-             CX-pw/2+24, CY-ph/2+82, 14, (Color){127,200,50,255});
+             px, py, 12, (Color){118,188,45,255});
+    py += M_LINE;
+
     DrawText(TextFormat("Ferraille totale : %d", gs->meta.scrap),
-             CX-pw/2+24, CY-ph/2+104, 12, (Color){80,120,60,255});
+             px, py, 10, (Color){72,112,52,255});
+    py += M_LINE + M_IN;
+
+    // Séparateur
+    DrawLine(px, py, px+iw, py, (Color){38,24,6,150});
+    py += M_IN;
 
     if (!last_stage) {
+        // Prochain stage
         int themes[CAMPAIGN_STAGES];
-        meta_campaign_theme_order(gs->campaign_num, themes);
-        const Theme *nth = theme_get((ThemeID)themes[gs->campaign_stage+1]);
-        DrawText(TextFormat("Prochain : %s", nth->name),
-                 CX-pw/2+24, CY-ph/2+130, 13, (Color){100,160,200,255});
+        meta_campaign_theme_order(gs->campaign_order_seed, themes);
+        int next = gs->campaign_stage + 1;
+        if (next >= CAMPAIGN_STAGES) next = 0;
+        const Theme *nth = theme_get((ThemeID)themes[next]);
+        DrawText("Prochain stage :", px, py, 10, (Color){72,100,72,255});
+        DrawText(nth->name,
+                 px + MeasureText("Prochain stage : ", 10), py,
+                 10, (Color){92,158,185,255});
+        py += M_LINE + M_IN;
     } else {
+        // Campagnes complétées
         DrawText(TextFormat("Campagnes terminees : %d",
                      gs->meta.campaigns_completed),
-                 CX-pw/2+24, CY-ph/2+130, 13, (Color){239,159,39,255});
+                 px, py, 10, (Color){232,152,32,255});
+        py += M_LINE + M_IN;
     }
 
-    const char *hint = last_stage ? "[ESPACE] Retour au menu"
-                                  : "[ESPACE] Continuer";
-    tw = MeasureText(hint, 14);
-    DrawText(hint, CX-tw/2, CY+ph/2-36, 14, (Color){160,140,100,255});
+    // Bouton CONTINUER / RETOUR
+    const char *hint = last_stage ? "[ESPACE]  Retour au menu"
+                                  : "[ESPACE]  Continuer";
+    // Fond bouton arrondi
+    int bw = 200, bh = BTN_H;
+    int bx = CX - bw/2;
+    int by = CY + ph/2 - M_PAD - bh;
+    float brnd = (float)BTN_R / bh;
+
+    Color bcol = last_stage ? (Color){232,152,32,255}
+                            : (Color){42,190,105,255};
+    DrawRectangleRounded(
+        (Rectangle){(float)bx,(float)by,(float)bw,(float)bh},
+        brnd, 6, (Color){bcol.r/6,bcol.g/6,bcol.b/6,255});
+    DrawRectangleRoundedLinesEx(
+        (Rectangle){(float)bx,(float)by,(float)bw,(float)bh},
+        brnd, 6, 1.5f, bcol);
+
+    int hw = MeasureText(hint, 12);
+    DrawText(hint, CX - hw/2, by + bh/2 - 6, 12,
+             (Color){148,128,92,255});
 }

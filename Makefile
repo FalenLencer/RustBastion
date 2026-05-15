@@ -1,17 +1,17 @@
 # ═══════════════════════════════════════════════════════════════
 #  RUST BASTION — Makefile
-#  Cibles : linux | win | package_win | zip_win | clean
+#  Cibles : linux | win | package_win | package_linux | zip | clean
 # ═══════════════════════════════════════════════════════════════
 
 # ── Sources ─────────────────────────────────────────────────────
 SRC = Src/main.c          Src/core/game_state.c  Src/core/save.c    \
       Src/core/window.c        Src/core/canvas.c      Src/core/game_init.c \
-      Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c    \
+      Src/audio.c              Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c    \
       Src/combat/enemy.c       Src/combat/wave.c       Src/combat/tower.c \
-      Src/combat/unit.c        Src/combat/projectile.c                    \
+      Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
       Src/meta/meta.c                                                      \
-      Src/ui/renderer.c        Src/ui/ui.c           Src/ui/menu.c       \
-      Src/ui/interlude.c                                                  \
+      Src/ui/renderer.c        Src/ui/ui.c           Src/ui/ui_utils.c  \
+      Src/ui/menu.c           Src/ui/interlude.c                                                  \
 
 # ── Dossiers ────────────────────────────────────────────────────
 ASSETS_DIR   = assets
@@ -22,14 +22,14 @@ BUILD_DIR    = build
 OBJ_DIR      = $(BUILD_DIR)/obj
 
 # ── ZIP ─────────────────────────────────────────────────────────
-ZIP_WIN      = $(RELEASE_DIR)/rustbastion_win.zip
+ZIP_WIN      = $(RELEASE_DIR)/rustbastion_win.tar.gz
 ZIP_LINUX    = $(RELEASE_DIR)/rustbastion_linux.tar.gz
 
 # ════════════════════════════════════════════════════════════════
 #  LINUX
 # ════════════════════════════════════════════════════════════════
 CC_LINUX      = gcc
-CFLAGS_LINUX  = -Wall -Wextra -O2 -Isrc
+CFLAGS_LINUX  = -Wall -Wextra -O2 -Isrc -DGL_DISABLE_VSYNC
 LDFLAGS_LINUX = -lraylib -lGL -lm -lpthread -ldl -lrt \
                 -lX11 -lXi -lXcursor -lXrandr -lXinerama
 OUT_LINUX     = $(BUILD_DIR)/rustbastion
@@ -59,10 +59,17 @@ ICON_OBJ = $(OBJ_DIR)/icon.o
 # ════════════════════════════════════════════════════════════════
 #  CIBLES PRINCIPALES
 # ════════════════════════════════════════════════════════════════
-.PHONY: all linux win package_win package_linux \
-        zip_win zip_linux clean help
+.PHONY: all linux win package package_win package_linux \
+        zip zip_win zip_linux clean help
 
 all: linux
+
+# ── Les deux plateformes d'un coup ───────────────────────────────
+package: package_win package_linux
+	@echo "✓ Packages créés pour Windows et Linux"
+
+zip: zip_win zip_linux
+	@echo "✓ Archives ZIP créées pour Windows et Linux"
 
 # ── Linux ────────────────────────────────────────────────────────
 linux: $(OUT_LINUX)
@@ -133,20 +140,23 @@ package_linux: linux
 # ════════════════════════════════════════════════════════════════
 package_win: win
 	@echo "── Package Windows ────────────────────────────"
-	@mkdir -p $(WIN_DIR)/assets/textures
+	@mkdir -p $(WIN_DIR)/assets/textures/Menue
 	@mkdir -p $(WIN_DIR)/assets/sounds
 	@mkdir -p $(WIN_DIR)/assets/fonts
+	@mkdir -p $(WIN_DIR)/assets/win_ico
 	@mkdir -p $(WIN_DIR)/saves
 	@mkdir -p $(WIN_DIR)/config
 
 	@# Exécutable
 	cp $(OUT_WIN) $(WIN_DIR)/rustbastion.exe
 
-	@# Assets
+	@# Assets complets
 	@if [ -d "$(ASSETS_DIR)" ]; then \
 		cp -r $(ASSETS_DIR)/textures $(WIN_DIR)/assets/ 2>/dev/null || true; \
 		cp -r $(ASSETS_DIR)/sounds   $(WIN_DIR)/assets/ 2>/dev/null || true; \
 		cp -r $(ASSETS_DIR)/fonts    $(WIN_DIR)/assets/ 2>/dev/null || true; \
+		cp -r $(ASSETS_DIR)/win_ico  $(WIN_DIR)/assets/ 2>/dev/null || true; \
+		cp $(ASSETS_DIR)/icon.png    $(WIN_DIR)/assets/ 2>/dev/null || true; \
 	fi
 
 	@# Config par défaut
@@ -159,7 +169,7 @@ package_win: win
 	@echo ""                                               >> $(WIN_DIR)/README.txt
 	@echo "Double-cliquez sur rustbastion.exe pour jouer." >> $(WIN_DIR)/README.txt
 	@echo ""                                               >> $(WIN_DIR)/README.txt
-	@echo "Sauvegardes : saves\rustbastion.sav"            >> $(WIN_DIR)/README.txt
+	@echo "Sauvegardes : saves\rustbastion_slot*.sav"      >> $(WIN_DIR)/README.txt
 
 	@echo "✓ Package Windows : $(WIN_DIR)/"
 
@@ -168,8 +178,8 @@ package_win: win
 # ════════════════════════════════════════════════════════════════
 zip_win: package_win
 	@mkdir -p $(RELEASE_DIR)
-	cd $(RELEASE_DIR)/win && zip -r ../../$(ZIP_WIN) rustbastion
-	@echo "✓ ZIP Windows : $(ZIP_WIN)"
+	cd $(RELEASE_DIR)/win && tar -czf ../../$(ZIP_WIN) rustbastion
+	@echo "✓ Archive Windows : $(ZIP_WIN)"
 
 zip_linux: package_linux
 	@mkdir -p $(RELEASE_DIR)

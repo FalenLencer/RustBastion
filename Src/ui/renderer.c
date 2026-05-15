@@ -10,7 +10,9 @@
 #include "../combat/unit.h"
 #include "../core/game_state.h"
 #include "ui.h"
-
+#include "../combat/material.h"
+#include <stdio.h>
+#include <stdlib.h>
 // ── Macros de scaling ─────────────────────────────────────────
 #define S(x) ((int)((x) * RENDER_SCALE))
 #define SF(x) ((float)(x) * RENDER_SCALE)
@@ -28,6 +30,7 @@ Color UNIT_FILL[UNIT_TYPE_COUNT] = {
     [UNIT_HEAVY]   = { 41,128, 185,  255},
     [UNIT_MEDIC]   = {231, 76,  60,  255},
     [UNIT_DOG]     = {243,156,  18,  255},
+    [UNIT_WORKER]  = {200,200,  50, 255},
 };
 Color PROJ_COLOR[TOWER_TYPE_COUNT] = {
     [TOWER_GUN]    = {255,128,128,  255},
@@ -85,12 +88,17 @@ void render_tile_detail(int px, int py, TileType type, ThemeID theme) {
 }
 
 // ════════════════════════════════════════════════════
-// CARTE
+// CARTE AVEC CULLING (optimisation)
 // ════════════════════════════════════════════════════
 void render_map(const Map *map) {
     const Theme *th = theme_get(map->theme);
     const ThemePalette *p = &th->palette;
 
+    // Calculer la zone visible (viewport)
+    // La carte fait MAP_W * TILE_SIZE x MAP_H * TILE_SIZE
+    // On affiche tout car la vue est fixe, mais on peut optimiser
+    // en ne dessinant que les tuiles nécessaires
+    
     for (int y = 0; y < MAP_H; y++) {
         for (int x = 0; x < MAP_W; x++) {
             TileType t  = map->tiles[y][x].type;
@@ -113,85 +121,132 @@ void render_map(const Map *map) {
             render_tile_detail(px, py, t, map->theme);
         }
     }
+    
+    // ── Pulses spawn (rouge) et base (vert) ──────────────────
+    float t = (float)GetTime();
+    float pulse = (sinf(t * 3.0f) + 1.0f) * 0.5f;  // 0..1, 3 Hz
+
+    for (int y = 0; y < MAP_H; y++) {
+        for (int x = 0; x < MAP_W; x++) {
+            TileType type = map->tiles[y][x].type;
+            int px2 = x * TILE_SIZE, py2 = y * TILE_SIZE;
+
+            if (type == TILE_SPAWN) {
+                // Halo rouge clignotant + flèche entrée
+                int alpha = (int)(80 + pulse * 120);
+                DrawRectangle(px2, py2, TILE_SIZE, TILE_SIZE,
+                              (Color){231, 76, 60, (unsigned char)alpha});
+                // Icône "!" centré
+                DrawText("!", px2 + TILE_SIZE/2 - 3, py2 + TILE_SIZE/2 - 7,
+                         14, (Color){255, 180, 180, 220});
+            }
+            else if (type == TILE_BASE) {
+                // Halo vert clignotant + étoile
+                int alpha = (int)(80 + pulse * 140);
+                DrawRectangle(px2, py2, TILE_SIZE, TILE_SIZE,
+                              (Color){46, 204, 113, (unsigned char)alpha});
+                DrawText("*", px2 + TILE_SIZE/2 - 5, py2 + TILE_SIZE/2 - 8,
+                         16, (Color){180, 255, 200, 230});
+            }
+        }
+    }
+}
+
+void render_spawn_exclusion_zones(const Map *map) {
+    for (int i = 0; i < map->path_count; i++) {
+        if (!map->paths[i].active) continue;
+        Point sp = map->paths[i].spawn;
+        int cx   = sp.x * TILE_SIZE + TILE_SIZE / 2;
+        int cy   = sp.y * TILE_SIZE + TILE_SIZE / 2;
+        int r    = SPAWN_EXCLUSION_RADIUS * TILE_SIZE + TILE_SIZE / 2;
+
+        // Cercle rouge semi-transparent
+        DrawCircle(cx, cy, (float)r, (Color){200, 40, 40, 18});
+        DrawCircleLines(cx, cy, (float)r, (Color){200, 40, 40, 90});
+    }
+}
+
+// ════════════════════════════════════════════════════
+// BARRES DE VIE DES BASES
+// Appelé depuis main.c après render_map()
+// ════════════════════════════════════════════════════
+void render_bases(const Map *map) {
+    for (int b = 0; b < map->base_count; b++) {
+        const BaseInfo *base = &map->bases[b];
+ 
+        int bpx = base->pos.x * TILE_SIZE;
+        int bpy = base->pos.y * TILE_SIZE;
+        int cx  = bpx + TILE_SIZE / 2;
+        int cy  = bpy;
+ 
+        // Couleur selon état
+        Color bar_col;
+        float ratio = (base->max_hp > 0)
+                    ? (float)base->hp / (float)base->max_hp : 0.0f;
+        if (!base->active || base->hp <= 0) {
+            bar_col = (Color){80, 30, 30, 200};  // détruite = rouge foncé
+        } else if (base->is_primary) {
+            bar_col = ratio > 0.5f ? (Color){46, 204, 113, 255}
+                    : ratio > 0.25f ? (Color){243, 156, 18, 255}
+                                    : (Color){231, 76, 60, 255};
+        } else {
+            // Base secondaire = bleu
+            bar_col = ratio > 0.5f ? (Color){52, 152, 219, 255}
+                    : ratio > 0.25f ? (Color){155, 89, 182, 255}
+                                    : (Color){231, 76, 60, 255};
+        }
+ 
+        // Barre de vie au-dessus de la tuile
+        int bar_w = TILE_SIZE + 10;
+        int bar_h = 6;
+        int bar_x = cx - bar_w / 2;
+        int bar_y = cy - bar_h - 3;
+ 
+        DrawRectangle(bar_x, bar_y, bar_w, bar_h,
+                      (Color){18, 10, 4, 200});
+        if (base->hp > 0 && ratio > 0.0f)
+            DrawRectangle(bar_x, bar_y, (int)(bar_w * ratio), bar_h,
+                          bar_col);
+        DrawRectangleLines(bar_x, bar_y, bar_w, bar_h,
+                           (Color){60, 40, 12, 180});
+ 
+        // Étiquette base
+        const char *lbl = base->is_primary ? "BASE" : TextFormat("B%d", b+1);
+        int lw = MeasureText(lbl, 9);
+        DrawText(lbl, cx - lw/2, bar_y - 11, 9,
+                 base->active ? bar_col : (Color){100, 40, 40, 200});
+ 
+        // HP numériques
+        char hp_buf[16];
+        if (base->hp > 0)
+            snprintf(hp_buf, sizeof(hp_buf), "%d/%d", base->hp, base->max_hp);
+        else
+            snprintf(hp_buf, sizeof(hp_buf), "DETRUITE");
+        int hw = MeasureText(hp_buf, 8);
+        DrawText(hp_buf, cx - hw/2, bar_y - 1 + bar_h + 2, 8,
+                 (Color){140, 120, 80, 200});
+ 
+        // Croix si détruite
+        if (!base->active || base->hp <= 0) {
+            DrawLine(bpx + 4, bpy + 4, bpx + TILE_SIZE - 4, bpy + TILE_SIZE - 4,
+                     (Color){180, 40, 40, 200});
+            DrawLine(bpx + TILE_SIZE - 4, bpy + 4, bpx + 4, bpy + TILE_SIZE - 4,
+                     (Color){180, 40, 40, 200});
+        }
+    }
 }
 
 // ════════════════════════════════════════════════════
 // HUD IN-GAME
 // ════════════════════════════════════════════════════
 void render_hud(const GameState *gs) {
-    const Theme *th = theme_get(gs->map.theme);
-    int sw    = GetScreenWidth();
-    int hud_y = (int)(MAP_H * TILE_SIZE * RENDER_SCALE);
-    int line  = S(22);
-    int pad   = S(6);
-
-    DrawRectangle(0, hud_y, sw, GetScreenHeight() - hud_y,
-                  (Color){12, 8, 4, 255});
-    DrawLine(0, hud_y, sw, hud_y, (Color){139, 94, 0, 255});
-
-    int c1 = S(10);
-    int c2 = S(220);
-    int c3 = S(430);
-    int c4 = S(680);
-
-    // COL 1 : infos partie
-    int y = hud_y + pad;
-    DrawText(TextFormat("OR    : %d",  gs->gold),  c1, y, S(18), (Color){239,159,39,255}); y += line;
-    DrawText(TextFormat("VIES  : %d",  gs->lives), c1, y, S(18), (Color){231,76,60,255});  y += line;
-    DrawText(TextFormat("VAGUE : %d",  gs->wave_manager.number), c1, y, S(18), (Color){180,180,160,255}); y += line;
-    DrawText(gs->phase == PHASE_PREP ? "PREPARATION" :
-             gs->phase == PHASE_WAVE ? "VAGUE EN COURS" : "GAME OVER",
-             c1, y, S(16), (Color){160,160,140,255});
-
-    // COL 2 : carte + timer
-    y = hud_y + pad;
-    DrawText(TextFormat("THEME : %s", th->name),    c2, y, S(18), (Color){180,220,180,255}); y += line;
-    DrawText(TextFormat("SEED  : %d", gs->map.seed),c2, y, S(18), (Color){100,100,80,255});  y += line;
-    DrawText(TextFormat("VOIES : %d", gs->map.path_count), c2, y, S(18), (Color){100,100,80,255}); y += line;
-    if (gs->phase == PHASE_PREP)
-        DrawText(TextFormat("Prochain: %.0fs", gs->wave_manager.prep_timer),
-                 c2, y, S(18), (Color){239,159,39,255});
-    else
-        DrawText(TextFormat("Ennemis: %d", enemy_pool_alive(&gs->enemies)),
-                 c2, y, S(18), (Color){231,76,60,255});
-
-    // COL 3 : mode placement
-    y = hud_y + pad;
-    const char *mode_label = ui_tool_is_unit(gs->ui.selected_tool)
-                             ? "MODE : UNITE" : "MODE : TOUR";
-    Color mode_col = ui_tool_is_unit(gs->ui.selected_tool)
-                     ? (Color){39,174,96,255} : (Color){239,159,39,255};
-    DrawText(mode_label, c3, y, S(16), mode_col); y += line;
-    DrawText("Clic droit = annuler", c3, y, S(13), (Color){100,100,80,255}); y += line;
-    if (gs->ui.selected_tool != TOOL_NONE) {
-        Color col = ui_tool_is_unit(gs->ui.selected_tool)
-                    ? renderer_unit_color(ui_tool_to_unit(gs->ui.selected_tool))
-                    : renderer_tower_color(ui_tool_to_tower(gs->ui.selected_tool));
-        DrawText(TextFormat("Selectionne : %s", ui_tool_name(gs->ui.selected_tool)),
-                 c3, y, S(14), col); y += line;
-    } else {
-        DrawText("Rien selectionne", c3, y, S(13), (Color){80,70,50,255}); y += line;
-    }
-    DrawText("1-4:Tours  5-8:Unites", c3, y, S(12), (Color){80,70,50,255});
-
-    // COL 4 : chemins
-    y = hud_y + pad;
-    static Color path_colors[MAX_PATHS] = {
-        {239,159,39,255}, {39,159,239,255}, {159,239,39,255},
-    };
-    const char *edge_names[] = {"GAUCHE","DROITE","HAUT","BAS"};
-    for (int i = 0; i < gs->map.path_count; i++) {
-        if (!gs->map.paths[i].active) continue;
-        DrawText(TextFormat("Voie %d : %s", i, edge_names[gs->map.paths[i].spawn_edge]),
-                 c4, y, S(16), path_colors[i % MAX_PATHS]);
-        y += line;
-    }
-    if (gs->map.path_count > 0)
-        DrawText(TextFormat("Base : (%d,%d)",
-                     gs->map.paths[0].base.x, gs->map.paths[0].base.y),
-                 c4, y, S(16), (Color){46,204,113,255});
+    // render_hud est maintenu pour compatibilité mais le HUD principal
+    // est maintenant entièrement géré par ui_render() en coords virtuelles.
+    // Cette fonction affiche uniquement les infos debug optionnelles
+    // qui ne rentrent pas dans le HUD UI (chemins, seed, etc.)
+    // Elle n'est appelée QUE si on veut un overlay debug — sinon inutilisée.
+    (void)gs;
 }
-
 // ════════════════════════════════════════════════════
 // CHEMINS A*
 // ════════════════════════════════════════════════════
@@ -219,48 +274,127 @@ void render_paths(const PathSet *ps) {
 // ENNEMIS
 // ════════════════════════════════════════════════════
 void render_enemies(const EnemyPool *pool) {
+    float t = (float)GetTime();
+ 
     for (int i = 0; i < MAX_ENEMIES; i++) {
         const Enemy *e = &pool->enemies[i];
         if (!e->active || e->dead || e->spawn_delay > 0.0f) continue;
-
+ 
         // Ombre
         DrawEllipse((int)e->x + 2, (int)e->y + (int)e->size,
                     (int)(e->size * 0.8f), (int)(e->size * 0.3f),
                     (Color){0,0,0,80});
-
-        // Corps
+ 
+        // Couleur de base par type
         Color col;
         switch (e->type) {
-            case ENEMY_RAIDER:  col = (Color){231, 76,  60,  255}; break;
-            case ENEMY_BRUTE:   col = (Color){230, 126, 34,  255}; break;
-            case ENEMY_RUNNER:  col = (Color){243, 156, 18,  255}; break;
-            case ENEMY_VEHICLE: col = (Color){127, 140, 141, 255}; break;
-            case ENEMY_MUTANT:  col = (Color){39,  174, 96,  255}; break;
-            default:            col = WHITE;
+            case ENEMY_RAIDER:      col = (Color){231, 76,  60,  255}; break;
+            case ENEMY_BRUTE:       col = (Color){230, 126, 34,  255}; break;
+            case ENEMY_RUNNER:      col = (Color){243, 156, 18,  255}; break;
+            case ENEMY_VEHICLE:     col = (Color){127, 140, 141, 255}; break;
+            case ENEMY_MUTANT:      col = (Color){ 39, 174, 96,  255}; break;
+            case ENEMY_GHOST:       col = (Color){180, 180, 255, 255}; break;
+            case ENEMY_PATHBREAKER: col = (Color){255, 80,  180, 255}; break;
+            case ENEMY_HEALER:      col = (Color){255, 100, 100, 255}; break;
+            case ENEMY_HUNTER:      col = (Color){255, 165,   0, 255}; break;
+            case ENEMY_ARTILLERY:   col = (Color){ 90,  90, 100, 255}; break;
+            default:                col = WHITE;
         }
+ 
+        // Slow — teinte bleue
         if (e->slow_timer > 0.0f)
             col = (Color){100, 180, 255, 255};
-
-        DrawCircle((int)e->x, (int)e->y, e->size, col);
-        DrawCircleLines((int)e->x, (int)e->y, e->size, (Color){255,255,255,60});
-
-        // Barre de vie
-        float ratio = e->hp / e->max_hp;
-        int   bw    = (int)(e->size * 2.5f);
-        int   bx    = (int)e->x - bw / 2;
-        int   by    = (int)e->y - (int)e->size - 6;
-        DrawRectangle(bx, by, bw, 3, (Color){30,10,10,200});
-        Color hp_col = ratio > 0.6f ? (Color){46,204,113,255}
-                     : ratio > 0.3f ? (Color){243,156,18,255}
-                                    : (Color){231,76,60,255};
-        DrawRectangle(bx, by, (int)(bw*ratio), 3, hp_col);
-
-        // Label type
-        DrawText(ENEMY_BASE_STATS[e->type].name, bx, by-12, 8,
-                 (Color){200,200,180,180});
+ 
+        // ── Ghost : semi-transparent + scintillement ──────────
+        if (e->type == ENEMY_GHOST) {
+            float flicker = sinf(t * 8.0f + (float)i) * 0.5f + 0.5f;
+            unsigned char alpha = (unsigned char)(60 + (int)(flicker * 80));
+            DrawCircle((int)e->x, (int)e->y, (int)e->size,
+                       (Color){col.r, col.g, col.b, alpha});
+            DrawCircleLines((int)e->x, (int)e->y, (int)e->size,
+                            (Color){200, 200, 255,
+                                    (unsigned char)(120 + (int)(flicker * 80))});
+            DrawCircleLines((int)e->x, (int)e->y, (int)(e->size + 3),
+                            (Color){180, 180, 255,
+                                    (unsigned char)(40 + (int)(flicker * 40))});
+        }
+        // ── Pathbreaker : flèche si dévié ────────────────────
+        else if (e->type == ENEMY_PATHBREAKER) {
+            DrawCircle((int)e->x, (int)e->y, (int)e->size, col);
+            DrawCircleLines((int)e->x, (int)e->y, (int)e->size,
+                            (Color){255,255,255,60});
+            if (e->path_broken) {
+                float dx   = e->target_x - e->x;
+                float dy   = e->target_y - e->y;
+                float dist = sqrtf(dx*dx + dy*dy);
+                if (dist > 1.0f) {
+                    float nx = dx/dist, ny = dy/dist;
+                    DrawLineEx((Vector2){e->x, e->y},
+                               (Vector2){e->x + nx*20.0f, e->y + ny*20.0f},
+                               2.0f, (Color){255, 80, 180, 180});
+                }
+            }
+        }
+        // ── Healer : croix blanche + aura de soin verte ──────
+        else if (e->type == ENEMY_HEALER) {
+            // Aura de soin (rayon)
+            DrawCircle((int)e->x, (int)e->y, (int)e->heal_range,
+                       (Color){46, 204, 113, 18});
+            DrawCircleLines((int)e->x, (int)e->y, (int)e->heal_range,
+                            (Color){46, 204, 113, 60});
+            // Corps
+            DrawCircle((int)e->x, (int)e->y, (int)e->size, col);
+            // Croix blanche
+            int sz = (int)e->size;
+            DrawRectangle((int)e->x - 2, (int)e->y - sz + 2,
+                          4, sz*2 - 4, (Color){255,255,255,230});
+            DrawRectangle((int)e->x - sz + 2, (int)e->y - 2,
+                          sz*2 - 4, 4, (Color){255,255,255,230});
+        }
+        // ── Hunter : point jaune si traque active ─────────────
+        else if (e->type == ENEMY_HUNTER) {
+            DrawCircle((int)e->x, (int)e->y, (int)e->size, col);
+            DrawCircleLines((int)e->x, (int)e->y, (int)e->size,
+                            (Color){255,255,255,60});
+            if (e->hunt_target >= 0)
+                DrawCircle((int)e->x, (int)e->y, 3,
+                           (Color){255, 255, 0, 220});
+        }
+        // ── Artillery : carré + cercle de portée rouge si actif
+        else if (e->type == ENEMY_ARTILLERY) {
+            int sz = (int)e->size;
+            DrawRectangle((int)e->x - sz, (int)e->y - sz,
+                          sz*2, sz*2, col);
+            DrawRectangleLines((int)e->x - sz, (int)e->y - sz,
+                               sz*2, sz*2, (Color){255,255,255,60});
+            if (e->arty_target >= 0)
+                DrawCircleLines((int)e->x, (int)e->y,
+                                (int)e->arty_range,
+                                (Color){231, 76, 60, 80});
+        }
+        // ── Ennemis normaux ───────────────────────────────────
+        else {
+            DrawCircle((int)e->x, (int)e->y, (int)e->size, col);
+            DrawCircleLines((int)e->x, (int)e->y, (int)e->size,
+                            (Color){255,255,255,60});
+        }
+ 
+        // ── Barre de vie ──────────────────────────────────────
+        if (e->type != ENEMY_GHOST || e->hp < e->max_hp * 0.8f) {
+            float ratio = e->hp / e->max_hp;
+            int   bw    = (int)(e->size * 2.5f);
+            int   bx    = (int)e->x - bw / 2;
+            int   by    = (int)e->y - (int)e->size - 6;
+            DrawRectangle(bx, by, bw, 3, (Color){30,10,10,200});
+            Color hp_col = ratio > 0.6f ? (Color){46,204,113,255}
+                         : ratio > 0.3f ? (Color){243,156,18,255}
+                                        : (Color){231,76,60,255};
+            DrawRectangle(bx, by, (int)(bw * ratio), 3, hp_col);
+            DrawText(ENEMY_BASE_STATS[e->type].name,
+                     bx, by-12, 8, (Color){200,200,180,180});
+        }
     }
 }
-
 // ════════════════════════════════════════════════════
 // TOURS ET PROJECTILES
 // ════════════════════════════════════════════════════
@@ -289,14 +423,33 @@ void render_towers(const TowerPool *tp) {
 }
 
 void render_projectiles(const TowerPool *tp) {
+    static const Color DMG_COLORS[5] = {
+        [DMG_PHYSICAL] = {255, 200, 100, 255},
+        [DMG_POISON]   = { 80, 220,  60, 255},
+        [DMG_ELECTRIC] = {180, 100, 255, 255},
+        [DMG_CRYO]     = {140, 220, 255, 255},
+        [DMG_NANO]     = {220, 100, 220, 255},
+    };
+
     for (int i = 0; i < MAX_PROJECTILES; i++) {
         const Projectile *p = &tp->projectiles[i];
         if (!p->active) continue;
 
-        Color col = PROJ_COLOR[p->origin];
+        // Couleur selon type de dégâts si matériau appliqué,
+        // sinon couleur de base de la tour
+        Color col;
+        if (p->dmg_type != DMG_PHYSICAL ||
+            p->origin == TOWER_FLAME ||
+            p->origin == TOWER_TESLA) {
+            col = DMG_COLORS[p->dmg_type];
+        } else {
+            col = PROJ_COLOR[p->origin];
+        }
+
         if (p->splash) {
             DrawCircle((int)p->x, (int)p->y, 5, col);
-            DrawCircleLines((int)p->x, (int)p->y, 8, (Color){col.r,col.g,col.b,100});
+            DrawCircleLines((int)p->x, (int)p->y, 8,
+                            (Color){col.r, col.g, col.b, 100});
         } else {
             DrawCircle((int)p->x, (int)p->y, 3, col);
         }
@@ -306,20 +459,72 @@ void render_projectiles(const TowerPool *tp) {
 void render_tower_preview(const Map *map, const TowerPool *tp,
                            TowerType type, int tile_x, int tile_y)
 {
+    // Zone de spawn — affiche le message d'interdiction
+    for (int i = 0; i < map->path_count; i++) {
+        if (!map->paths[i].active) continue;
+        Point sp   = map->paths[i].spawn;
+        int   dist = abs(tile_x - sp.x) + abs(tile_y - sp.y);
+        if (dist <= SPAWN_EXCLUSION_RADIUS) {
+            int px = tile_x * TILE_SIZE;
+            int py = tile_y * TILE_SIZE;
+            // Tuile rouge
+            DrawRectangle(px+2, py+2, TILE_SIZE-4, TILE_SIZE-4,
+                          (Color){200, 40, 40, 80});
+            // Message centré
+            const char *msg = "Zone spawn - interdit";
+            int mw = MeasureText(msg, 9);
+            int lx = px + TILE_SIZE/2 - mw/2;
+            int ly = py - 14;
+            if (ly < 2) ly = py + TILE_SIZE + 2;
+            DrawRectangle(lx-3, ly-2, mw+6, 13, (Color){0,0,0,180});
+            DrawText(msg, lx, ly, 9, (Color){220, 80, 80, 255});
+            return;
+        }
+    }
+
     if (!tower_can_place(tp, map, tile_x, tile_y)) return;
 
-    const TowerStats *st = &TOWER_BASE_STATS[type];
+    const TowerStats *st  = &TOWER_BASE_STATS[type];
     Color col = TOWER_FILL[type];
     int px = tile_x * TILE_SIZE, py = tile_y * TILE_SIZE;
 
-    DrawRectangle(px+6, py+6, TILE_SIZE-12, TILE_SIZE-12,
-                  (Color){col.r,col.g,col.b,100});
+    // Tuile de relief — teinte orange pour signaler le surcoût
+    int is_ruin = (map->tiles[tile_y][tile_x].type == TILE_RUIN);
+    Color preview_col = is_ruin
+        ? (Color){230, 126, 34, 120}   // orange = surcoût
+        : (Color){col.r, col.g, col.b, 100};
+
+    DrawRectangle(px+6, py+6, TILE_SIZE-12, TILE_SIZE-12, preview_col);
 
     float range_px = st->range * TILE_SIZE;
     DrawCircleLines(px+TILE_SIZE/2, py+TILE_SIZE/2,
-                    range_px, (Color){col.r,col.g,col.b,150});
+                    range_px, (Color){col.r, col.g, col.b, 150});
     DrawCircle(px+TILE_SIZE/2, py+TILE_SIZE/2,
-               range_px, (Color){col.r,col.g,col.b,20});
+               range_px, (Color){col.r, col.g, col.b, 20});
+
+    // Label surcoût — affiché au-dessus de la tuile
+    int real_cost = tower_cost_on_tile(type, map, tile_x, tile_y);
+    const char *cost_label;
+    if (is_ruin)
+        cost_label = TextFormat("%s — %dor (relief x2)", st->name, real_cost);
+    else
+        cost_label = TextFormat("%s — %dor", st->name, real_cost);
+
+    Color label_col = is_ruin ? (Color){230, 126, 34, 255}
+                               : (Color){239, 159,  39, 220};
+
+    int lw = MeasureText(cost_label, 10);
+    int lx = px + TILE_SIZE/2 - lw/2;
+    int ly = py - 16;
+
+    // S'assure que le label reste dans la zone de jeu
+    if (lx < 2) lx = 2;
+    if (lx + lw > MAP_W * TILE_SIZE - 2) lx = MAP_W * TILE_SIZE - lw - 2;
+    if (ly < 2) ly = py + TILE_SIZE + 2;
+
+    // Fond du label pour lisibilité
+    DrawRectangle(lx - 3, ly - 2, lw + 6, 14, (Color){0, 0, 0, 160});
+    DrawText(cost_label, lx, ly, 10, label_col);
 }
 
 // ════════════════════════════════════════════════════
@@ -334,15 +539,41 @@ void render_units(const UnitPool *up) {
         const Unit *u = &up->units[i];
         if (!u->active) continue;
 
-        Color col = UNIT_FILL[u->type];
+        // Couleur selon type
+        Color col = (u->type < UNIT_TYPE_COUNT) ? UNIT_FILL[u->type]
+                  : (Color){200, 200, 50, 255};
 
-        if (u->target_idx != -1 && u->state != USTATE_PATROL) {
-            DrawLineEx((Vector2){u->x, u->y},
-                       (Vector2){u->x + cosf(u->patrol_angle)*20,
-                                 u->y + sinf(u->patrol_angle)*20},
-                       1.0f, (Color){col.r,col.g,col.b,80});
+        // ── Ouvrier : halo et barre de collecte ──────────
+        if (u->type == UNIT_WORKER) {
+            // Note: ligne pointillée vers dépôt non implémentée
+            // (Raylib n'a pas de DrawLineDashed natif)
+
+            // Si porte un matériau : halo coloré
+            if (u->has_material && u->carried_mat != MAT_NONE) {
+                static const Color MAT_COL[MAT_COUNT] = {
+                    {160,160,180,255},{80,220,60,255},
+                    {80,160,255,255},{140,220,255,255},{200,100,255,255},
+                };
+                DrawCircle((int)u->x, (int)u->y, (int)(u->size + 4),
+                           (Color){MAT_COL[u->carried_mat].r,
+                                   MAT_COL[u->carried_mat].g,
+                                   MAT_COL[u->carried_mat].b, 80});
+            }
+
+            // Barre de collecte
+            if (u->state == USTATE_COLLECT && u->collect_duration > 0.0f) {
+                float ratio = 1.0f - (u->collect_timer / u->collect_duration);
+                int   bw    = (int)(u->size * 3.0f);
+                int   bx    = (int)u->x - bw/2;
+                int   by    = (int)u->y - (int)u->size - 10;
+                DrawRectangle(bx, by, bw, 4, (Color){20, 20, 20, 200});
+                DrawRectangle(bx, by, (int)(bw * ratio), 4,
+                              (Color){80, 200, 220, 255});
+                DrawText("...", bx, by - 10, 8, (Color){80, 200, 220, 200});
+            }
         }
 
+        // ── Médic : aura de soin ──────────────────────────
         if (u->type == UNIT_MEDIC) {
             DrawCircle((int)u->x, (int)u->y, (int)(3.0f*TILE_SIZE),
                        (Color){231,76,60,20});
@@ -350,20 +581,35 @@ void render_units(const UnitPool *up) {
                             (Color){231,76,60,80});
         }
 
+        // ── Corps ─────────────────────────────────────────
         DrawEllipse((int)u->x+1, (int)u->y+(int)u->size,
                     (int)(u->size*0.8f), (int)(u->size*0.3f),
                     (Color){0,0,0,60});
+
+        // Ouvrier sélectionné = contour blanc plus épais
+        if (up->selected_unit == i)
+            DrawCircle((int)u->x, (int)u->y, (int)(u->size + 2),
+                       (Color){255,255,255,100});
+
         DrawCircle((int)u->x, (int)u->y, (int)u->size, col);
         DrawCircleLines((int)u->x, (int)u->y, (int)u->size,
                         (Color){255,255,255,80});
 
-        const char *icon =
-            u->state==USTATE_ATTACK ? "X" :
-            u->state==USTATE_CHASE  ? ">" :
-            u->state==USTATE_RETURN ? "<" :
-            u->state==USTATE_HEAL   ? "+" : ".";
+        // ── Icône état ────────────────────────────────────
+        const char *icon;
+        switch (u->state) {
+            case USTATE_ATTACK:       icon = "X"; break;
+            case USTATE_CHASE:        icon = ">"; break;
+            case USTATE_RETURN:       icon = "<"; break;
+            case USTATE_HEAL:         icon = "+"; break;
+            case USTATE_GOTO_DEPOSIT: icon = "D"; break;
+            case USTATE_COLLECT:      icon = "C"; break;
+            case USTATE_GOTO_BASE:    icon = "B"; break;
+            default:                  icon = "."; break;
+        }
         DrawText(icon, (int)u->x-3, (int)u->y-4, 8, (Color){255,255,255,200});
 
+        // ── Barre de vie ──────────────────────────────────
         int bw = (int)(u->size*2.5f);
         int bx = (int)u->x - bw/2;
         int by = (int)u->y - (int)u->size - 6;
@@ -374,35 +620,85 @@ void render_units(const UnitPool *up) {
                                    : (Color){231,76,60,255});
     }
 }
-
 // ════════════════════════════════════════════════════
 // GAME OVER — coordonnées virtuelles (RenderTexture 1120×770)
 // ════════════════════════════════════════════════════
 void render_gameover(const GameState *gs) {
     const int VIRT_W = MAP_W * TILE_SIZE;
     const int VIRT_H = MAP_H * TILE_SIZE + UI_HUD_HEIGHT;
+    const int M = UI_MARGIN;
     int cx = VIRT_W / 2, cy = VIRT_H / 2;
 
     DrawRectangle(0, 0, VIRT_W, VIRT_H, (Color){0, 0, 0, 160});
 
-    int pw = 340, ph = 160;
+    int pw = 360, ph = 170;
     int px = cx - pw/2, py = cy - ph/2;
     DrawRectangle(px, py, pw, ph, (Color){12, 4, 4, 245});
     DrawRectangleLinesEx(
         (Rectangle){(float)px,(float)py,(float)pw,(float)ph},
         2.0f, (Color){231, 76, 60, 255});
 
-    int tw = MeasureText("BASTION TOMBE", 26);
-    DrawText("BASTION TOMBE",
-             cx - tw/2, py + 16, 26, (Color){231, 76, 60, 255});
-    DrawLine(px + 20, py + 50, px + pw - 20, py + 50,
-             (Color){80, 20, 20, 180});
+    // Titre centré
+    const char *title = "BASTION TOMBE";
+    int tw = MeasureText(title, 26);
+    DrawText(title, cx - tw/2, py + M + 2, 26, (Color){231, 76, 60, 255});
+    DrawLine(px + 20, py + 50, px + pw - 20, py + 50, (Color){80, 20, 20, 180});
 
-    DrawText(TextFormat("Vague atteinte : %d", gs->wave_manager.number),
-             cx - 92, py + 62, 16, (Color){180, 160, 130, 255});
-    DrawText("Ferraille gagnee — voir menu",
-             cx - 108, py + 84, 14, (Color){127, 200, 127, 255});
-    tw = MeasureText("[ESPACE] retour au menu", 13);
-    DrawText("[ESPACE] retour au menu",
-             cx - tw/2, py + ph - 24, 13, (Color){100, 80, 50, 255});
+    // Infos — centrées dynamiquement
+    const char *line1 = TextFormat("Vague atteinte : %d", gs->wave_manager.number);
+    tw = MeasureText(line1, 15);
+    DrawText(line1, cx - tw/2, py + 60, 15, (Color){180, 160, 130, 255});
+
+    const char *line2 = "Ferraille gagnee - voir menu";
+    tw = MeasureText(line2, 13);
+    DrawText(line2, cx - tw/2, py + 82, 13, (Color){127, 200, 127, 255});
+
+    const char *hint = "[ESPACE] retour au menu";
+    tw = MeasureText(hint, 12);
+    DrawText(hint, cx - tw/2, py + ph - M - 14, 12, (Color){100, 80, 50, 255});
+}
+// ════════════════════════════════════════════════════
+// DÉPÔTS DE MATÉRIAUX
+// ════════════════════════════════════════════════════
+void render_deposits(const Map *map) {
+    static const Color MAT_COLORS[MAT_COUNT] = {
+        [MAT_IRON]  = {160, 160, 180, 255},
+        [MAT_ACID]  = { 80, 200,  50, 255},
+        [MAT_PLASMA]= { 80, 160, 255, 255},
+        [MAT_CRYO]  = {140, 220, 255, 255},
+        [MAT_NANO]  = {200, 100, 255, 255},
+    };
+    static const char *MAT_ICONS[MAT_COUNT] = {
+        [MAT_IRON]  = "Fe",
+        [MAT_ACID]  = "Ac",
+        [MAT_PLASMA]= "Pl",
+        [MAT_CRYO]  = "Cr",
+        [MAT_NANO]  = "Na",
+    };
+
+    float t = (float)GetTime();
+
+    for (int i = 0; i < map->deposit_count; i++) {
+        const MaterialDeposit *d = &map->deposits[i];
+        if (!d->active) continue;
+
+        int px = d->tile_x * TILE_SIZE;
+        int py = d->tile_y * TILE_SIZE;
+        int cx = px + TILE_SIZE / 2;
+        int cy = py + TILE_SIZE / 2;
+
+        Color col = MAT_COLORS[d->type];
+
+        // Halo pulsant
+        float pulse = (sinf(t * 2.5f + (float)i) + 1.0f) * 0.5f;
+        unsigned char alpha = (unsigned char)(60 + pulse * 80);
+        DrawCircle(cx, cy, TILE_SIZE / 2 - 4,
+                   (Color){col.r, col.g, col.b, alpha});
+        DrawCircleLines(cx, cy, TILE_SIZE / 2 - 2,
+                        (Color){col.r, col.g, col.b, 200});
+
+        // Icône centré
+        int iw = MeasureText(MAT_ICONS[d->type], 11);
+        DrawText(MAT_ICONS[d->type], cx - iw/2, cy - 5, 11, col);
+    }
 }

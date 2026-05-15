@@ -22,17 +22,32 @@ struct GameState {
     UIState      ui;
     GamePhase    phase;
     int          gold;
-    int          lives;
+    int          lives;      // vies totales (somme des HP de toutes les bases)
     int          kills;
 
-    // ── Infos mode de jeu ──────────────────────────────────
-    int is_campaign;      // 0 = arcade, 1 = campagne
-    int campaign_num;     // numéro de campagne (0-based)
-    int campaign_stage;   // stage dans le cycle 0..CAMPAIGN_STAGES-1
-                          // (thème joué = campaign_theme_order[campaign_stage])
+    // ── Mode de jeu ───────────────────────────────────────────
+    int is_campaign;
+    int campaign_num;
+    int campaign_stage;
+    int campaign_order_seed;
+
+    // ── Inventaire matériaux ──────────────────────────────────
+    MaterialType inventory[MAX_INVENTORY];
+    int          inventory_count;
+    // ── Mode Endless ──────────────────────────────────────
+    int   is_endless;          // 1 = mode arcade endless
+    int   endless_series;      // série en cours (0-based, +1 tous les 10 vagues)
+    float endless_multiplier;  // multiplicateur de ferraille (1.0, 1.5, 2.0...)
+    int   endless_pending_extract; // 1 = fenêtre extraction à afficher
 };
 
 typedef struct GameState GameState;
+
+// Retourne 1 si toutes les bases sont tombées
+int  game_all_bases_fallen(const GameState *gs);
+
+// Applique des dégâts à une base spécifique
+void game_damage_base(GameState *gs, int base_id, int dmg);
 
 void game_state_init  (GameState *gs);
 void game_state_update(GameState *gs, float dt);

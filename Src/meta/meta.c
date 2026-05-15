@@ -3,20 +3,20 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <time.h>
 
 // ════════════════════════════════════════════════════
 // COÛTS
 // ════════════════════════════════════════════════════
-const int COST_TOWER_DMG  [MAX_LVL_TOWER_DMG]    = {30, 50, 80, 120, 180};
-const int COST_TOWER_RANGE[MAX_LVL_TOWER_RANGE]   = {40, 70, 110};
-const int COST_TOWER_RATE [MAX_LVL_TOWER_RATE]    = {35, 60,  90, 140};
-const int COST_UNIT_HP    [MAX_LVL_UNIT_HP]       = {25, 40,  65, 100, 150};
-const int COST_UNIT_DMG   [MAX_LVL_UNIT_DMG]      = {30, 50,  80, 120};
-const int COST_START_GOLD [MAX_LVL_START_GOLD]    = {50, 80, 120, 180};
-const int COST_LIVES      [MAX_LVL_LIVES]         = {60, 100, 160};
-const int COST_SCRAP_BONUS[MAX_LVL_SCRAP_BONUS]   = {45,  75, 120};
-
+const int COST_TOWER_DMG  [MAX_LVL_TOWER_DMG]    = {45,  75, 120, 180, 270};
+const int COST_TOWER_RANGE[MAX_LVL_TOWER_RANGE]   = {60, 105, 165};
+const int COST_TOWER_RATE [MAX_LVL_TOWER_RATE]    = {52,  90, 135, 210};
+const int COST_UNIT_HP    [MAX_LVL_UNIT_HP]       = {37,  60,  97, 150, 225};
+const int COST_UNIT_DMG   [MAX_LVL_UNIT_DMG]      = {45,  75, 120, 180};
+const int COST_START_GOLD [MAX_LVL_START_GOLD]    = {75, 120, 180, 270};
+const int COST_LIVES      [MAX_LVL_LIVES]         = {90, 150, 240};
+const int COST_SCRAP_BONUS[MAX_LVL_SCRAP_BONUS]   = {67, 112, 180};
+const int COST_TOWER_LIMIT[MAX_LVL_TOWER_LIMIT] = {80, 140, 220};
+const int COST_UNIT_LIMIT [MAX_LVL_UNIT_LIMIT]  = {80, 140, 220};
 // ════════════════════════════════════════════════════
 // NOMS ET DESCRIPTIONS
 // ════════════════════════════════════════════════════
@@ -29,6 +29,8 @@ const char *UPGRADE_NAMES[UPGRADE_COUNT] = {
     "Or de depart",
     "Vies max",
     "Ferraille bonus",
+    [UPGRADE_TOWER_LIMIT] = "Slots tours",
+    [UPGRADE_UNIT_LIMIT]  = "Slots unites",
 };
 const char *UPGRADE_DESC[UPGRADE_COUNT] = {
     "+15% degats par niv",
@@ -39,6 +41,8 @@ const char *UPGRADE_DESC[UPGRADE_COUNT] = {
     "+25 or de depart/niv",
     "+5 vies max/niv",
     "+20% ferraille/niv",
+    [UPGRADE_TOWER_LIMIT] = "+2 tours max par niv",
+    [UPGRADE_UNIT_LIMIT]  = "+2 unites max par niv",
 };
 
 // ════════════════════════════════════════════════════
@@ -49,6 +53,8 @@ void meta_init(MetaProgress *meta) {
     meta->magic   = META_MAGIC;
     meta->version = META_VERSION;
     meta->scrap   = 0;
+    meta->lvl_tower_limit = 0;
+    meta->lvl_unit_limit  = 0;
 }
 
 // ════════════════════════════════════════════════════
@@ -77,14 +83,16 @@ int meta_load(MetaProgress *meta) {
 // CALCUL DES BONUS
 // ════════════════════════════════════════════════════
 void meta_compute(const MetaProgress *meta, MetaBonuses *out) {
-    out->tower_dmg_mult   = 1.0f + meta->lvl_tower_dmg   * 0.15f;
+    out->tower_dmg_mult   = 1.0f + meta->lvl_tower_dmg    * 0.15f;
     out->tower_range_mult = 1.0f + meta->lvl_tower_range  * 0.10f;
     out->tower_rate_mult  = 1.0f + meta->lvl_tower_rate   * 0.10f;
     out->unit_hp_mult     = 1.0f + meta->lvl_unit_hp      * 0.20f;
     out->unit_dmg_mult    = 1.0f + meta->lvl_unit_dmg     * 0.15f;
-    out->start_gold       = 150  + meta->lvl_start_gold   * 25;
+    out->start_gold       = 100  + meta->lvl_start_gold   * 25;
     out->start_lives      = 20   + meta->lvl_lives        * 5;
     out->scrap_mult       = 1.0f + meta->lvl_scrap_bonus  * 0.20f;
+    out->tower_limit_bonus = meta->lvl_tower_limit;
+    out->unit_limit_bonus  = meta->lvl_unit_limit;
 }
 
 // ════════════════════════════════════════════════════
@@ -92,19 +100,18 @@ void meta_compute(const MetaProgress *meta, MetaBonuses *out) {
 // Chaque campagne a un ordre aléatoire différent.
 // Fisher-Yates shuffle avec seed aléatoire.
 // ════════════════════════════════════════════════════
-void meta_campaign_theme_order(int campaign_num, int out_themes[CAMPAIGN_STAGES]) {
-    (void)campaign_num;  // non utilisé maintenant
-
-    // Initialise le RNG avec le temps actuel pour aléatoire réel
-    srand((unsigned int)time(NULL));
-
-    // Remplit 0..4
+void meta_campaign_theme_order(int seed, int out_themes[CAMPAIGN_STAGES]) {
     for (int i = 0; i < CAMPAIGN_STAGES; i++)
         out_themes[i] = i;
 
-    // Fisher-Yates shuffle
+    // xorshift déterministe — même seed = même ordre, toujours
+    unsigned int rng = (unsigned int)(seed ^ 0xDEADBEEF);
+    if (rng == 0) rng = 1;
     for (int i = CAMPAIGN_STAGES - 1; i > 0; i--) {
-        int j = rand() % (i + 1);
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        int j = (int)(rng % (unsigned int)(i + 1));
         int tmp = out_themes[i];
         out_themes[i] = out_themes[j];
         out_themes[j] = tmp;
@@ -133,17 +140,17 @@ int meta_end_of_campaign_stage(MetaProgress *meta, int wave_reached,
                                 int kills, int gold_remaining,
                                 int stage_index)
 {
-    // Ferraille = vague * 12 + kills * 3 + or/4
-    // Bonus si stage avancé dans la campagne
-    float stage_mult = 1.0f + stage_index * 0.25f;   // +25% par stage
-    float base_scrap = (wave_reached * 12.0f
-                      + kills        *  3.0f
-                      + gold_remaining / 4.0f) * stage_mult;
+    // Nouvelle formule : vague*5 + kills/3 + or/10
+    float stage_mult = 1.0f + stage_index * 0.25f;
+    float base_scrap = (wave_reached  *  5.0f
+                      + kills         /  3.0f
+                      + gold_remaining / 10.0f) * stage_mult;
 
     MetaBonuses bonuses;
     meta_compute(meta, &bonuses);
     int earned = (int)(base_scrap * bonuses.scrap_mult);
-    if (earned < 8) earned = 8;   // minimum garanti
+    if (earned < 5)   earned = 5;    // minimum garanti
+    if (earned > 200) earned = 200;  // plafond par partie
 
     meta->scrap              += earned;
     meta->total_scrap_earned += earned;
@@ -151,7 +158,6 @@ int meta_end_of_campaign_stage(MetaProgress *meta, int wave_reached,
     if (wave_reached > meta->best_wave)
         meta->best_wave = wave_reached;
 
-    // Si c'est le dernier stage, on compte une campagne complète
     if (stage_index == CAMPAIGN_STAGES - 1)
         meta->campaigns_completed++;
 
@@ -188,6 +194,12 @@ int meta_upgrade_cost(const MetaProgress *meta, int id) {
         case UPGRADE_SCRAP_BONUS:
             if (meta->lvl_scrap_bonus >= MAX_LVL_SCRAP_BONUS)  return -1;
             return COST_SCRAP_BONUS[meta->lvl_scrap_bonus];
+        case UPGRADE_TOWER_LIMIT:
+            if (meta->lvl_tower_limit >= MAX_LVL_TOWER_LIMIT) return -1;
+            return COST_TOWER_LIMIT[meta->lvl_tower_limit];
+        case UPGRADE_UNIT_LIMIT:
+            if (meta->lvl_unit_limit >= MAX_LVL_UNIT_LIMIT)  return -1;
+            return COST_UNIT_LIMIT [meta->lvl_unit_limit];
         default: return -1;
     }
 }
@@ -208,8 +220,36 @@ int meta_upgrade(MetaProgress *meta, int id) {
         case UPGRADE_START_GOLD:  meta->lvl_start_gold++;   break;
         case UPGRADE_LIVES:       meta->lvl_lives++;         break;
         case UPGRADE_SCRAP_BONUS: meta->lvl_scrap_bonus++;  break;
+        case UPGRADE_TOWER_LIMIT: meta->lvl_tower_limit++; break;
+        case UPGRADE_UNIT_LIMIT:  meta->lvl_unit_limit++;  break;
         default: return 0;
     }
     meta_save(meta);
     return 1;
+}
+
+// Retourne le score calculé : vague * mult * 10
+int meta_endless_score(int wave, float mult) {
+    return (int)((float)wave * mult * 10.0f);
+}
+
+// Enregistre si c'est un nouveau record
+void meta_endless_end(MetaProgress *meta, int wave, float mult,
+                      int extracted)
+{
+    if (!extracted) {
+        meta_save(meta);
+        return; // 0 ferraille si pas extrait
+    }
+    int score = meta_endless_score(wave, mult);
+    if (score > meta->endless_best_score) {
+        meta->endless_best_score = score;
+        meta->endless_best_wave  = wave;
+    }
+    // Ferraille = score / 10 (plafonné à 200)
+    int earned = score / 10;
+    if (earned > 200) earned = 200;
+    meta->scrap              += earned;
+    meta->total_scrap_earned += earned;
+    meta_save(meta);
 }
