@@ -8,8 +8,8 @@
 #include "../combat/tower.h"
 #include <math.h>
 #include "../combat/unit.h"
-#include "../core/game_state.h"
-#include "ui.h"
+#include "../game/game_state.h"
+#include "hud.h"
 #include "../combat/material.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -201,6 +201,8 @@ void render_bases(const Map *map) {
         int bar_h = 6;
         int bar_x = cx - bar_w / 2;
         int bar_y = cy - bar_h - 3;
+        // Si la base est en haut de la carte, afficher en-dessous
+        if (bar_y < 2) bar_y = bpy + TILE_SIZE + 2;
  
         DrawRectangle(bar_x, bar_y, bar_w, bar_h,
                       (Color){18, 10, 4, 200});
@@ -619,43 +621,6 @@ void render_units(const UnitPool *up) {
                       ratio > 0.5f ? (Color){46,204,113,255}
                                    : (Color){231,76,60,255});
     }
-}
-// ════════════════════════════════════════════════════
-// GAME OVER — coordonnées virtuelles (RenderTexture 1120×770)
-// ════════════════════════════════════════════════════
-void render_gameover(const GameState *gs) {
-    const int VIRT_W = MAP_W * TILE_SIZE;
-    const int VIRT_H = MAP_H * TILE_SIZE + UI_HUD_HEIGHT;
-    const int M = UI_MARGIN;
-    int cx = VIRT_W / 2, cy = VIRT_H / 2;
-
-    DrawRectangle(0, 0, VIRT_W, VIRT_H, (Color){0, 0, 0, 160});
-
-    int pw = 360, ph = 170;
-    int px = cx - pw/2, py = cy - ph/2;
-    DrawRectangle(px, py, pw, ph, (Color){12, 4, 4, 245});
-    DrawRectangleLinesEx(
-        (Rectangle){(float)px,(float)py,(float)pw,(float)ph},
-        2.0f, (Color){231, 76, 60, 255});
-
-    // Titre centré
-    const char *title = "BASTION TOMBE";
-    int tw = MeasureText(title, 26);
-    DrawText(title, cx - tw/2, py + M + 2, 26, (Color){231, 76, 60, 255});
-    DrawLine(px + 20, py + 50, px + pw - 20, py + 50, (Color){80, 20, 20, 180});
-
-    // Infos — centrées dynamiquement
-    const char *line1 = TextFormat("Vague atteinte : %d", gs->wave_manager.number);
-    tw = MeasureText(line1, 15);
-    DrawText(line1, cx - tw/2, py + 60, 15, (Color){180, 160, 130, 255});
-
-    const char *line2 = "Ferraille gagnee - voir menu";
-    tw = MeasureText(line2, 13);
-    DrawText(line2, cx - tw/2, py + 82, 13, (Color){127, 200, 127, 255});
-
-    const char *hint = "[ESPACE] retour au menu";
-    tw = MeasureText(hint, 12);
-    DrawText(hint, cx - tw/2, py + ph - M - 14, 12, (Color){100, 80, 50, 255});
 }
 // ════════════════════════════════════════════════════
 // DÉPÔTS DE MATÉRIAUX

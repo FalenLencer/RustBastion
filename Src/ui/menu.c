@@ -1,8 +1,9 @@
 #include "menu.h"
 #include "renderer.h"
 #include "ui_utils.h"
-#include "../audio.h"
-#include "../meta/meta.h"
+#include "campaign_data.h"
+#include "../engine/audio.h"
+#include "../game/meta.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
@@ -201,28 +202,38 @@ static int draw_volume_slider(const char *label, int x, int y, int w,
     y += 18;
 
     Rectangle track = {(float)x, (float)y, (float)w, 12.0f};
+
+    // Zone d'interaction élargie pour attraper le knob plus facilement
+    Rectangle hit = {track.x - 2, track.y - 8, track.width + 4, track.height + 16};
+
+    int dragging = IsMouseButtonDown(MOUSE_LEFT_BUTTON) && vhov_r(hit);
+
     DrawRectangleRec(track, C_DIM);
 
     float fraction = value / 100.0f;
     Rectangle fill = {track.x, track.y, track.width * fraction, track.height};
-    DrawRectangleRec(fill, C_BLUE);
+    DrawRectangleRec(fill, dragging ? C_GOLD : C_BLUE);
 
     float knob_x = track.x + (track.width - 18.0f) * fraction;
     Vector2 knob_center = {knob_x + 9.0f, track.y + track.height * 0.5f};
-    DrawCircle(knob_center.x, knob_center.y, 9.0f, C_GOLD);
-    DrawCircleLines(knob_center.x, knob_center.y, 9.0f, C_BORDER);
+    float knob_r = dragging ? 11.0f : 9.0f;
+    DrawCircle((int)knob_center.x, (int)knob_center.y, knob_r, C_GOLD);
+    DrawCircleLines((int)knob_center.x, (int)knob_center.y, knob_r, C_BORDER);
 
     char percent_text[16];
     snprintf(percent_text, sizeof(percent_text), "%d%%", value);
-    DrawText(percent_text, x + w - MeasureText(percent_text, 11), y + track.height + 6, 11, C_TEXT);
+    DrawText(percent_text, x + w - MeasureText(percent_text, 11),
+             y + (int)track.height + 6, 11, C_TEXT);
 
-    if (vclick_r(track)) {
+    if (dragging) {
         Vector2 m = vmouse();
         int new_value = (int)(((m.x - track.x) / track.width) * 100.0f + 0.5f);
-        if (new_value < 0) new_value = 0;
+        if (new_value < 0)   new_value = 0;
         if (new_value > 100) new_value = 100;
-        *out_value = new_value;
-        return 1;
+        if (new_value != *out_value) {
+            *out_value = new_value;
+            return 1;
+        }
     }
     return 0;
 }
@@ -270,9 +281,9 @@ static int draw_nav_btn(const char *icon, const char *title,
 
 // Bouton Retour
 static int draw_back_btn(int vw, int vh) {
+    (void)vw;
     return draw_btn("< RETOUR", M_PAD, vh - M_PAD - BTN_H,
                     110, BTN_H, C_DIM, 0);
-    (void)vw;
 }
 
 // Message temporaire centré en bas
@@ -379,10 +390,10 @@ static MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     int by = M_PAD + 76;
 
     if (draw_nav_btn("C", "CAMPAGNE",
-                     "Parcourez les 5 environnements. Gagnez de la ferraille.",
+                     "Carte de progression — 5 chapitres, 15 actes.",
                      C_GOLD, bx, by, bw, bh)) {
         push_back_screen(m);
-        m->screen = MENU_CAMPAIGN;
+        m->screen = MENU_WORLD_MAP;     // ← carte du monde d'abord
         m->back_screen = MENU_PLAY_HUB;
     }
     by += bh + gap;
@@ -924,7 +935,6 @@ static MenuAction draw_options(MenuState *m, int vw, int vh) {
 
             if (draw_volume_slider("Volume Musique", content_x, y, content_w, m->opts.music_volume, &m->opts.music_volume)) {
                 audio_set_music_volume(m->opts.music_volume / 100.0f);
-                audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
             }
             y += 42;
 
@@ -942,7 +952,6 @@ static MenuAction draw_options(MenuState *m, int vw, int vh) {
 
             if (draw_volume_slider("Volume Effets", content_x, y, content_w, m->opts.sfx_volume, &m->opts.sfx_volume)) {
                 audio_set_sfx_volume(m->opts.sfx_volume / 100.0f);
-                audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
             }
             y += 42;
 
@@ -960,7 +969,6 @@ static MenuAction draw_options(MenuState *m, int vw, int vh) {
 
             if (draw_volume_slider("Volume général", content_x, y, content_w, m->opts.master_volume, &m->opts.master_volume)) {
                 audio_set_master_volume(m->opts.master_volume / 100.0f);
-                audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
             }
         }
         break;
@@ -1109,7 +1117,6 @@ static MenuAction draw_pause(MenuState *m, int vw, int vh) {
 // UPDATE
 // ════════════════════════════════════════════════════
 MenuAction menu_update(MenuState *m, const MetaProgress *meta) {
-    (void)meta;
     MenuAction act = {0};
     if (m->msg_timer > 0.0f) m->msg_timer -= GetFrameTime();
 
@@ -1122,6 +1129,122 @@ MenuAction menu_update(MenuState *m, const MetaProgress *meta) {
             if (meta_upgrade((MetaProgress*)meta, m->sel_upg))
                 set_msg(m, "Amelioration achetee !");
     }
+    return act;
+}
+// ════════════════════════════════════════════════════
+// CARTE DU MONDE — progression campagne
+// ════════════════════════════════════════════════════
+static MenuAction draw_world_map(MenuState *m,
+                                 const MetaProgress *meta,
+                                 int vw, int vh)
+{
+    MenuAction act = {0};
+    int cx = vw/2;
+
+    draw_bg(m, vw, vh);
+    draw_header("PROGRESSION DE CAMPAGNE", vw);
+
+    // Sous-titre
+    txt_c("Completez chaque acte pour progresser vers la victoire.",
+          cx, M_PAD + 46, 10, C_DIM);
+
+    static const Color CHAPTER_COLS[CAMPAIGN_CHAPTERS] = {
+        {200,150, 80,255},  // Wasteland — ocre
+        { 60,180, 80,255},  // Swamp     — vert
+        {220,180, 80,255},  // Desert    — jaune
+        {100,140,200,255},  // City      — bleu
+        {180, 80, 80,255},  // Factory   — rouge
+    };
+
+    static const char *CHAPTER_NAMES[CAMPAIGN_CHAPTERS] = {
+        "Les Terres Brulees",
+        "Le Marais Toxique",
+        "Le Desert Irradie",
+        "La Ville en Ruine",
+        "L'Usine Abandonnee",
+    };
+
+    int chapter_w = vw - M_PAD * 4;
+    int chapter_h = 58;
+    int chapter_x = M_PAD * 2;
+    int chapter_y = M_PAD + 68;
+    int gap       = M_IN;
+
+    for (int ch = 0; ch < CAMPAIGN_CHAPTERS; ch++) {
+        Color col = CHAPTER_COLS[ch];
+
+        // Fond du chapitre
+        Rectangle cr = {(float)chapter_x, (float)chapter_y,
+                        (float)chapter_w, (float)chapter_h};
+        int ch_unlocked = meta_act_unlocked(meta, ch * CAMPAIGN_ACTS);
+        Color bg = ch_unlocked ? (Color){col.r/8, col.g/8, col.b/8, 255}
+                               : (Color){10, 8, 5, 255};
+        DrawRectangleRounded(cr, 4.0f/chapter_h, 5, bg);
+        DrawRectangleRoundedLinesEx(cr, 4.0f/chapter_h, 5, 1.5f,
+            ch_unlocked ? (Color){col.r/3, col.g/3, col.b/3, 255}
+                        : (Color){40,30,12,255});
+
+        // Numéro + nom chapitre
+        DrawText(TextFormat("CH.%d", ch+1),
+                 chapter_x + M_IN, chapter_y + M_IN, 10, C_DIM);
+        DrawText(CHAPTER_NAMES[ch],
+                 chapter_x + M_IN + 34, chapter_y + M_IN, 14,
+                 ch_unlocked ? col : C_DIM);
+
+        // 3 actes
+        int act_w = (chapter_w - M_IN * 4) / CAMPAIGN_ACTS;
+        for (int a = 0; a < CAMPAIGN_ACTS; a++) {
+            int stage_idx = ch * CAMPAIGN_ACTS + a;
+            const ActData *ad = campaign_act_get(stage_idx);
+            int stars    = meta->act_stars[stage_idx];
+            int unlocked = meta_act_unlocked(meta, stage_idx);
+
+            int ax = chapter_x + M_IN + a * (act_w + M_IN);
+            int ay = chapter_y + 26;
+            int ah = chapter_h - 30;
+
+            Rectangle ar = {(float)ax, (float)ay, (float)act_w, (float)ah};
+            Color abg = unlocked ? (stars > 0 ? (Color){col.r/6,col.g/6,col.b/6,255}
+                                              : (Color){18,12,4,255})
+                                 : (Color){8,6,3,255};
+            DrawRectangleRounded(ar, 3.0f/ah, 4, abg);
+            DrawRectangleRoundedLinesEx(ar, 3.0f/ah, 4, 1.0f,
+                unlocked ? (stars > 0 ? col : (Color){60,45,18,255})
+                         : (Color){30,24,10,255});
+
+            // Titre acte clippé
+            char abuf[32];
+            clip_text(ad->title, act_w - 6, 9, abuf, sizeof(abuf));
+            DrawText(abuf, ax+3, ay+2, 9,
+                     unlocked ? (stars>0 ? col : C_TEXT) : C_DIM);
+
+            // Étoiles
+            for (int s = 0; s < 2; s++) {
+                Color sc = (s < stars) ? (Color){232,200,32,255}
+                                       : (Color){40,32,12,255};
+                DrawText("*", ax + 3 + s*12, ay + ah - 14, 12, sc);
+            }
+
+            // Verrou si non débloqué
+            if (!unlocked)
+                DrawText("[x]", ax + act_w/2 - 8, ay + ah/2 - 5, 10, C_DIM);
+        }
+
+        chapter_y += chapter_h + gap;
+    }
+
+    // Bouton JOUER — lance une nouvelle campagne ou reprend
+    {
+        int bw = 200, bh = BTN_H;
+        int bx = cx - bw/2;
+        int by = vh - M_PAD * 2 - bh;
+        if (draw_btn("JOUER UNE CAMPAGNE", bx, by, bw, bh, C_GOLD, 0)) {
+            m->screen = MENU_CAMPAIGN;
+            m->back_screen = MENU_WORLD_MAP;
+        }
+    }
+
+    draw_back_btn(vw, vh);
     return act;
 }
 
@@ -1148,6 +1271,7 @@ MenuAction menu_render_and_act(MenuState *m, const MetaProgress *meta,
         case MENU_CAMPAIGN:     act = draw_slot_list(m, vw, vh, 1);       break;
         case MENU_ARCADE:       act = draw_slot_list(m, vw, vh, 0);       break;
         case MENU_NEW_CAMPAIGN: act = draw_new_campaign(m, meta, vw, vh); break;
+        case MENU_WORLD_MAP:    act = draw_world_map(m, meta, vw, vh);    break;
         case MENU_NEW_ARCADE:
             m->new_theme = (m->new_theme == (ThemeID)-1) ? THEME_COUNT : m->new_theme;
             act = draw_new_arcade(m, vw, vh);

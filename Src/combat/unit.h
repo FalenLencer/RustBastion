@@ -2,7 +2,7 @@
 #include "raylib.h"
 #include "enemy.h"
 #include "../map/map_gen.h"
-#include "../meta/meta.h"
+#include "../game/meta.h"
 #include "../combat/material.h"
 
 #define MAX_UNITS_HARD  32   // taille du pool statique

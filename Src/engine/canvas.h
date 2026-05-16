@@ -1,7 +1,7 @@
 #pragma once
 #include "raylib.h"
 #include "../map/map_gen.h"
-#include "../ui/ui.h"
+#include "../ui/hud.h"
 
 // Dimensions du canvas virtuel
 #define VIRT_W  (MAP_W * TILE_SIZE)

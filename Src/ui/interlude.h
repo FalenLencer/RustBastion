@@ -1,8 +1,14 @@
 #pragma once
-#include "../core/game_state.h"
-#include "../core/canvas.h"
+#include "../game/game_state.h"
+#include "../engine/canvas.h"
+#include "campaign_data.h"
 
-// Affiche l'écran d'interlude entre les stages de campagne
-// scrap_earned : ferraille gagnée ce stage
-// last_stage : 1 si c'est le dernier stage de la campagne
-void interlude_render(const GameState *gs, int scrap_earned, int last_stage);
+// Écran de dialogue AVANT un acte
+void interlude_render_dialog_before(const ActData *act, int vw, int vh);
+
+// Écran de dialogue APRÈS un acte (victoire)
+void interlude_render_dialog_after(const ActData *act, int stars,
+                                   int scrap_earned, int vw, int vh);
+
+// Écran game over
+void interlude_render_gameover(const GameState *gs, int vw, int vh);

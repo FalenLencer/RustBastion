@@ -97,6 +97,7 @@ typedef struct TowerPool TowerPool;
 void  enemy_pool_init  (EnemyPool *pool);
 void  enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                         UnitPool *units, TowerPool *towers,
+                        Map *map,
                         float dt, int *lives, int *gold, int *kills);
 void  enemy_spawn      (EnemyPool *pool, EnemyType type,
                         int path_id, const PathSet *paths,

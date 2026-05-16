@@ -1,34 +1,48 @@
 #include "raylib.h"
 #include "raymath.h"
-#include "core/game_state.h"
-#include "core/window.h"
-#include "core/canvas.h"
-#include "core/game_init.h"
-#include "core/save.h"
+#include "game/game_state.h"
+#include "engine/window.h"
+#include "engine/canvas.h"
+#include "game/game_init.h"
+#include "game/save.h"
 #include "ui/renderer.h"
-#include "ui/ui.h"
+#include "ui/hud.h"
 #include "ui/menu.h"
 #include "ui/interlude.h"
 #include "map/theme.h"
-#include "audio.h"
+#include "engine/audio.h"
 #include "combat/tower.h"
 #include "combat/unit.h"
 #include "combat/enemy.h"
-#include "meta/meta.h"
+#include "game/meta.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include "engine/paths.h"
+#ifdef _WIN32
+#  include <windows.h>
+#  include <direct.h>
+#else
+#  include <sys/stat.h>
+#  include <unistd.h>
+#endif
+
+char g_data_prefix[256] = "";
 
 typedef enum { SCREEN_MENU = 0, SCREEN_GAME } Screen;
 typedef enum {
-    INTER_NONE      = 0,
+    INTER_NONE         = 0,
+    INTER_DIALOG_BEFORE,   // ← dialogue avant l'acte
     INTER_STAGE_WIN,
-    INTER_EXTRACT       // ← nouveau : fenêtre extraction endless
+    INTER_DIALOG_AFTER,    // ← dialogue après l'acte
+    INTER_EXTRACT,
 } InterludeState;
 
 // Dessine la fenêtre EXTRAIRE / CONTINUER en endless
-static void draw_extract_screen(const GameState *gs, int vw, int vh) {
+// vmouse : souris déjà convertie en coordonnées virtuelles
+static void draw_extract_screen(const GameState *gs, int vw, int vh,
+                                Vector2 vmouse) {
     int cx = vw/2, cy = vh/2;
     DrawRectangle(0, 0, vw, vh, (Color){0,0,0,170});
 
@@ -59,7 +73,7 @@ static void draw_extract_screen(const GameState *gs, int vw, int vh) {
     DrawText(TextFormat("Multiplicateur : x%.1f", gs->endless_multiplier),
              px, py, 12, (Color){232,152,32,255}); py += 16;
 
-    int score = (int)((float)gs->wave_manager.number * gs->endless_multiplier * 10.0f);
+    int score = meta_endless_score(gs->wave_manager.number, gs->endless_multiplier);
     int scrap  = score / 10 > 200 ? 200 : score / 10;
     DrawText(TextFormat("Ferraille si extrait : +%d", scrap),
              px, py, 12, (Color){118,188,45,255}); py += 16;
@@ -79,7 +93,7 @@ static void draw_extract_screen(const GameState *gs, int vw, int vh) {
     // EXTRAIRE
     {
         Rectangle r = {(float)bx1,(float)by2,(float)bw,(float)bh};
-        int hov = CheckCollisionPointRec(GetMousePosition(), r);
+        int hov = CheckCollisionPointRec(vmouse, r);
         DrawRectangleRounded(r, 5.0f/bh, 6,
             hov ? (Color){8,28,8,255} : (Color){4,16,4,255});
         DrawRectangleRoundedLinesEx(r, 5.0f/bh, 6, 1.5f,
@@ -91,7 +105,7 @@ static void draw_extract_screen(const GameState *gs, int vw, int vh) {
     // CONTINUER
     {
         Rectangle r = {(float)bx2,(float)by2,(float)bw,(float)bh};
-        int hov = CheckCollisionPointRec(GetMousePosition(), r);
+        int hov = CheckCollisionPointRec(vmouse, r);
         DrawRectangleRounded(r, 5.0f/bh, 6,
             hov ? (Color){6,18,32,255} : (Color){4,12,20,255});
         DrawRectangleRoundedLinesEx(r, 5.0f/bh, 6, 1.5f,
@@ -102,7 +116,103 @@ static void draw_extract_screen(const GameState *gs, int vw, int vh) {
     }
 }
 
+// ── Répertoire de base ────────────────────────────────────────────
+// Se place dans le répertoire qui contient assets/ :
+//   - Build de dev   : exe est dans build/, assets/ est dans le parent → chdir(parent)
+//   - Package Linux  : assets/ est à côté de l'exe                     → chdir(exe_dir)
+//   - Package Windows: idem
+// Tous les chemins relatifs (saves/, config/, rustbastion.sav) sont
+// ainsi toujours résolus au bon endroit, quelle que soit la cwd de lancement.
+static void setup_working_dir(void) {
+    char exe[512] = {0};
+    char dir[512] = {0};
+
+#ifdef _WIN32
+    if (!GetModuleFileNameA(NULL, exe, sizeof(exe))) return;
+    // Isole le répertoire de l'exe
+    char *sep = strrchr(exe, '\\');
+    if (!sep) return;
+    *sep = '\0';
+    strncpy(dir, exe, sizeof(dir) - 1);
+
+    // Cherche assets\ dans le répertoire de l'exe, puis dans le parent
+    char test[512];
+    snprintf(test, sizeof(test), "%s\\assets", dir);
+    DWORD attr = GetFileAttributesA(test);
+    if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
+        _chdir(dir); return;
+    }
+    sep = strrchr(dir, '\\');
+    if (sep) {
+        *sep = '\0';
+        snprintf(test, sizeof(test), "%s\\assets", dir);
+        attr = GetFileAttributesA(test);
+        if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
+            _chdir(dir);
+            snprintf(g_data_prefix, sizeof(g_data_prefix), "build/");
+        }
+    }
+#else
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n <= 0) return;
+    exe[n] = '\0';
+
+    // Isole le répertoire de l'exe
+    char *sep = strrchr(exe, '/');
+    if (!sep) return;
+    *sep = '\0';
+    snprintf(dir, sizeof(dir), "%s", exe);
+
+    // Cherche assets/ dans le répertoire de l'exe, puis dans le parent
+    char test[512];
+    struct stat st;
+    snprintf(test, sizeof(test), "%s/assets", dir);
+    if (stat(test, &st) == 0 && S_ISDIR(st.st_mode)) {
+        int r = chdir(dir); (void)r; return;
+    }
+    sep = strrchr(dir, '/');
+    if (sep) {
+        *sep = '\0';
+        snprintf(test, sizeof(test), "%s/assets", dir);
+        if (stat(test, &st) == 0 && S_ISDIR(st.st_mode)) {
+            int r = chdir(dir); (void)r;
+            snprintf(g_data_prefix, sizeof(g_data_prefix), "build/");
+        }
+    }
+#endif
+}
+
+// ── Persistance des options ───────────────────────────────────────
+#define OPTS_MAGIC     0x52424F50u   // "RBOP"
+#define OPTS_VERSION   1
+
+typedef struct { unsigned int magic; int version; AppOptions opts; } OptsFile;
+
+static void opts_save(const AppOptions *o) {
+    data_mkdir("config");
+    char path[512];
+    FILE *f = fopen(data_path(path, sizeof(path), "config/settings.bin"), "wb");
+    if (!f) return;
+    OptsFile hdr = { OPTS_MAGIC, OPTS_VERSION, *o };
+    fwrite(&hdr, sizeof(hdr), 1, f);
+    fclose(f);
+}
+
+static int opts_load(AppOptions *o) {
+    char path[512];
+    FILE *f = fopen(data_path(path, sizeof(path), "config/settings.bin"), "rb");
+    if (!f) return 0;
+    OptsFile hdr;
+    int ok = (fread(&hdr, sizeof(hdr), 1, f) == 1)
+          && hdr.magic   == OPTS_MAGIC
+          && hdr.version == OPTS_VERSION;
+    fclose(f);
+    if (ok) *o = hdr.opts;
+    return ok;
+}
+
 int main(void) {
+    setup_working_dir();   // doit être appelé avant tout accès fichier
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(VIRT_W, VIRT_H, "RUST BASTION");
     window_disable_vsync();
@@ -128,13 +238,28 @@ int main(void) {
     InterludeState interlude       = INTER_NONE;
     int            interlude_scrap = 0;
     int            interlude_last  = 0;
+    int            interlude_stars = 0;
 
     game_state_init(&gs);
 
-    AppOptions opts = {.win_width=VIRT_W, .win_height=VIRT_H, .target_fps=60};
+    AppOptions opts = {
+        .win_width     = VIRT_W,
+        .win_height    = VIRT_H,
+        .target_fps    = 60,
+        .master_volume = 50,
+        .music_volume  = 50,
+        .sfx_volume    = 50,
+    };
+    opts_load(&opts);   // écrase les valeurs par défaut si un fichier existe
+    // Applique les volumes au module audio AVANT que menu_init ne les relise
+    audio_set_master_volume(opts.master_volume / 100.0f);
+    audio_set_music_volume (opts.music_volume  / 100.0f);
+    audio_set_sfx_volume   (opts.sfx_volume    / 100.0f);
+
     MenuState menu  = {0};
     menu_init(&menu, &opts);
     int applied_fps = 60;
+    MenuScreen prev_menu_screen = menu.screen;
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
@@ -152,6 +277,11 @@ int main(void) {
         menu_set_mouse_offset(cox, coy, csc);
 
         BeginTextureMode(canvas);
+
+        // Sauvegarde des options quand on quitte l'écran Options
+        if (prev_menu_screen == MENU_OPTIONS && menu.screen != MENU_OPTIONS)
+            opts_save(&menu.opts);
+        prev_menu_screen = menu.screen;
 
         if (screen == SCREEN_MENU) {
             menu_update(&menu, &gs.meta);
@@ -181,6 +311,7 @@ int main(void) {
                 menu.screen = MENU_TITLE;
                 screen = SCREEN_GAME;
                 audio_play_theme_music(gs.map.theme);
+                interlude = INTER_DIALOG_BEFORE;
             }
 
             if (act.go_game && !act.start_arcade && !act.start_campaign) {
@@ -234,7 +365,7 @@ int main(void) {
                     active_slot = -1;
                     menu_refresh_slots(&menu);
                     menu.paused = 0;
-                    menu.screen = gs.is_campaign ? MENU_CAMPAIGN : MENU_ARCADE;
+                    menu.screen = gs.is_campaign ? MENU_WORLD_MAP : MENU_ARCADE;
                     screen = SCREEN_MENU;
                     audio_stop_music();
                 }
@@ -245,31 +376,40 @@ int main(void) {
                 gs.wave_manager.number >= 1 &&
                 interlude == INTER_NONE && IsKeyPressed(KEY_TAB))
             {
-                int last   = (gs.campaign_stage == CAMPAIGN_STAGES - 1);
+                int stage_idx = gs.campaign_stage;
+                const ActData *ad = campaign_act_get(stage_idx);
+                int last  = (stage_idx == CAMPAIGN_TOTAL - 1);
                 int earned = meta_end_of_campaign_stage(
                     &gs.meta, gs.wave_manager.number,
-                    gs.kills, gs.gold, gs.campaign_stage);
-                interlude       = INTER_STAGE_WIN;
+                    gs.kills, gs.gold, stage_idx);
+                int obj_ok = campaign_objective_check(
+                    ad, gs.wave_manager.number, gs.kills,
+                    gs.units.count,
+                    gs.act_materials_collected,
+                    gs.act_no_unit_lost);
+                int stars = meta_record_act(&gs.meta, stage_idx, obj_ok, 0);
+                interlude       = INTER_DIALOG_AFTER;
                 interlude_scrap = earned;
                 interlude_last  = last;
+                interlude_stars = stars;
                 save_write(&gs, active_slot);
             }
 
-            // ── Interlude campagne ────────────────────────────────
-            if (interlude == INTER_STAGE_WIN && IsKeyPressed(KEY_SPACE)) {
+            // ── Interlude campagne — dialogue après l'acte ────────
+            if (interlude == INTER_DIALOG_AFTER && IsKeyPressed(KEY_SPACE)) {
                 if (interlude_last) {
                     if (active_slot >= 0) save_delete(active_slot);
                     active_slot = -1;
                     menu_refresh_slots(&menu);
                     menu.paused = 0;
-                    menu.screen = MENU_TITLE;
+                    menu.screen = MENU_WORLD_MAP;
                     screen = SCREEN_MENU;
                     interlude = INTER_NONE;
                     audio_stop_music();
                 } else {
                     game_next_campaign_stage(&gs);
                     save_write(&gs, active_slot);
-                    interlude = INTER_NONE;
+                    interlude = INTER_DIALOG_BEFORE;
                 }
             }
 
@@ -319,17 +459,16 @@ int main(void) {
             ui_render(&gs.ui, &gs);
 
             // Badge campagne
-            if (gs.is_campaign) {
-                int themes[CAMPAIGN_STAGES];
-                meta_campaign_theme_order(gs.campaign_order_seed, themes);
-                const Theme *sth = theme_get((ThemeID)themes[gs.campaign_stage]);
-                DrawText(TextFormat("CAMPAGNE %d  |  Stage %d/%d  |  %s",
-                             gs.campaign_num+1, gs.campaign_stage+1,
-                             CAMPAIGN_STAGES, sth->name),
+            if (gs.is_campaign && interlude == INTER_NONE) {
+                const ActData *cam_ad = campaign_act_get(gs.campaign_stage);
+                DrawText(TextFormat("CH.%d  |  %s  |  Acte %d/%d",
+                             cam_ad->chapter+1, cam_ad->title,
+                             gs.campaign_stage+1, CAMPAIGN_TOTAL),
                          8, 8, 11, (Color){200,180,120,210});
                 if (gs.phase == PHASE_PREP && gs.wave_manager.number >= 1)
-                    DrawText("[TAB] Terminer ce stage",
-                             8, 22, 10, (Color){100,180,80,200});
+                    DrawText(TextFormat("[TAB] Terminer l'acte   Obj: %s",
+                                 cam_ad->objective.description),
+                             8, 22, 9, (Color){100,180,80,200});
             }
 
             // Badge endless
@@ -350,14 +489,26 @@ int main(void) {
             }
 
             if (gs.phase == PHASE_GAMEOVER)
-                render_gameover(&gs);
+                interlude_render_gameover(&gs, VIRT_W, VIRT_H);
 
-            if (interlude == INTER_STAGE_WIN)
-                interlude_render(&gs, interlude_scrap, interlude_last);
+            if (interlude == INTER_DIALOG_BEFORE) {
+                const ActData *dlg_ad = campaign_act_get(gs.campaign_stage);
+                interlude_render_dialog_before(dlg_ad, VIRT_W, VIRT_H);
+                if (IsKeyPressed(KEY_SPACE))
+                    interlude = INTER_NONE;
+            }
+            if (interlude == INTER_DIALOG_AFTER) {
+                const ActData *dlg_ad = campaign_act_get(gs.campaign_stage);
+                interlude_render_dialog_after(dlg_ad, interlude_stars,
+                                              interlude_scrap, VIRT_W, VIRT_H);
+            }
 
             // Fenêtre extraction endless
-            if (interlude == INTER_EXTRACT)
-                draw_extract_screen(&gs, VIRT_W, VIRT_H);
+            if (interlude == INTER_EXTRACT) {
+                Vector2 vm = { (GetMousePosition().x - cox) / csc,
+                               (GetMousePosition().y - coy) / csc };
+                draw_extract_screen(&gs, VIRT_W, VIRT_H, vm);
+            }
 
             if (menu.paused) {
                 MenuAction pact = menu_render_and_act(&menu, &gs.meta, VIRT_W, VIRT_H);
@@ -397,6 +548,7 @@ int main(void) {
         gs.phase != PHASE_GAMEOVER && interlude == INTER_NONE)
         save_write(&gs, active_slot);
 
+    opts_save(&menu.opts);
     menu_cleanup(&menu);
     audio_shutdown();
     UnloadRenderTexture(canvas);

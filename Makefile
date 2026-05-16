@@ -4,14 +4,15 @@
 # ═══════════════════════════════════════════════════════════════
 
 # ── Sources ─────────────────────────────────────────────────────
-SRC = Src/main.c          Src/core/game_state.c  Src/core/save.c    \
-      Src/core/window.c        Src/core/canvas.c      Src/core/game_init.c \
-      Src/audio.c              Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c    \
-      Src/combat/enemy.c       Src/combat/wave.c       Src/combat/tower.c \
+SRC = Src/main.c                                                         \
+      Src/engine/audio.c       Src/engine/canvas.c    Src/engine/window.c  \
+      Src/game/game_state.c    Src/game/game_init.c   Src/game/save.c      \
+      Src/game/meta.c                                                       \
+      Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c      \
+      Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c   \
       Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
-      Src/meta/meta.c                                                      \
-      Src/ui/renderer.c        Src/ui/ui.c           Src/ui/ui_utils.c  \
-      Src/ui/menu.c           Src/ui/interlude.c                                                  \
+      Src/ui/renderer.c        Src/ui/hud.c           Src/ui/ui_utils.c    \
+      Src/ui/menu.c            Src/ui/interlude.c   Src/ui/campaign_data.c  \
 
 # ── Dossiers ────────────────────────────────────────────────────
 ASSETS_DIR   = assets
@@ -114,24 +115,26 @@ package_linux: linux
 		cp -r $(ASSETS_DIR)/fonts    $(LINUX_DIR)/assets/ 2>/dev/null || true; \
 	fi
 
-	@# Config par défaut
-	@echo '{ "volume": 100, "fullscreen": false, "monitor": 0 }' \
-		> $(LINUX_DIR)/config/settings.json
-
-	@# Script de lancement
-	@echo '#!/bin/bash'                              > $(LINUX_DIR)/launch.sh
-	@echo 'cd "$$(dirname "$$0")"'                 >> $(LINUX_DIR)/launch.sh
-	@echo './rustbastion'                           >> $(LINUX_DIR)/launch.sh
+	@# Script de lancement (gère audio WSLg + répertoire de travail)
+	@echo '#!/bin/bash'                                                        > $(LINUX_DIR)/launch.sh
+	@echo 'cd "$$(dirname "$$0")"'                                            >> $(LINUX_DIR)/launch.sh
+	@echo '# Audio WSLg (Windows Subsystem for Linux)'                        >> $(LINUX_DIR)/launch.sh
+	@echo 'if [ -S /mnt/wslg/runtime-dir/pulse/native ]; then'               >> $(LINUX_DIR)/launch.sh
+	@echo '  export PULSE_SERVER=unix:/mnt/wslg/runtime-dir/pulse/native'     >> $(LINUX_DIR)/launch.sh
+	@echo 'fi'                                                                >> $(LINUX_DIR)/launch.sh
+	@echo 'exec ./rustbastion "$$@"'                                          >> $(LINUX_DIR)/launch.sh
 	@chmod +x $(LINUX_DIR)/launch.sh
 
 	@# README
-	@echo "RUST BASTION"                            > $(LINUX_DIR)/README.txt
-	@echo "============"                           >> $(LINUX_DIR)/README.txt
-	@echo ""                                       >> $(LINUX_DIR)/README.txt
-	@echo "Lancement : ./rustbastion"              >> $(LINUX_DIR)/README.txt
-	@echo "       ou : ./launch.sh"                >> $(LINUX_DIR)/README.txt
-	@echo ""                                       >> $(LINUX_DIR)/README.txt
-	@echo "Sauvegardes : saves/rustbastion.sav"    >> $(LINUX_DIR)/README.txt
+	@echo "RUST BASTION"                                     > $(LINUX_DIR)/README.txt
+	@echo "============"                                    >> $(LINUX_DIR)/README.txt
+	@echo ""                                                >> $(LINUX_DIR)/README.txt
+	@echo "Lancement : ./launch.sh  (recommande)"          >> $(LINUX_DIR)/README.txt
+	@echo "       ou : ./rustbastion"                       >> $(LINUX_DIR)/README.txt
+	@echo ""                                                >> $(LINUX_DIR)/README.txt
+	@echo "Sauvegardes  : saves/rustbastion_slot*.sav"      >> $(LINUX_DIR)/README.txt
+	@echo "Meta-progres : saves/rustbastion_meta.sav"       >> $(LINUX_DIR)/README.txt
+	@echo "Parametres   : config/settings.bin"              >> $(LINUX_DIR)/README.txt
 
 	@echo "✓ Package Linux : $(LINUX_DIR)/"
 
@@ -159,17 +162,15 @@ package_win: win
 		cp $(ASSETS_DIR)/icon.png    $(WIN_DIR)/assets/ 2>/dev/null || true; \
 	fi
 
-	@# Config par défaut
-	@echo '{ "volume": 100, "fullscreen": false, "monitor": 0 }' \
-		> $(WIN_DIR)/config/settings.json
-
 	@# README
-	@echo "RUST BASTION"                                    > $(WIN_DIR)/README.txt
-	@echo "============"                                   >> $(WIN_DIR)/README.txt
-	@echo ""                                               >> $(WIN_DIR)/README.txt
-	@echo "Double-cliquez sur rustbastion.exe pour jouer." >> $(WIN_DIR)/README.txt
-	@echo ""                                               >> $(WIN_DIR)/README.txt
-	@echo "Sauvegardes : saves\rustbastion_slot*.sav"      >> $(WIN_DIR)/README.txt
+	@echo "RUST BASTION"                                         > $(WIN_DIR)/README.txt
+	@echo "============"                                        >> $(WIN_DIR)/README.txt
+	@echo ""                                                    >> $(WIN_DIR)/README.txt
+	@echo "Double-cliquez sur rustbastion.exe pour jouer."      >> $(WIN_DIR)/README.txt
+	@echo ""                                                    >> $(WIN_DIR)/README.txt
+	@echo "Sauvegardes  : saves\rustbastion_slot*.sav"          >> $(WIN_DIR)/README.txt
+	@echo "Meta-progres : saves\rustbastion_meta.sav"           >> $(WIN_DIR)/README.txt
+	@echo "Parametres   : config\settings.bin"                  >> $(WIN_DIR)/README.txt
 
 	@echo "✓ Package Windows : $(WIN_DIR)/"
 

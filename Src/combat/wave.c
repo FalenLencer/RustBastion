@@ -1,5 +1,5 @@
 #include "wave.h"
-#include "../audio.h"
+#include "../engine/audio.h"
 #include "raylib.h"
 #include <math.h>
 #include <string.h>
@@ -69,7 +69,17 @@ static EnemyType pick_enemy_type(int wave_num, ThemeID theme) {
    ════════════════════════════════════════════════════ */
 static int pick_path(WaveManager *wm, const PathSet *paths) {
     if (paths->count == 0) return 0;
-    if (paths->count == 1) return 0;
+    // Ne considérer que les chemins avec un A* valide
+    {
+        int valid = 0;
+        for (int p = 0; p < paths->count; p++)
+            if (paths->paths[p].found) valid++;
+        if (valid == 0) return 0;
+        if (valid == 1) {
+            for (int p = 0; p < paths->count; p++)
+                if (paths->paths[p].found) return p;
+        }
+    }
 
     // Trouve les bases distinctes dans le PathSet
     int base_ids[MAX_PATHS];
@@ -99,11 +109,11 @@ static int pick_path(WaveManager *wm, const PathSet *paths) {
             }
         }
 
-        // Parmi les chemins qui vont vers cette base, en choisit un au hasard
+        // Parmi les chemins valides qui vont vers cette base, en choisit un au hasard
         int candidates[MAX_PATHS];
         int ncand = 0;
         for (int p = 0; p < paths->count; p++) {
-            if (paths->paths[p].base_id == target_base)
+            if (paths->paths[p].found && paths->paths[p].base_id == target_base)
                 candidates[ncand++] = p;
         }
         if (ncand > 0) {
@@ -114,8 +124,13 @@ static int pick_path(WaveManager *wm, const PathSet *paths) {
         }
     }
 
-    // Mode aléatoire pur : n'importe quel chemin
-    int chosen = GetRandomValue(0, paths->count - 1);
+    // Mode aléatoire pur : n'importe quel chemin valide
+    int valid_paths[MAX_PATHS];
+    int nvalid = 0;
+    for (int p = 0; p < paths->count; p++)
+        if (paths->paths[p].found) valid_paths[nvalid++] = p;
+    if (nvalid == 0) return 0;
+    int chosen = valid_paths[GetRandomValue(0, nvalid - 1)];
     int bid = paths->paths[chosen].base_id;
     if (bid >= 0 && bid < MAX_BASES)
         wm->base_pressure[bid]++;
@@ -127,12 +142,8 @@ static int pick_path(WaveManager *wm, const PathSet *paths) {
    ════════════════════════════════════════════════════ */
 void wave_update(WaveManager *wm, EnemyPool *pool,
                  const PathSet *paths, const Theme *theme,
-                 float dt, int *lives, int *gold, int *kills)
+                 float dt)
 {
-    (void)lives;
-    (void)gold;
-    (void)kills;
-
     switch (wm->state) {
 
         case WAVE_IDLE:

@@ -5,8 +5,8 @@
 #include "../combat/enemy.h"
 #include "../combat/tower.h"
 #include "../combat/unit.h"
-#include "ui.h"
-#include "../meta/meta.h"
+#include "hud.h"
+#include "../game/meta.h"
 
 typedef struct GameState GameState;
 
@@ -30,5 +30,4 @@ void render_tower_preview(const Map *map, const TowerPool *tp,
                           TowerType type, int tile_x, int tile_y);
 void render_tile_detail  (int px, int py, TileType type, ThemeID theme);
 void render_hud          (const GameState *gs);
-void render_gameover     (const GameState *gs);
 void render_deposits     (const Map *map);

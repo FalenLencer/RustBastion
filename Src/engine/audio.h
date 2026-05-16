@@ -1,6 +1,6 @@
 #pragma once
 
-#include "map/theme.h"
+#include "../map/theme.h"
 
 typedef enum {
     AUDIO_MUSIC_NONE = -1,

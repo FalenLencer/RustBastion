@@ -29,6 +29,6 @@ typedef struct {
 void wave_init  (WaveManager *wm);
 void wave_update(WaveManager *wm, EnemyPool *pool,
                  const PathSet *paths, const Theme *theme,
-                 float dt, int *lives, int *gold, int *kills);
+                 float dt);
 int  wave_ready (const WaveManager *wm);
 void wave_start (WaveManager *wm);

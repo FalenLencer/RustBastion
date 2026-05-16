@@ -3,8 +3,9 @@
 #include "../map/map_gen.h"
 #include "../map/pathfinding.h"
 #include "../combat/unit.h"
-#include "../ui/ui.h"
-#include "../meta/meta.h"
+#include "../ui/hud.h"
+#include "../ui/campaign_data.h"
+#include "meta.h"
 #include <stdio.h>
 
 // Vérifie que chaque base active a au moins 1 chemin A* valide
@@ -102,12 +103,12 @@ void game_init_campaign(GameState *gs, int campaign_num, int slot, int seed) {
     gs->campaign_stage      = 0;
     gs->campaign_order_seed = seed;
 
-    int themes[CAMPAIGN_STAGES];
-    meta_campaign_theme_order(seed, themes);
-    game_init_map(gs, (ThemeID)themes[0]);
+    ThemeID theme = campaign_act_get(0)->theme;
+    game_init_map(gs, theme);
 
-    printf("Campagne %d stage 0 slot=%d theme=%d seed=%d\n",
-           campaign_num, slot, themes[0], seed);
+    printf("Campagne %d acte 0 slot=%d theme=%d\n",
+           campaign_num, slot, (int)theme);
+    (void)seed;
 }
 
 void game_next_campaign_stage(GameState *gs) {
@@ -126,10 +127,9 @@ void game_next_campaign_stage(GameState *gs) {
     meta_compute(&gs->meta, &gs->bonuses);
     gs->gold = gs->bonuses.start_gold;
 
-    int themes[CAMPAIGN_STAGES];
-    meta_campaign_theme_order(camp_seed, themes);
-    game_init_map(gs, (ThemeID)themes[camp_stage]);
+    ThemeID theme = campaign_act_get(camp_stage)->theme;
+    game_init_map(gs, theme);
 
-    printf("Campagne %d stage %d theme=%d\n",
-           camp_num, camp_stage, themes[camp_stage]);
+    printf("Campagne %d acte %d theme=%d\n",
+           camp_num, camp_stage, (int)theme);
 }

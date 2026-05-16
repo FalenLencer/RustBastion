@@ -1,5 +1,5 @@
 #include "canvas.h"
-#include "../ui/ui.h"
+#include "../ui/hud.h"
 #include <math.h>
 
 void canvas_compute(int sw, int sh, float *s, float *ox, float *oy) {

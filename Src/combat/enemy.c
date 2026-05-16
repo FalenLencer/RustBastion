@@ -1,7 +1,7 @@
 #include "enemy.h"
 #include "unit.h"
 #include "tower.h"
-#include "../audio.h"
+#include "../engine/audio.h"
 #include "raylib.h"
 #include <string.h>
 #include <math.h>
@@ -127,6 +127,7 @@ void enemy_damage(Enemy *e, float dmg) {
    ════════════════════════════════════════════════════ */
 void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                        UnitPool *units, TowerPool *towers,
+                       Map *map,
                        float dt, int *lives, int *gold, int *kills)
 {
     for (int i = 0; i < MAX_ENEMIES; i++) {
@@ -153,6 +154,17 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
 
         // ── Atteint la base ───────────────────────────────────
         if (e->reached_base) {
+            // Décrémente la base individuelle selon le chemin emprunté
+            if (map && e->path_id >= 0 && e->path_id < paths->count) {
+                int bid = paths->paths[e->path_id].base_id;
+                if (bid >= 0 && bid < map->base_count) {
+                    map->bases[bid].hp -= e->damage;
+                    if (map->bases[bid].hp <= 0) {
+                        map->bases[bid].hp     = 0;
+                        map->bases[bid].active = 0;
+                    }
+                }
+            }
             *lives -= e->damage;
             if (*lives < 0) *lives = 0;
             e->active = 0;
@@ -192,7 +204,7 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
             for (int j = 0; j < MAX_ENEMIES; j++) {
                 if (i == j) continue;
                 Enemy *other = &pool->enemies[j];
-                if (!other->active || other->dead) continue;
+                if (!other->active || other->dead || other->spawn_delay > 0.0f) continue;
                 if (edist(e->x, e->y, other->x, other->y) <= e->heal_range) {
                     other->hp += e->heal_amount * dt;
                     if (other->hp > other->max_hp)
@@ -249,7 +261,8 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
             int   best_t = -1;
             for (int j = 0; j < MAX_TOWERS; j++) {
                 Tower *tw = &towers->towers[j];
-                if (!tw->active) continue;
+                // Ignorer les tours inactives OU déjà à 0 HP (en attente de cleanup)
+                if (!tw->active || tw->hp <= 0.0f) continue;
                 float d = edist(e->x, e->y, tw->cx, tw->cy);
                 if (d <= e->arty_range && d < best_d) {
                     best_d = d; best_t = j;
@@ -260,8 +273,8 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
             if (best_t != -1) {
                 Tower *tw = &towers->towers[best_t];
                 if (e->arty_timer <= 0.0f) {
-                    // 1 tir toutes les 3s → 3 tirs pour détruire
-                    tw->hp -= tw->damage * 8.0f;
+                    // Dégâts fixes : 3 tirs de 40 pour détruire (hp=100)
+                    tw->hp -= 40.0f;
                     if (tw->hp <= 0.0f) tw->hp = 0.0f;
                     e->arty_timer = 3.0f;
                 }

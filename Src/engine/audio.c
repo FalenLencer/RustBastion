@@ -14,11 +14,11 @@
 
 /* ── Chemins des assets ──────────────────────────────────────── */
 static const char *const AUDIO_MUSIC_FILES[AUDIO_MUSIC_COUNT] = {
-    "assets/sounds/music/ambience_wasteland.ogg",
-    "assets/sounds/music/ambience_swamp.ogg",
-    "assets/sounds/music/ambience_desert.ogg",
-    "assets/sounds/music/ambience_city.ogg",
-    "assets/sounds/music/ambience_factory.ogg",
+    "assets/sounds/music/ambience_wasteland.wav",
+    "assets/sounds/music/ambience_swamp.wav",
+    "assets/sounds/music/ambience_desert.wav",
+    "assets/sounds/music/ambience_city.wav",
+    "assets/sounds/music/ambience_factory.wav",
 };
 
 static const char *const AUDIO_SFX_FILES[AUDIO_SFX_COUNT] = {
@@ -47,9 +47,9 @@ static int    g_sfx_valid[AUDIO_SFX_COUNT];
 static int    g_music_valid[AUDIO_MUSIC_COUNT];
 static int    g_audio_ready   = 0;
 static int    g_current_music = AUDIO_MUSIC_NONE;
-static float  g_master_volume = 0.80f;
-static float  g_music_volume  = 0.60f;
-static float  g_sfx_volume    = 0.90f;
+static float  g_master_volume = 0.50f;
+static float  g_music_volume  = 0.50f;
+static float  g_sfx_volume    = 0.50f;
 
 /* ── Throttle SFX haute fréquence ────────────────────────────── */
 #define THROTTLE_COUNT 4

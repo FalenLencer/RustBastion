@@ -2,7 +2,7 @@
 #include "raylib.h"
 #include "../combat/tower.h"
 #include "../combat/unit.h"
-#include "../meta/meta.h"
+#include "../game/meta.h"
 
 typedef struct GameState GameState;
 

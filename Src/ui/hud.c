@@ -1,13 +1,13 @@
-#include "ui.h"
+#include "hud.h"
 #include "renderer.h"
 #include "ui_utils.h"
-#include "../audio.h"
-#include "../meta/meta.h"
+#include "../engine/audio.h"
+#include "../game/meta.h"
 #include "../map/pathfinding.h"
 #include "../combat/material.h"
 #include <string.h>
 #include <math.h>
-#include "../core/game_state.h"
+#include "../game/game_state.h"
 #include "menu.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -229,6 +229,15 @@ void ui_update(UIState *ui, GameState *gs) {
     Vector2   mouse = virt_mouse();
     const int HUD_Y = MAP_H * TILE_SIZE;
 
+    // Nettoyage ouvrier mort : désélectionner si l'unité n'est plus active
+    if (ui->worker_selected_idx >= 0) {
+        const Unit *wu = &gs->units.units[ui->worker_selected_idx];
+        if (!wu->active) {
+            ui->worker_selected_idx = -1;
+            gs->units.selected_unit = -1;
+        }
+    }
+
     // Hover outil
     ui->hovered_tool = -1;
     for (int i = 0; i < TOOL_COUNT; i++) {
@@ -280,7 +289,10 @@ void ui_update(UIState *ui, GameState *gs) {
                  CheckCollisionPointRec(mouse, ui->sell_btn)) {
             Tower *tw = &gs->towers.towers[ui->selection.tower_idx];
             if (tw->active) {
-                gs->gold += (int)(TOWER_BASE_STATS[tw->type].cost * 0.6f);
+                // Remboursement basé sur le coût réel payé (tuile ruin = x2)
+                int real_cost = tower_cost_on_tile(tw->type, &gs->map,
+                                                   tw->tile_x, tw->tile_y);
+                gs->gold += (int)(real_cost * 0.6f);
                 gs->map.tiles[tw->tile_y][tw->tile_x].buildable = 1;
                 tw->active = 0;
                 gs->towers.tower_count--;
@@ -510,10 +522,14 @@ void ui_render(const UIState *ui, const GameState *gs) {
             py += 16;
         }
 
-        // VIES
+        // VIES — ratio calculé sur le total HP max des bases encore actives
         {
-            float lr = gs->bonuses.start_lives > 0
-                ? (float)gs->lives / (float)gs->bonuses.start_lives : 0.0f;
+            int max_hp_sum = 0;
+            for (int b = 0; b < gs->map.base_count; b++)
+                if (gs->map.bases[b].active)
+                    max_hp_sum += gs->map.bases[b].max_hp;
+            float lr = max_hp_sum > 0
+                ? (float)gs->lives / (float)max_hp_sum : 0.0f;
             Color lc = lr > 0.5f  ? (Color){46, 204, 113, 255}
                      : lr > 0.25f ? (Color){243, 156,  18, 255}
                                   : (Color){231,  76,  60, 255};
@@ -525,8 +541,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
             py += 16;
         }
 
-        // FERRAILLE
-        {
+        // FERRAILLE — uniquement en campagne (pas d'or en arcade)
+        if (gs->is_campaign) {
             float sr = fminf((float)gs->meta.scrap / 200.0f, 1.0f);
             DrawText("SCR", px, py + 1, 10, (Color){30, 65, 30, 255});
             draw_bar(bar_x, py + 2, bar_w, 7, sr,
@@ -603,7 +619,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
         }
 
         // Thème
-        {
+        if (py + 12 <= HUD_Y + HUD_H) {
             char tbuf[26];
             clip_text(th->name, UI_PANEL_W - M * 2, 9, tbuf, sizeof(tbuf));
             DrawText(tbuf, px, py, 9, (Color){48, 82, 48, 255});
@@ -611,7 +627,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
         }
 
         // Vitesse
-        {
+        if (py + 12 <= HUD_Y + HUD_H) {
             const char *sl[] = {"Vitesse x1","Vitesse x2","Vitesse x3"};
             const Color sc[] = {
                 {80,118,80,255},{239,159,39,255},{231,76,60,255}
@@ -624,7 +640,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
         }
 
         // Inventaire
-        if (gs->inventory_count > 0) {
+        if (gs->inventory_count > 0 && py + 10 <= HUD_Y + HUD_H) {
             DrawText(TextFormat("Mat: %d", gs->inventory_count),
                      px, py, 9, (Color){62, 165, 185, 255});
         }
@@ -811,7 +827,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     hov ? (Color){48,8,8,255} : (Color){20,4,4,255});
                 DrawRectangleRoundedLinesEx(sb, srnd, 6, 1.5f,
                     hov ? (Color){192,48,48,255} : (Color){90,18,18,255});
-                int refund = (int)(st->cost * 0.6f);
+                int refund = (int)(tower_cost_on_tile(tw->type, &gs->map,
+                                       tw->tile_x, tw->tile_y) * 0.6f);
                 snprintf(buf, sizeof(buf), "Vendre +%dor", refund);
                 int bw = MeasureText(buf, 9);
                 DrawText(buf, (int)(sb.x + sb.width/2 - bw/2),

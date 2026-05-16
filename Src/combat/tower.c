@@ -1,11 +1,11 @@
 #include "tower.h"
 #include "projectile.h"
-#include "../audio.h"
+#include "../engine/audio.h"
 #include "../map/pathfinding.h"
 #include <string.h>
 #include <math.h>
 #include <float.h>
-#include "../meta/meta.h"
+#include "../game/meta.h"
 #include <stdlib.h>
 
 /* ════════════════════════════════════════════════════

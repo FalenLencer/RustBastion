@@ -1,5 +1,6 @@
 #include "meta.h"
 #include "../map/theme.h"
+#include "../engine/paths.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -50,6 +51,7 @@ const char *UPGRADE_DESC[UPGRADE_COUNT] = {
 // ════════════════════════════════════════════════════
 void meta_init(MetaProgress *meta) {
     memset(meta, 0, sizeof(MetaProgress));
+    memset(meta->act_stars, 0, sizeof(meta->act_stars));
     meta->magic   = META_MAGIC;
     meta->version = META_VERSION;
     meta->scrap   = 0;
@@ -61,14 +63,17 @@ void meta_init(MetaProgress *meta) {
 // SAUVEGARDE / CHARGEMENT
 // ════════════════════════════════════════════════════
 void meta_save(const MetaProgress *meta) {
-    FILE *f = fopen(META_SAVE_FILE, "wb");
+    data_mkdir("saves");
+    char path[512];
+    FILE *f = fopen(data_path(path, sizeof(path), "saves/rustbastion_meta.sav"), "wb");
     if (!f) return;
     fwrite(meta, sizeof(MetaProgress), 1, f);
     fclose(f);
 }
 
 int meta_load(MetaProgress *meta) {
-    FILE *f = fopen(META_SAVE_FILE, "rb");
+    char path[512];
+    FILE *f = fopen(data_path(path, sizeof(path), "saves/rustbastion_meta.sav"), "rb");
     if (!f) return 0;
     MetaProgress tmp;
     int ok = (fread(&tmp, sizeof(MetaProgress), 1, f) == 1);
@@ -252,4 +257,20 @@ void meta_endless_end(MetaProgress *meta, int wave, float mult,
     meta->scrap              += earned;
     meta->total_scrap_earned += earned;
     meta_save(meta);
+}
+
+int meta_record_act(MetaProgress *meta, int stage_index,
+                    int objective_done, int bonus_done)
+{
+    if (stage_index < 0 || stage_index >= CAMPAIGN_TOTAL) return 0;
+    int stars = objective_done ? (bonus_done ? 2 : 1) : 0;
+    if (stars > meta->act_stars[stage_index])
+        meta->act_stars[stage_index] = stars;
+    meta_save(meta);
+    return stars;
+}
+
+int meta_act_unlocked(const MetaProgress *meta, int stage_index) {
+    if (stage_index <= 0) return 1;              // premier acte toujours débloqué
+    return meta->act_stars[stage_index - 1] > 0; // acte précédent complété
 }

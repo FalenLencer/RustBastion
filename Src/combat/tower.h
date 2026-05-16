@@ -2,7 +2,7 @@
 #include "raylib.h"
 #include "../map/map_gen.h"
 #include "enemy.h"
-#include "../meta/meta.h"
+#include "../game/meta.h"
 #include "../combat/material.h"
 
 #define MAX_TOWERS_HARD  64

@@ -3,7 +3,7 @@
 
 #define SAVE_SLOT_COUNT   3
 #define SAVE_MAGIC        0x52425356u
-#define SAVE_VERSION      4            /* bump : ajout campaign_order_seed + inventory */
+#define SAVE_VERSION      6            /* bump : ajout champs act_* objectifs campagne */
 #define SAVE_FILE_PREFIX  "saves/rustbastion_slot"
 
 /* ── Mode de jeu d'un slot ──────────────────────────────────── */

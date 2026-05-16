@@ -1,5 +1,25 @@
 #include "game_state.h"
 
+/* ── Fonctions de gestion des bases ─────────────────────────── */
+int game_all_bases_fallen(const GameState *gs) {
+    for (int i = 0; i < gs->map.base_count; i++)
+        if (gs->map.bases[i].active && gs->map.bases[i].hp > 0) return 0;
+    return 1;
+}
+
+void game_damage_base(GameState *gs, int base_id, int dmg) {
+    if (base_id < 0 || base_id >= gs->map.base_count) return;
+    BaseInfo *b = &gs->map.bases[base_id];
+    if (!b->active) return;
+    b->hp -= dmg;
+    if (b->hp <= 0) {
+        b->hp     = 0;
+        b->active = 0;
+    }
+    gs->lives -= dmg;
+    if (gs->lives < 0) gs->lives = 0;
+}
+
 void game_state_init(GameState *gs) {
     if (!meta_load(&gs->meta)) meta_init(&gs->meta);
     meta_compute(&gs->meta, &gs->bonuses);
@@ -17,6 +37,9 @@ void game_state_init(GameState *gs) {
     enemy_pool_init(&gs->enemies);
     wave_init(&gs->wave_manager);
     tower_pool_init(&gs->towers);
+    gs->act_objective_done      = 0;
+    gs->act_no_unit_lost        = 1;
+    gs->act_materials_collected = 0;
 }
 
 void game_state_update(GameState *gs, float dt) {
@@ -27,9 +50,12 @@ void game_state_update(GameState *gs, float dt) {
     // Vérification game over
     if (gs->lives <= 0) {
         if (gs->phase != PHASE_GAMEOVER) {
-            meta_end_of_run(&gs->meta,
-                            gs->wave_manager.number,
-                            gs->kills, gs->gold);
+            // En endless, la ferraille est gérée par meta_endless_end() depuis main.c
+            // En campagne, la ferraille est gérée par meta_end_of_campaign_stage()
+            if (!gs->is_endless && !gs->is_campaign)
+                meta_end_of_run(&gs->meta,
+                                gs->wave_manager.number,
+                                gs->kills, gs->gold);
         }
         gs->phase = PHASE_GAMEOVER;
         return;
@@ -38,9 +64,14 @@ void game_state_update(GameState *gs, float dt) {
     const Theme *th       = theme_get(gs->map.theme);
     float effective_dt    = dt * (float)gs->ui.speed_mult;
 
+    // Snapshot avant mise à jour (pour tracking objectifs campagne)
+    int unit_cnt_before = gs->units.count;
+    int inv_cnt_before  = gs->inventory_count;
+
     // Mise à jour ennemis — passe towers pour Artillery
     enemy_pool_update(&gs->enemies, &gs->enemy_paths,
                       &gs->units, &gs->towers,
+                      &gs->map,
                       effective_dt,
                       &gs->lives, &gs->gold, &gs->kills);
 
@@ -59,8 +90,17 @@ void game_state_update(GameState *gs, float dt) {
     unit_pool_update(&gs->units, &gs->enemies, &gs->map,
                      effective_dt, gs->inventory, &gs->inventory_count);
     wave_update(&gs->wave_manager, &gs->enemies,
-                &gs->enemy_paths, th, effective_dt,
-                &gs->lives, &gs->gold, &gs->kills);
+                &gs->enemy_paths, th, effective_dt);
+
+    // ── Suivi des objectifs de l'acte (campagne uniquement) ───────
+    if (gs->is_campaign) {
+        // OBJ_NO_UNIT_LOST : une unité est morte si le count a diminué
+        if (gs->act_no_unit_lost && gs->units.count < unit_cnt_before)
+            gs->act_no_unit_lost = 0;
+        // OBJ_COLLECT_MATERIALS : cumule les matériaux livrés ce stage
+        if (gs->inventory_count > inv_cnt_before)
+            gs->act_materials_collected += gs->inventory_count - inv_cnt_before;
+    }
 
     gs->phase = (gs->wave_manager.state == WAVE_IDLE ||
                  gs->wave_manager.state == WAVE_COMPLETE)

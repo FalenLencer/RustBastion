@@ -2,16 +2,9 @@
 #include "../map/theme.h"
 #include "../map/pathfinding.h"
 #include "../map/map_gen.h"
+#include "../engine/paths.h"
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <errno.h>
-
-#ifdef _WIN32
-#include <direct.h>
-#define mkdir(path, mode) _mkdir(path)
-#endif
 
 /* ── Entête de fichier ──────────────────────────────────────── */
 typedef struct {
@@ -37,26 +30,31 @@ typedef struct {
     int          sz_unit_pool;
     int          sz_inventory;
     int          sz_meta_bonuses;
+
+    /* Champs endless */
+    int          is_endless;
+    int          endless_series;
+    float        endless_multiplier;
+    int          endless_pending_extract;
 } SaveHeader;
 
 static void slot_path(int slot, char *buf, int bufsz) {
-    /* Créer le dossier saves/ si nécessaire */
-    mkdir("saves", 0755);
-
-    snprintf(buf, bufsz, "%s%d.sav", SAVE_FILE_PREFIX, slot);
+    data_mkdir("saves");
+    char rel[64];
+    snprintf(rel, sizeof(rel), "saves/rustbastion_slot%d.sav", slot);
+    data_path(buf, bufsz, rel);
 }
 
 /* ════════════════════════════════════════════════════
    INITIALISATION
    ════════════════════════════════════════════════════ */
 void save_init(void) {
-    /* Créer le dossier saves/ si nécessaire */
-    mkdir("saves", 0755);
+    data_mkdir("saves");
 }
 int save_write(const GameState *gs, int slot) {
     if (slot < 0 || slot >= SAVE_SLOT_COUNT) return 0;
 
-    char path[128];
+    char path[512];
     slot_path(slot, path, sizeof(path));
 
     FILE *f = fopen(path, "wb");
@@ -74,7 +72,11 @@ int save_write(const GameState *gs, int slot) {
         .mode                = gs->is_campaign ? SAVE_MODE_CAMPAIGN : SAVE_MODE_ARCADE,
         .campaign_num        = gs->campaign_num,
         .campaign_stage      = gs->campaign_stage,
-        .campaign_order_seed = gs->campaign_order_seed,   /* CORRECTIF #1 */
+        .campaign_order_seed = gs->campaign_order_seed,
+        .is_endless              = gs->is_endless,
+        .endless_series          = gs->endless_series,
+        .endless_multiplier      = gs->endless_multiplier,
+        .endless_pending_extract = gs->endless_pending_extract,
         .sz_map              = (int)sizeof(gs->map),
         .sz_enemy_pool       = (int)sizeof(gs->enemies),
         .sz_wave_manager     = (int)sizeof(gs->wave_manager),
@@ -102,10 +104,18 @@ int save_write(const GameState *gs, int slot) {
     ok &= (fwrite(&gs->is_campaign,  sizeof(gs->is_campaign),  1, f) == 1);
     ok &= (fwrite(&gs->campaign_num, sizeof(gs->campaign_num), 1, f) == 1);
     ok &= (fwrite(&gs->campaign_stage,      sizeof(gs->campaign_stage),      1, f) == 1);
-    ok &= (fwrite(&gs->campaign_order_seed, sizeof(gs->campaign_order_seed), 1, f) == 1); /* CORRECTIF #1 */
+    ok &= (fwrite(&gs->campaign_order_seed,      sizeof(gs->campaign_order_seed),      1, f) == 1);
+    ok &= (fwrite(&gs->is_endless,               sizeof(gs->is_endless),               1, f) == 1);
+    ok &= (fwrite(&gs->endless_series,           sizeof(gs->endless_series),           1, f) == 1);
+    ok &= (fwrite(&gs->endless_multiplier,       sizeof(gs->endless_multiplier),       1, f) == 1);
+    ok &= (fwrite(&gs->endless_pending_extract,  sizeof(gs->endless_pending_extract),  1, f) == 1);
+    /* Champs suivi objectifs campagne (act_* réinitialisés si save manquant) */
+    ok &= (fwrite(&gs->act_no_unit_lost,         sizeof(gs->act_no_unit_lost),         1, f) == 1);
+    ok &= (fwrite(&gs->act_materials_collected,  sizeof(gs->act_materials_collected),  1, f) == 1);
+    ok &= (fwrite(&gs->act_objective_done,       sizeof(gs->act_objective_done),       1, f) == 1);
 
     fclose(f);
-    return ok; /* CORRECTIF #9 : retourne le résultat de l'écriture */
+    return ok;
 }
 
 /* ════════════════════════════════════════════════════
@@ -114,7 +124,7 @@ int save_write(const GameState *gs, int slot) {
 int save_read(GameState *gs, int slot) {
     if (slot < 0 || slot >= SAVE_SLOT_COUNT) return 0;
 
-    char path[128];
+    char path[512];
     slot_path(slot, path, sizeof(path));
 
     FILE *f = fopen(path, "rb");
@@ -157,7 +167,15 @@ int save_read(GameState *gs, int slot) {
     ok &= (fread(&gs->is_campaign,          sizeof(gs->is_campaign),          1, f) == 1);
     ok &= (fread(&gs->campaign_num,         sizeof(gs->campaign_num),         1, f) == 1);
     ok &= (fread(&gs->campaign_stage,       sizeof(gs->campaign_stage),       1, f) == 1);
-    ok &= (fread(&gs->campaign_order_seed,  sizeof(gs->campaign_order_seed),  1, f) == 1); /* CORRECTIF #1 */
+    ok &= (fread(&gs->campaign_order_seed,      sizeof(gs->campaign_order_seed),      1, f) == 1);
+    ok &= (fread(&gs->is_endless,               sizeof(gs->is_endless),               1, f) == 1);
+    ok &= (fread(&gs->endless_series,           sizeof(gs->endless_series),           1, f) == 1);
+    ok &= (fread(&gs->endless_multiplier,       sizeof(gs->endless_multiplier),       1, f) == 1);
+    ok &= (fread(&gs->endless_pending_extract,  sizeof(gs->endless_pending_extract),  1, f) == 1);
+    /* Champs suivi objectifs campagne */
+    ok &= (fread(&gs->act_no_unit_lost,         sizeof(gs->act_no_unit_lost),         1, f) == 1);
+    ok &= (fread(&gs->act_materials_collected,  sizeof(gs->act_materials_collected),  1, f) == 1);
+    ok &= (fread(&gs->act_objective_done,       sizeof(gs->act_objective_done),       1, f) == 1);
 
     fclose(f);
     if (!ok) return 0;
@@ -172,7 +190,7 @@ int save_read(GameState *gs, int slot) {
 int save_info(int slot, SaveInfo *out) {
     if (slot < 0 || slot >= SAVE_SLOT_COUNT) return 0;
 
-    char path[128];
+    char path[512];
     slot_path(slot, path, sizeof(path));
 
     FILE *f = fopen(path, "rb");
@@ -215,7 +233,7 @@ int save_info(int slot, SaveInfo *out) {
    SUPPRESSION / SCAN
    ════════════════════════════════════════════════════ */
 void save_delete(int slot) {
-    char path[128];
+    char path[512];
     slot_path(slot, path, sizeof(path));
     remove(path);
 }

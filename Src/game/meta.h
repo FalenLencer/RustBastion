@@ -1,8 +1,8 @@
 #pragma once
+#include "../ui/campaign_data.h"   // CAMPAIGN_TOTAL = 15
 
-#define META_SAVE_FILE "rustbastion.sav"
 #define META_MAGIC     0x52425354u  // "RBST"
-#define META_VERSION   3            // ← bump pour invalider les anciens saves
+#define META_VERSION   4            // ← bump pour invalider les anciens saves
 
 // ── Niveaux maximum par amélioration ─────────────────────────
 #define MAX_LVL_TOWER_DMG    5
@@ -32,7 +32,7 @@ extern const int COST_UNIT_LIMIT [MAX_LVL_UNIT_LIMIT];
 // ── Ordre des thèmes en campagne (cycle fixe) ─────────────────
 // Les 5 thèmes sont parcourus dans cet ordre, aléatoirement tirés
 // parmi la liste complète. L'ordre est dérivé du numéro de campagne.
-#define CAMPAIGN_STAGES  5   // = THEME_COUNT
+#define CAMPAIGN_STAGES  5   // = THEME_COUNT (ancien système 5 stages)
 
 // ── Structure de méta-progression ────────────────────────────
 typedef struct {
@@ -62,6 +62,8 @@ typedef struct {
     int lvl_unit_limit;
     int   endless_best_score;   // meilleur score (vague × mult × 10)
     int   endless_best_wave;    // meilleure vague atteinte en endless
+    // Étoiles par acte (0=non joué, 1=complété, 2=objectif bonus)
+    int act_stars[CAMPAIGN_TOTAL];  // CAMPAIGN_TOTAL = 15
 } MetaProgress;
 
 // ── Multiplicateurs calculés depuis les niveaux ───────────────
@@ -100,6 +102,16 @@ void meta_campaign_theme_order(int seed, int out_themes[CAMPAIGN_STAGES]);
 int  meta_upgrade_cost(const MetaProgress *meta, int upgrade_id);
 int  meta_upgrade     (MetaProgress *meta, int upgrade_id);
 
+// Mode endless
+int  meta_endless_score(int wave, float mult);
+void meta_endless_end  (MetaProgress *meta, int wave, float mult, int extracted);
+
+// Enregistre le résultat d'un acte et retourne les étoiles (1 ou 2)
+int  meta_record_act(MetaProgress *meta, int stage_index,
+                     int objective_done, int bonus_done);
+
+// Retourne 1 si un acte est débloqué (précédent complété)
+int  meta_act_unlocked(const MetaProgress *meta, int stage_index);
 typedef enum {
     UPGRADE_TOWER_DMG   = 0,
     UPGRADE_TOWER_RANGE,

@@ -1,5 +1,5 @@
 #include "unit.h"
-#include "../audio.h"
+#include "../engine/audio.h"
 #include <string.h>
 #include <math.h>
 #include <float.h>
@@ -168,9 +168,12 @@ void unit_assign_deposit(UnitPool *up, int unit_idx, int deposit_idx) {
    DÉGÂTS
    ════════════════════════════════════════════════════ */
 void unit_damage(Unit *u, float dmg) {
-    if (!u->active) return;
+    // Guard sur hp pour éviter les dégâts multiples sur une unité déjà morte
+    if (!u->active || u->hp <= 0.0f) return;
     u->hp -= dmg;
-    if (u->hp <= 0.0f) { u->hp = 0.0f; u->active = 0; }
+    if (u->hp <= 0.0f) u->hp = 0.0f;
+    // Ne pas mettre active=0 ici : unit_pool_update détecte hp=0
+    // et gère count-- correctement au début du prochain frame
 }
 
 /* ════════════════════════════════════════════════════

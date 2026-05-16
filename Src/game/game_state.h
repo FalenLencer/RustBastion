@@ -5,8 +5,8 @@
 #include "../combat/wave.h"
 #include "../combat/tower.h"
 #include "../combat/unit.h"
-#include "../meta/meta.h"
-#include "../ui/ui.h"
+#include "meta.h"
+#include "../ui/hud.h"
 
 typedef enum { PHASE_PREP, PHASE_WAVE, PHASE_GAMEOVER } GamePhase;
 
@@ -39,6 +39,10 @@ struct GameState {
     int   endless_series;      // série en cours (0-based, +1 tous les 10 vagues)
     float endless_multiplier;  // multiplicateur de ferraille (1.0, 1.5, 2.0...)
     int   endless_pending_extract; // 1 = fenêtre extraction à afficher
+    // ── Suivi objectif de l'acte en cours ─────────────────────
+    int act_objective_done;      // 1 = objectif accompli ce stage
+    int act_no_unit_lost;        // 1 = aucune unité perdue (pour OBJ_NO_UNIT_LOST)
+    int act_materials_collected; // compteur matériaux collectés ce stages
 };
 
 typedef struct GameState GameState;

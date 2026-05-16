@@ -1,8 +1,8 @@
 #pragma once
 #include "raylib.h"
-#include "../core/save.h"
+#include "../game/save.h"
 #include "../map/theme.h"
-#include "../meta/meta.h"
+#include "../game/meta.h"
 
 // ════════════════════════════════════════════════════
 // ÉTATS DU MENU
@@ -11,6 +11,7 @@ typedef enum {
     MENU_TITLE       = 0,
     MENU_PLAY_HUB,
     MENU_CAMPAIGN,
+    MENU_WORLD_MAP,
     MENU_ARCADE,
     MENU_NEW_CAMPAIGN,
     MENU_NEW_ARCADE,
