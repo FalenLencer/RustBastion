@@ -88,6 +88,36 @@ static void draw_sep(int x, int y, int w, Color col) {
     DrawLine(x, y, x+w, y, col);
 }
 
+// Texte centré avec petit cadre sombre pour lisibilité sur fond d'image
+static void txt_c_boxed(const char *s, int cx, int y, int fs, Color col) {
+    int tw = MeasureText(s, fs);
+    int px = 8, py = 3;
+    DrawRectangleRounded(
+        (Rectangle){(float)(cx - tw/2 - px), (float)(y - py),
+                    (float)(tw + px*2), (float)(fs + py*2)},
+        0.25f, 4, (Color){5, 3, 1, 210});
+    DrawRectangleRoundedLinesEx(
+        (Rectangle){(float)(cx - tw/2 - px), (float)(y - py),
+                    (float)(tw + px*2), (float)(fs + py*2)},
+        0.25f, 4, 1.0f, (Color){55, 36, 12, 120});
+    DrawText(s, cx - tw/2, y, fs, col);
+}
+
+// Texte aligné à gauche avec petit cadre sombre
+static void draw_text_boxed(const char *s, int x, int y, int fs, Color col) {
+    int tw = MeasureText(s, fs);
+    int px = 6, py = 3;
+    DrawRectangleRounded(
+        (Rectangle){(float)(x - px), (float)(y - py),
+                    (float)(tw + px*2), (float)(fs + py*2)},
+        0.25f, 4, (Color){5, 3, 1, 210});
+    DrawRectangleRoundedLinesEx(
+        (Rectangle){(float)(x - px), (float)(y - py),
+                    (float)(tw + px*2), (float)(fs + py*2)},
+        0.25f, 4, 1.0f, (Color){55, 36, 12, 120});
+    DrawText(s, x, y, fs, col);
+}
+
 // Fond quadrillage décoratif ou image de fond de menu
 typedef enum {
     MENU_BG_TITLE = 0,
@@ -152,10 +182,10 @@ static void draw_bg(const MenuState *m, int vw, int vh) {
 // En-tête commune : titre RUST BASTION + sous-titre + séparateur
 static void draw_header(const char *subtitle, int vw) {
     int cx = vw/2;
-    txt_c("RUST BASTION", cx, M_PAD, 28, C_GOLD);
+    txt_c_boxed("RUST BASTION", cx, M_PAD, 28, C_GOLD);
     draw_sep(M_PAD*2, M_PAD + 36, vw - M_PAD*4, C_BORDER);
     if (subtitle && subtitle[0])
-        txt_c(subtitle, cx, M_PAD + 44, 13, C_TEXT);
+        txt_c_boxed(subtitle, cx, M_PAD + 44, 13, C_TEXT);
 }
 
 // Panneau centré avec fond et bordure arrondis
@@ -198,7 +228,7 @@ static int draw_btn(const char *label, int x, int y, int w, int h,
 static int draw_volume_slider(const char *label, int x, int y, int w,
                               int value, int *out_value)
 {
-    DrawText(label, x, y, 11, C_GOLD);
+    draw_text_boxed(label, x, y, 11, C_GOLD);
     y += 18;
 
     Rectangle track = {(float)x, (float)y, (float)w, 12.0f};
@@ -270,7 +300,8 @@ static int draw_nav_btn(const char *icon, const char *title,
     // Description clippée
     char dbuf[72];
     clip_text(desc, w - M_PAD - 36 - M_IN, 10, dbuf, sizeof(dbuf));
-    DrawText(dbuf, x + M_PAD + 36, y + M_IN + 22, 10, C_DIM);
+    DrawText(dbuf, x + M_PAD + 36, y + M_IN + 22, 10,
+             hov ? C_TEXT : (Color){130, 110, 72, 255});
 
     if (vclick_r(r)) {
         audio_play_sfx(AUDIO_SFX_MENU_CLICK);
@@ -290,9 +321,19 @@ static int draw_back_btn(int vw, int vh) {
 static void draw_msg(MenuState *m, int vw, int vh) {
     if (m->msg_timer <= 0.0f) return;
     float a = fminf(m->msg_timer / 0.4f, 1.0f);
-    int alpha = (int)(a * 210.0f);
-    txt_c(m->msg_buf, vw/2, vh - M_PAD - 16, 12,
-          (Color){232,152,32,(unsigned char)alpha});
+    int alpha = (int)(a * 220.0f);
+    int tw = MeasureText(m->msg_buf, 13);
+    int mx = vw/2 - tw/2, my = vh - M_PAD - 20;
+    int px = 10, py = 4;
+    DrawRectangleRounded(
+        (Rectangle){(float)(mx - px), (float)(my - py),
+                    (float)(tw + px*2), (float)(13 + py*2)},
+        0.3f, 4, (Color){5, 3, 1, (unsigned char)alpha});
+    DrawRectangleRoundedLinesEx(
+        (Rectangle){(float)(mx - px), (float)(my - py),
+                    (float)(tw + px*2), (float)(13 + py*2)},
+        0.3f, 4, 1.2f, (Color){232, 152, 32, (unsigned char)(alpha/2)});
+    DrawText(m->msg_buf, mx, my, 13, (Color){232,152,32,(unsigned char)alpha});
 }
 
 static void set_msg(MenuState *m, const char *s) {
@@ -345,8 +386,8 @@ static MenuAction draw_title(MenuState *m, int vw, int vh) {
     draw_bg(m, vw, vh);
 
     // Titre principal
-    txt_c("RUST BASTION", cx, vh/2 - 170, 46, C_GOLD);
-    txt_c("Tower Defense Post-Apocalyptique", cx, vh/2 - 114, 13, C_DIM);
+    txt_c_boxed("RUST BASTION", cx, vh/2 - 170, 46, C_GOLD);
+    txt_c_boxed("Tower Defense Post-Apocalyptique", cx, vh/2 - 114, 13, C_DIM);
     draw_sep(cx - 180, vh/2 - 94, 360, C_BORDER);
 
     // Boutons
@@ -436,15 +477,15 @@ static MenuAction draw_slot_list(MenuState *m, int vw, int vh,
     draw_bg(m, vw, vh);
     draw_header(is_campaign ? "CAMPAGNE" : "ARCADE", vw);
 
-    // Sous-titre
+    // Sous-titre (décalé sous l'en-tête pour éviter la superposition)
     const char *sub = is_campaign
         ? "5 environnements en sequence — la ferraille se gagne ici"
         : "Mode libre — choisissez votre terrain";
-    txt_c(sub, cx, M_PAD + 46, 10, C_DIM);
+    txt_c_boxed(sub, cx, M_PAD + 62, 10, C_TEXT);
 
     int sw = 540, sh = 68, sg = M_IN;
     int sx = cx - sw/2;
-    int y  = M_PAD + 70;
+    int y  = M_PAD + 82;
 
     for (int i = 0; i < SAVE_SLOT_COUNT; i++) {
         const SaveInfo *si = &m->slots[i];
@@ -478,7 +519,7 @@ static MenuAction draw_slot_list(MenuState *m, int vw, int vh,
                 char cbuf[80];
                 int max_cw = sw - 120 - M_IN*2;
                 clip_text(raw, max_cw, 12, cbuf, sizeof(cbuf));
-                DrawText(cbuf, tx, ty, 12, C_GOLD);
+                draw_text_boxed(cbuf, tx, ty, 12, C_GOLD);
             } else {
                 DrawText(TextFormat("ARCADE  —  %s", si->theme_name),
                          tx, ty, 12, C_BLUE);
@@ -646,13 +687,13 @@ static MenuAction draw_new_arcade(MenuState *m, int vw, int vh) {
     draw_header("NOUVELLE PARTIE ARCADE", vw);
 
     DrawText(TextFormat("Emplacement : %d", m->new_slot+1),
-             cx - 100, M_PAD + 48, 11, C_TEXT);
+             cx - 100, M_PAD + 62, 11, C_TEXT);
 
     int bw = 300, bh = 30, gap = 5;
     int bx = cx - bw/2;
-    int by = M_PAD + 70;
+    int by = M_PAD + 82;
 
-    DrawText("Choisir un environnement :", bx, by, 11, C_GOLD);
+    draw_text_boxed("Choisir un environnement :", bx, by, 11, C_GOLD);
     by += M_LINE + 4;
 
     for (int i = 0; i <= THEME_COUNT; i++) {
@@ -702,14 +743,14 @@ static MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
     draw_bg(m, vw, vh);
     draw_header("AMELIORATIONS", vw);
 
-    // Sous-titre
-    txt_c("La ferraille se gagne uniquement en completant des stages de campagne.",
-          cx, M_PAD + 46, 10, C_DIM);
+    // Sous-titre (décalé sous l'en-tête pour éviter la superposition)
+    txt_c_boxed("La ferraille se gagne uniquement en completant des stages de campagne.",
+                cx, M_PAD + 62, 10, C_TEXT);
 
     // Bandeau ferraille
     {
         int fw = 220, fh = 28;
-        int fx = cx - fw/2, fy = M_PAD + 62;
+        int fx = cx - fw/2, fy = M_PAD + 80;
         Rectangle fr = {(float)fx,(float)fy,(float)fw,(float)fh};
         DrawRectangleRounded(fr, (float)PANEL_R/fh, 5, (Color){6,20,6,255});
         DrawRectangleRoundedLinesEx(fr, (float)PANEL_R/fh, 5, 1.5f, C_GREEN);
@@ -720,28 +761,27 @@ static MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
     // Stats globales
     int lx = M_PAD * 3;
     int rw = vw - lx * 2;
-    int y  = M_PAD + 100;
-    DrawText(TextFormat("Campagnes terminees : %d     Meilleure vague : %d",
+    int y  = M_PAD + 116;
+    draw_text_boxed(TextFormat("Campagnes terminees : %d     Meilleure vague : %d",
                  meta->campaigns_completed, meta->best_wave),
-             lx, y, 9, C_DIM);
-    y += M_LINE;
+             lx, y, 10, C_TEXT);
+    y += M_LINE + 2;
     draw_sep(lx, y, rw, C_BORDER);
     y += M_IN;
 
     for (int i = 0; i < UPGRADE_COUNT; i++) {
-        // Ligne de fond au survol
+        // Ligne de fond permanente + surlignage au survol/sélection
         int hov = vhov(lx, y, rw, 30);
         if (hov) m->sel_upg = i;
         int is_sel = (m->sel_upg == i);
 
         Rectangle row = {(float)lx,(float)y,(float)rw, 30};
-        if (is_sel)
-            DrawRectangleRounded(row, (float)PANEL_R/30, 5,
-                                 (Color){22,13,3,255});
+        DrawRectangleRounded(row, (float)PANEL_R/30, 5,
+            is_sel ? (Color){32, 20, 5, 255} : (Color){14, 9, 3, 200});
 
         // Nom
-        DrawText(UPGRADE_NAMES[i], lx + M_IN, y + 9, 12,
-                 is_sel ? C_GOLD : C_TEXT);
+        draw_text_boxed(UPGRADE_NAMES[i], lx + M_IN, y + 9, 12,
+                        is_sel ? C_GOLD : C_TEXT);
 
         // Niveaux (pastilles)
         int lvl = 0, maxlvl = 0;
@@ -777,7 +817,7 @@ static MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
         if (desc_max > 30) {
             char udesc[48];
             clip_text(UPGRADE_DESC[i], desc_max, 9, udesc, sizeof(udesc));
-            DrawText(udesc, desc_x, y + 11, 9, C_DIM);
+            DrawText(udesc, desc_x, y + 11, 9, C_TEXT);
         }
 
         // Coût / MAX à droite
@@ -785,10 +825,9 @@ static MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
         int cost_x = lx + rw - 82;
         if (cost > 0) {
             int can = meta->scrap >= cost;
-            DrawText(TextFormat("%d", cost),
-                     cost_x, y + 9, 11,
-                     can ? C_GOLD : C_RED);
-            DrawText("ferr.", cost_x + 38, y + 10, 9, C_DIM);
+            draw_text_boxed(TextFormat("%d ferr.", cost),
+                            cost_x, y + 9, 11,
+                            can ? C_GOLD : C_RED);
             if (hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                 if (meta_upgrade((MetaProgress*)meta, i))
                     set_msg(m, "Amelioration achetee !");
@@ -796,7 +835,7 @@ static MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
                     set_msg(m, "Ferraille insuffisante.");
             }
         } else {
-            DrawText("MAX", cost_x + 10, y + 9, 11, C_GREEN);
+            draw_text_boxed("MAX", cost_x + 10, y + 9, 11, C_GREEN);
         }
 
         draw_sep(lx, y+30, rw, (Color){25,16,5,140});
@@ -830,7 +869,7 @@ static MenuAction draw_options(MenuState *m, int vw, int vh) {
     int py = cy - ph/2;
     int iw = pw - M_PAD*2;
 
-    txt_c("OPTIONS", cx, py + M_PAD, 19, C_GOLD);
+    txt_c_boxed("OPTIONS", cx, py + M_PAD, 19, C_GOLD);
     py += 30;
     draw_sep(px + M_PAD, py, iw, C_BORDER);
     py += M_IN + 4;
@@ -874,7 +913,7 @@ static MenuAction draw_options(MenuState *m, int vw, int vh) {
     case 0: // General
         {
             int y = content_y;
-            DrawText("Plein écran", content_x, y, 11, C_GOLD);
+            draw_text_boxed("Plein ecran", content_x, y, 11, C_GOLD);
             y += 16;
 
             const char *fsl = m->opts.fullscreen ? "[*] Activé" : "[ ] Désactivé";
@@ -884,7 +923,7 @@ static MenuAction draw_options(MenuState *m, int vw, int vh) {
             }
             y += BTN_H + 20;
 
-            DrawText("FPS Cible", content_x, y, 11, C_GOLD);
+            draw_text_boxed("FPS Cible", content_x, y, 11, C_GOLD);
             y += 16;
 
             // Dropdown FPS
@@ -918,7 +957,7 @@ static MenuAction draw_options(MenuState *m, int vw, int vh) {
     case 1: // Audio
         {
             int y = content_y;
-            DrawText("Paramètres Audio", content_x, y, 11, C_GOLD);
+            draw_text_boxed("Parametres Audio", content_x, y, 11, C_GOLD);
             y += 22;
 
             const char *music_toggle = m->opts.music_volume > 0 ? "[*] Musique" : "[ ] Musique";
@@ -976,7 +1015,7 @@ static MenuAction draw_options(MenuState *m, int vw, int vh) {
     case 2: // Graphismes
         {
             int y = content_y;
-            DrawText("Résolution", content_x, y, 11, C_GOLD);
+            draw_text_boxed("Resolution", content_x, y, 11, C_GOLD);
             y += 16;
 
             // Dropdown Résolution
@@ -1144,9 +1183,9 @@ static MenuAction draw_world_map(MenuState *m,
     draw_bg(m, vw, vh);
     draw_header("PROGRESSION DE CAMPAGNE", vw);
 
-    // Sous-titre
-    txt_c("Completez chaque acte pour progresser vers la victoire.",
-          cx, M_PAD + 46, 10, C_DIM);
+    // Sous-titre (décalé sous l'en-tête pour éviter la superposition)
+    txt_c_boxed("Completez chaque acte pour progresser vers la victoire.",
+                cx, M_PAD + 62, 10, C_TEXT);
 
     static const Color CHAPTER_COLS[CAMPAIGN_CHAPTERS] = {
         {200,150, 80,255},  // Wasteland — ocre
@@ -1167,7 +1206,7 @@ static MenuAction draw_world_map(MenuState *m,
     int chapter_w = vw - M_PAD * 4;
     int chapter_h = 58;
     int chapter_x = M_PAD * 2;
-    int chapter_y = M_PAD + 68;
+    int chapter_y = M_PAD + 82;
     int gap       = M_IN;
 
     for (int ch = 0; ch < CAMPAIGN_CHAPTERS; ch++) {
@@ -1244,7 +1283,10 @@ static MenuAction draw_world_map(MenuState *m,
         }
     }
 
-    draw_back_btn(vw, vh);
+    if (draw_back_btn(vw, vh)) {
+        m->screen = m->paused ? MENU_PAUSE : m->back_screen;
+        if (!m->paused) pop_back_screen(m);
+    }
     return act;
 }
 
