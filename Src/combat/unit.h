@@ -74,6 +74,9 @@ typedef struct {
 
     int        active;
     int        slot;
+
+    // Position de la base d'origine (pour patrouille et retour)
+    float      home_base_px, home_base_py;
 } Unit;
 
 typedef struct UnitPool {
@@ -90,6 +93,7 @@ typedef struct UnitPool {
 // ── API ──────────────────────────────────────────────────────
 void unit_pool_init    (UnitPool *up, float base_px, float base_py);
 int  unit_spawn        (UnitPool *up, UnitType type, int *gold, const MetaBonuses *bonuses);
+int  unit_spawn_at     (UnitPool *up, UnitType type, int *gold, const MetaBonuses *bonuses, float bpx, float bpy);
 void unit_pool_update  (UnitPool *up, EnemyPool *ep, Map *map, float dt,
                         MaterialType *inventory, int *inv_count);
 void unit_damage       (Unit *u, float dmg);

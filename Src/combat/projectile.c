@@ -1,4 +1,5 @@
 #include "projectile.h"
+#include "../engine/audio.h"
 #include <math.h>
 #include <stddef.h>
 
@@ -42,6 +43,7 @@ static void apply_damage(Enemy *e, float dmg, DamageType dtype) {
     }
 
     enemy_damage(e, dmg);
+    audio_play_sfx(AUDIO_SFX_ENEMY_HIT);
 }
 
 void projectile_spawn(TowerPool *tp, const Tower *tw,
@@ -107,7 +109,8 @@ void projectile_update(TowerPool *tp, EnemyPool *ep, float dt) {
                     float d2 = dist2(p->tx, p->ty, e->x, e->y);
                     if (d2 <= p->splash_radius * p->splash_radius) {
                         apply_damage(e, p->damage, p->dmg_type);
-                        if (p->slow_duration > 0.0f) {
+                        if (p->slow_duration > 0.0f &&
+                            e->type != ENEMY_VEHICLE && e->type != ENEMY_PATHBREAKER) {
                             float slow = (p->dmg_type == DMG_CRYO)
                                        ? p->slow_duration * 2.0f
                                        : p->slow_duration;
@@ -118,7 +121,8 @@ void projectile_update(TowerPool *tp, EnemyPool *ep, float dt) {
             } else {
                 Enemy *e = &ep->enemies[p->target_idx];
                 apply_damage(e, p->damage, p->dmg_type);
-                if (p->slow_duration > 0.0f) {
+                if (p->slow_duration > 0.0f &&
+                    e->type != ENEMY_VEHICLE && e->type != ENEMY_PATHBREAKER) {
                     float slow = (p->dmg_type == DMG_CRYO)
                                ? p->slow_duration * 2.0f
                                : p->slow_duration;

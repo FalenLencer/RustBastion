@@ -106,8 +106,10 @@ void unit_pool_init(UnitPool *up, float base_px, float base_py) {
 /* ════════════════════════════════════════════════════
    SPAWN
    ════════════════════════════════════════════════════ */
-int unit_spawn(UnitPool *up, UnitType type, int *gold, const MetaBonuses *bonuses) {
-    if (up->count >= MAX_UNITS || (up->count >= up->unit_limit) ) return 0;
+int unit_spawn_at(UnitPool *up, UnitType type, int *gold, const MetaBonuses *bonuses,
+                  float bpx, float bpy)
+{
+    if (up->count >= MAX_UNITS || up->count >= up->unit_limit) return 0;
 
     const UnitStats *st = &UNIT_BASE_STATS[type];
     if (*gold < st->cost) return 0;
@@ -138,19 +140,25 @@ int unit_spawn(UnitPool *up, UnitType type, int *gold, const MetaBonuses *bonuse
     u->has_material    = 0;
     u->slot            = slot;
     u->active          = 1;
+    u->home_base_px    = bpx;
+    u->home_base_py    = bpy;
 
-    float max_radius_x = fminf(up->base_px, MAP_W * TILE_SIZE - up->base_px);
-    float max_radius_y = fminf(up->base_py, MAP_H * TILE_SIZE - up->base_py);
-    float max_radius   = fminf(max_radius_x, max_radius_y) - TILE_SIZE;
+    float max_radius_x  = fminf(bpx, MAP_W * TILE_SIZE - bpx);
+    float max_radius_y  = fminf(bpy, MAP_H * TILE_SIZE - bpy);
+    float max_radius    = fminf(max_radius_x, max_radius_y) - TILE_SIZE;
     float wanted_radius = (2.0f + (float)(slot % 3)) * TILE_SIZE;
     u->patrol_radius = fminf(wanted_radius, max_radius);
     u->patrol_angle  = ((float)slot / (float)MAX_UNITS) * 2.0f * PI;
 
-    u->x = up->base_px + cosf(u->patrol_angle) * u->patrol_radius;
-    u->y = up->base_py + sinf(u->patrol_angle) * u->patrol_radius;
+    u->x = bpx + cosf(u->patrol_angle) * u->patrol_radius;
+    u->y = bpy + sinf(u->patrol_angle) * u->patrol_radius;
     up->count++;
     audio_play_sfx(AUDIO_SFX_UNIT_SPAWN);
     return 1;
+}
+
+int unit_spawn(UnitPool *up, UnitType type, int *gold, const MetaBonuses *bonuses) {
+    return unit_spawn_at(up, type, gold, bonuses, up->base_px, up->base_py);
 }
 
 /* ════════════════════════════════════════════════════
@@ -303,7 +311,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             }
 
             case USTATE_GOTO_BASE: {
-                float dist = udist(u->x, u->y, up->base_px, up->base_py);
+                float dist = udist(u->x, u->y, u->home_base_px, u->home_base_py);
                 if (dist <= TILE_SIZE * 1.0f) {
                     // Arrivé à la base — dépose le matériau
                     if (u->has_material && inv_count &&
@@ -316,8 +324,8 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     u->has_material = 0;
                     u->state        = USTATE_PATROL;
                 } else {
-                    float dx   = up->base_px - u->x;
-                    float dy   = up->base_py - u->y;
+                    float dx   = u->home_base_px - u->x;
+                    float dy   = u->home_base_py - u->y;
                     float step = u->speed * TILE_SIZE * dt;
                     u->x += (dx / dist) * step;
                     u->y += (dy / dist) * step;
@@ -330,8 +338,8 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 u->state = USTATE_PATROL;
                 u->patrol_angle += 0.3f * dt;
                 {
-                    float tx   = up->base_px + cosf(u->patrol_angle) * (TILE_SIZE * 1.5f);
-                    float ty   = up->base_py + sinf(u->patrol_angle) * (TILE_SIZE * 1.5f);
+                    float tx   = u->home_base_px + cosf(u->patrol_angle) * (TILE_SIZE * 1.5f);
+                    float ty   = u->home_base_py + sinf(u->patrol_angle) * (TILE_SIZE * 1.5f);
                     float dist = udist(u->x, u->y, tx, ty);
                     if (dist > 2.0f) {
                         float dx   = tx - u->x;
@@ -370,7 +378,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
         }
 
         // Cherche cible ennemie
-        int tgt = find_enemy_target(u, ep, up->base_px, up->base_py);
+        int tgt = find_enemy_target(u, ep, u->home_base_px, u->home_base_py);
         u->target_idx = tgt;
 
         if (tgt != -1) {
@@ -396,8 +404,8 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
         } else {
             u->state = USTATE_PATROL;
             u->patrol_angle += 0.5f * dt;
-            float target_x = up->base_px + cosf(u->patrol_angle) * u->patrol_radius;
-            float target_y = up->base_py + sinf(u->patrol_angle) * u->patrol_radius;
+            float target_x = u->home_base_px + cosf(u->patrol_angle) * u->patrol_radius;
+            float target_y = u->home_base_py + sinf(u->patrol_angle) * u->patrol_radius;
             float dist     = udist(u->x, u->y, target_x, target_y);
             if (dist > 2.0f) {
                 float dx   = target_x - u->x;
@@ -410,10 +418,10 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
 
         // Limite déplacement hors portée
         float max_dist = (u->intercept_range + 2.0f) * TILE_SIZE;
-        float d_base   = udist(u->x, u->y, up->base_px, up->base_py);
+        float d_base   = udist(u->x, u->y, u->home_base_px, u->home_base_py);
         if (d_base > max_dist && u->target_idx == -1) {
-            float dx   = up->base_px - u->x;
-            float dy   = up->base_py - u->y;
+            float dx   = u->home_base_px - u->x;
+            float dy   = u->home_base_py - u->y;
             float step = u->speed * TILE_SIZE * dt;
             u->x += (dx / d_base) * step;
             u->y += (dy / d_base) * step;

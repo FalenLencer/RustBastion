@@ -2,15 +2,14 @@
 #include "../ui/hud.h"
 #include <math.h>
 
-void canvas_compute(int sw, int sh, float *s, float *ox, float *oy) {
-    float sx = (float)sw / VIRT_W, sy = (float)sh / VIRT_H;
-    *s = sx < sy ? sx : sy;
-    if (*s < 0.25f) *s = 0.25f;
-    if (*s > 4.00f) *s = 4.00f;
-    *ox = floorf((sw - VIRT_W * *s) * 0.5f);
-    *oy = floorf((sh - VIRT_H * *s) * 0.5f);
+void canvas_compute(int sw, int sh, float *sx, float *sy, float *ox, float *oy) {
+    (void)sw;
+    float scale = (float)sh / VIRT_H;
+    if (scale < 0.05f) scale = 0.05f;
+    *sx = scale; *sy = scale;
+    *ox = 0.0f;  *oy = 0.0f;
 }
 
-void canvas_set_mouse_offset(float ox, float oy, float scale) {
-    ui_set_mouse_offset(ox, oy, scale);
+void canvas_set_mouse_offset(float ox, float oy, float sx, float sy) {
+    ui_set_mouse_offset(ox, oy, sx, sy);
 }

@@ -69,9 +69,13 @@ typedef struct {
     int     campaign_order_seed;
 } MenuAction;
 
+// Persistance des options (config/settings.bin)
+void       opts_save             (const AppOptions *o);
+int        opts_load             (AppOptions *o);
+
 void       menu_init             (MenuState *m, const AppOptions *opts);
 void       menu_refresh_slots    (MenuState *m);
-void       menu_set_mouse_offset (float ox, float oy, float scale);
+void       menu_set_mouse_offset (float ox, float oy, float sx, float sy);
 void       menu_cleanup          (MenuState *m);
 MenuAction menu_update           (MenuState *m, const MetaProgress *meta);
 MenuAction menu_render_and_act   (MenuState *m, const MetaProgress *meta,

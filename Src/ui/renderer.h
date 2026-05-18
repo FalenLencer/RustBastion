@@ -13,7 +13,11 @@ typedef struct GameState GameState;
 extern Color TOWER_FILL[TOWER_TYPE_COUNT];
 extern Color UNIT_FILL [UNIT_TYPE_COUNT];
 extern Color PROJ_COLOR[TOWER_TYPE_COUNT];
-extern float RENDER_SCALE;
+
+// Décalage horizontal de la carte dans le canvas (centrage, px virtuels)
+extern int g_map_x_off;
+// Largeur réelle du canvas virtuel (adapté au ratio de la fenêtre)
+extern int g_canvas_virt_w;
 
 Color renderer_tower_color(TowerType type);
 Color renderer_unit_color (UnitType  type);

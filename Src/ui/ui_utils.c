@@ -16,7 +16,7 @@ void ui_clip_text(const char *src, int max_w, int fs,
 
     if (max_w <= 0) return;
 
-    while (i > 0 && MeasureText(buf, fs) > max_w) {
+    while (i > 0 && mtxt(buf, fs) > max_w) {
         i--;
         buf[i] = '\0';
     }

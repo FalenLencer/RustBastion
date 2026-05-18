@@ -67,24 +67,34 @@ static EnemyType pick_enemy_type(int wave_num, ThemeID theme) {
 
    wm->base_pressure[b] = nombre d'ennemis déjà envoyés vers base b
    ════════════════════════════════════════════════════ */
-static int pick_path(WaveManager *wm, const PathSet *paths) {
+/* Retourne 1 si le chemin p est utilisable (A* valide + base active) */
+static int path_usable(int p, const PathSet *paths, const Map *map) {
+    if (!paths->paths[p].found) return 0;
+    int bid = paths->paths[p].base_id;
+    if (!map) return 1;
+    if (bid < 0 || bid >= map->base_count) return 0;
+    return map->bases[bid].active;
+}
+
+static int pick_path(WaveManager *wm, const PathSet *paths, const Map *map) {
     if (paths->count == 0) return 0;
-    // Ne considérer que les chemins avec un A* valide
+
+    // Ne considérer que les chemins avec un A* valide ET une base active
     {
         int valid = 0;
-        for (int p = 0; p < paths->count; p++)
-            if (paths->paths[p].found) valid++;
-        if (valid == 0) return 0;
-        if (valid == 1) {
-            for (int p = 0; p < paths->count; p++)
-                if (paths->paths[p].found) return p;
+        int first = -1;
+        for (int p = 0; p < paths->count; p++) {
+            if (path_usable(p, paths, map)) { valid++; first = p; }
         }
+        if (valid == 0) return 0;
+        if (valid == 1) return first;
     }
 
-    // Trouve les bases distinctes dans le PathSet
+    // Trouve les bases distinctes actives dans le PathSet
     int base_ids[MAX_PATHS];
     int base_count = 0;
     for (int p = 0; p < paths->count; p++) {
+        if (!path_usable(p, paths, map)) continue;
         int bid = paths->paths[p].base_id;
         int already = 0;
         for (int i = 0; i < base_count; i++)
@@ -113,7 +123,7 @@ static int pick_path(WaveManager *wm, const PathSet *paths) {
         int candidates[MAX_PATHS];
         int ncand = 0;
         for (int p = 0; p < paths->count; p++) {
-            if (paths->paths[p].found && paths->paths[p].base_id == target_base)
+            if (path_usable(p, paths, map) && paths->paths[p].base_id == target_base)
                 candidates[ncand++] = p;
         }
         if (ncand > 0) {
@@ -128,7 +138,7 @@ static int pick_path(WaveManager *wm, const PathSet *paths) {
     int valid_paths[MAX_PATHS];
     int nvalid = 0;
     for (int p = 0; p < paths->count; p++)
-        if (paths->paths[p].found) valid_paths[nvalid++] = p;
+        if (path_usable(p, paths, map)) valid_paths[nvalid++] = p;
     if (nvalid == 0) return 0;
     int chosen = valid_paths[GetRandomValue(0, nvalid - 1)];
     int bid = paths->paths[chosen].base_id;
@@ -141,8 +151,8 @@ static int pick_path(WaveManager *wm, const PathSet *paths) {
    MISE À JOUR
    ════════════════════════════════════════════════════ */
 void wave_update(WaveManager *wm, EnemyPool *pool,
-                 const PathSet *paths, const Theme *theme,
-                 float dt)
+                 const PathSet *paths, const Map *map,
+                 const Theme *theme, float dt)
 {
     switch (wm->state) {
 
@@ -161,7 +171,7 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
             int count = BASE_ENEMIES + (wm->number - 1) * 3;
             if (wm->total_spawned < count) {
                 // Choix intelligent du chemin
-                int path_id = pick_path(wm, paths);
+                int path_id = pick_path(wm, paths, map);
                 float delay = wm->total_spawned * SPAWN_INTERVAL;
 
                 EnemyType type = pick_enemy_type(wm->number, theme->id);
@@ -186,6 +196,7 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
             wm->prep_timer    = PREP_TIME;
             wm->total_spawned = 0;
             wm->scale        *= 1.20f;
+            if (wm->scale > 6.0f) wm->scale = 6.0f;   // cap — évite la falaise de difficulté
             // Remet la pression à zéro pour la prochaine vague
             for (int i = 0; i < MAX_BASES; i++)
                 wm->base_pressure[i] = 0;

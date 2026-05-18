@@ -1,4 +1,5 @@
 #include "game_state.h"
+#include "../engine/audio.h"
 
 /* ── Fonctions de gestion des bases ─────────────────────────── */
 int game_all_bases_fallen(const GameState *gs) {
@@ -47,8 +48,8 @@ void game_state_update(GameState *gs, float dt) {
     gs->towers.tower_limit = tower_active_limit(&gs->bonuses);
     gs->units.unit_limit   = unit_active_limit(&gs->bonuses, gs->map.base_count);
 
-    // Vérification game over
-    if (gs->lives <= 0) {
+    // Vérification game over — toutes les bases doivent tomber
+    if (game_all_bases_fallen(gs)) {
         if (gs->phase != PHASE_GAMEOVER) {
             // En endless, la ferraille est gérée par meta_endless_end() depuis main.c
             // En campagne, la ferraille est gérée par meta_end_of_campaign_stage()
@@ -56,6 +57,7 @@ void game_state_update(GameState *gs, float dt) {
                 meta_end_of_run(&gs->meta,
                                 gs->wave_manager.number,
                                 gs->kills, gs->gold);
+            audio_play_sfx(AUDIO_SFX_GAME_OVER);
         }
         gs->phase = PHASE_GAMEOVER;
         return;
@@ -83,6 +85,8 @@ void game_state_update(GameState *gs, float dt) {
             gs->map.tiles[tw->tile_y][tw->tile_x].buildable = 1;
             tw->active = 0;
             if (gs->towers.tower_count > 0) gs->towers.tower_count--;
+            ui_push_notif(&gs->ui, "Tour detruite par l'artillerie !",
+                          (Color){231, 76, 60, 255});
         }
     }
 
@@ -90,7 +94,7 @@ void game_state_update(GameState *gs, float dt) {
     unit_pool_update(&gs->units, &gs->enemies, &gs->map,
                      effective_dt, gs->inventory, &gs->inventory_count);
     wave_update(&gs->wave_manager, &gs->enemies,
-                &gs->enemy_paths, th, effective_dt);
+                &gs->enemy_paths, &gs->map, th, effective_dt);
 
     // ── Suivi des objectifs de l'acte (campagne uniquement) ───────
     if (gs->is_campaign) {

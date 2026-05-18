@@ -1,6 +1,7 @@
 // renderer.c
 #include "renderer.h"
 #include "raylib.h"
+#include "ui_utils.h"   // DrawText/MeasureText → g_font (support accents)
 #include "../map/pathfinding.h"
 #include "../map/map_gen.h"
 #include "../map/theme.h"
@@ -13,9 +14,6 @@
 #include "../combat/material.h"
 #include <stdio.h>
 #include <stdlib.h>
-// ── Macros de scaling ─────────────────────────────────────────
-#define S(x) ((int)((x) * RENDER_SCALE))
-#define SF(x) ((float)(x) * RENDER_SCALE)
 
 // ── Couleurs des tours, unités et projectiles ─────────────────
 // Sans static → accessibles via extern dans renderer.h
@@ -39,8 +37,9 @@ Color PROJ_COLOR[TOWER_TYPE_COUNT] = {
     [TOWER_TESLA]  = {218,112,214,  255},
 };
 
-// ── Scaling global pour adaptation fenêtre ───────────────────
-float RENDER_SCALE = 1.0f;
+
+int g_map_x_off     = 0;
+int g_canvas_virt_w = MAP_W * TILE_SIZE;
 
 Color renderer_tower_color(TowerType type) { return TOWER_FILL[type]; }
 Color renderer_unit_color (UnitType  type) { return UNIT_FILL[type];  }
@@ -137,7 +136,7 @@ void render_map(const Map *map) {
                 DrawRectangle(px2, py2, TILE_SIZE, TILE_SIZE,
                               (Color){231, 76, 60, (unsigned char)alpha});
                 // Icône "!" centré
-                DrawText("!", px2 + TILE_SIZE/2 - 3, py2 + TILE_SIZE/2 - 7,
+                dtxt("!", px2 + TILE_SIZE/2 - 3, py2 + TILE_SIZE/2 - 7,
                          14, (Color){255, 180, 180, 220});
             }
             else if (type == TILE_BASE) {
@@ -145,7 +144,7 @@ void render_map(const Map *map) {
                 int alpha = (int)(80 + pulse * 140);
                 DrawRectangle(px2, py2, TILE_SIZE, TILE_SIZE,
                               (Color){46, 204, 113, (unsigned char)alpha});
-                DrawText("*", px2 + TILE_SIZE/2 - 5, py2 + TILE_SIZE/2 - 8,
+                dtxt("*", px2 + TILE_SIZE/2 - 5, py2 + TILE_SIZE/2 - 8,
                          16, (Color){180, 255, 200, 230});
             }
         }
@@ -176,8 +175,7 @@ void render_bases(const Map *map) {
  
         int bpx = base->pos.x * TILE_SIZE;
         int bpy = base->pos.y * TILE_SIZE;
-        int cx  = bpx + TILE_SIZE / 2;
-        int cy  = bpy;
+        (void)bpy; // coordonnée y utilisée pour la croix uniquement
  
         // Couleur selon état
         Color bar_col;
@@ -196,38 +194,14 @@ void render_bases(const Map *map) {
                                     : (Color){231, 76, 60, 255};
         }
  
-        // Barre de vie au-dessus de la tuile
-        int bar_w = TILE_SIZE + 10;
-        int bar_h = 6;
-        int bar_x = cx - bar_w / 2;
-        int bar_y = cy - bar_h - 3;
-        // Si la base est en haut de la carte, afficher en-dessous
-        if (bar_y < 2) bar_y = bpy + TILE_SIZE + 2;
- 
-        DrawRectangle(bar_x, bar_y, bar_w, bar_h,
-                      (Color){18, 10, 4, 200});
-        if (base->hp > 0 && ratio > 0.0f)
-            DrawRectangle(bar_x, bar_y, (int)(bar_w * ratio), bar_h,
-                          bar_col);
-        DrawRectangleLines(bar_x, bar_y, bar_w, bar_h,
-                           (Color){60, 40, 12, 180});
- 
-        // Étiquette base
-        const char *lbl = base->is_primary ? "BASE" : TextFormat("B%d", b+1);
-        int lw = MeasureText(lbl, 9);
-        DrawText(lbl, cx - lw/2, bar_y - 11, 9,
-                 base->active ? bar_col : (Color){100, 40, 40, 200});
- 
-        // HP numériques
-        char hp_buf[16];
-        if (base->hp > 0)
-            snprintf(hp_buf, sizeof(hp_buf), "%d/%d", base->hp, base->max_hp);
-        else
-            snprintf(hp_buf, sizeof(hp_buf), "DETRUITE");
-        int hw = MeasureText(hp_buf, 8);
-        DrawText(hp_buf, cx - hw/2, bar_y - 1 + bar_h + 2, 8,
-                 (Color){140, 120, 80, 200});
- 
+        // Les barres HP/labels sont affichées dans le HUD (panneau gauche).
+        // Sur la carte on garde uniquement un indicateur visuel minimal.
+
+        // Liseré coloré sur le bord de la tuile selon l'état
+        DrawRectangleLinesEx(
+            (Rectangle){(float)bpx, (float)bpy, TILE_SIZE, TILE_SIZE},
+            2.0f, (Color){bar_col.r, bar_col.g, bar_col.b, 180});
+
         // Croix si détruite
         if (!base->active || base->hp <= 0) {
             DrawLine(bpx + 4, bpy + 4, bpx + TILE_SIZE - 4, bpy + TILE_SIZE - 4,
@@ -392,7 +366,7 @@ void render_enemies(const EnemyPool *pool) {
                          : ratio > 0.3f ? (Color){243,156,18,255}
                                         : (Color){231,76,60,255};
             DrawRectangle(bx, by, (int)(bw * ratio), 3, hp_col);
-            DrawText(ENEMY_BASE_STATS[e->type].name,
+            dtxt(ENEMY_BASE_STATS[e->type].name,
                      bx, by-12, 8, (Color){200,200,180,180});
         }
     }
@@ -421,6 +395,19 @@ void render_towers(const TowerPool *tp) {
 
         for (int l = 0; l < tw->level && l < 3; l++)
             DrawRectangle(px+4+l*4, py+s-6, 3, 3, (Color){255,215,0,255});
+
+        // Barre HP (seulement si la tour est endommagée par artillerie)
+        if (tw->hp < 100.0f && tw->hp > 0.0f) {
+            float ratio = tw->hp / 100.0f;
+            int   bx    = px + 4;
+            int   bw    = s - 8;
+            int   by2   = py + 3;
+            DrawRectangle(bx, by2, bw,                      3, (Color){12,  6,  2, 200});
+            DrawRectangle(bx, by2, (int)(bw * ratio + 0.5f), 3,
+                          ratio > 0.5f ? (Color){230,160, 20,255}
+                        : ratio > 0.25f? (Color){230, 80, 20,255}
+                                       : (Color){220, 30, 30,255});
+        }
     }
 }
 
@@ -474,12 +461,12 @@ void render_tower_preview(const Map *map, const TowerPool *tp,
                           (Color){200, 40, 40, 80});
             // Message centré
             const char *msg = "Zone spawn - interdit";
-            int mw = MeasureText(msg, 9);
+            int mw = mtxt(msg, 9);
             int lx = px + TILE_SIZE/2 - mw/2;
             int ly = py - 14;
             if (ly < 2) ly = py + TILE_SIZE + 2;
             DrawRectangle(lx-3, ly-2, mw+6, 13, (Color){0,0,0,180});
-            DrawText(msg, lx, ly, 9, (Color){220, 80, 80, 255});
+            dtxt(msg, lx, ly, 9, (Color){220, 80, 80, 255});
             return;
         }
     }
@@ -515,7 +502,7 @@ void render_tower_preview(const Map *map, const TowerPool *tp,
     Color label_col = is_ruin ? (Color){230, 126, 34, 255}
                                : (Color){239, 159,  39, 220};
 
-    int lw = MeasureText(cost_label, 10);
+    int lw = mtxt(cost_label, 10);
     int lx = px + TILE_SIZE/2 - lw/2;
     int ly = py - 16;
 
@@ -526,7 +513,7 @@ void render_tower_preview(const Map *map, const TowerPool *tp,
 
     // Fond du label pour lisibilité
     DrawRectangle(lx - 3, ly - 2, lw + 6, 14, (Color){0, 0, 0, 160});
-    DrawText(cost_label, lx, ly, 10, label_col);
+    dtxt(cost_label, lx, ly, 10, label_col);
 }
 
 // ════════════════════════════════════════════════════
@@ -571,7 +558,7 @@ void render_units(const UnitPool *up) {
                 DrawRectangle(bx, by, bw, 4, (Color){20, 20, 20, 200});
                 DrawRectangle(bx, by, (int)(bw * ratio), 4,
                               (Color){80, 200, 220, 255});
-                DrawText("...", bx, by - 10, 8, (Color){80, 200, 220, 200});
+                dtxt("...", bx, by - 10, 8, (Color){80, 200, 220, 200});
             }
         }
 
@@ -609,7 +596,7 @@ void render_units(const UnitPool *up) {
             case USTATE_GOTO_BASE:    icon = "B"; break;
             default:                  icon = "."; break;
         }
-        DrawText(icon, (int)u->x-3, (int)u->y-4, 8, (Color){255,255,255,200});
+        dtxt(icon, (int)u->x-3, (int)u->y-4, 8, (Color){255,255,255,200});
 
         // ── Barre de vie ──────────────────────────────────
         int bw = (int)(u->size*2.5f);
@@ -663,7 +650,7 @@ void render_deposits(const Map *map) {
                         (Color){col.r, col.g, col.b, 200});
 
         // Icône centré
-        int iw = MeasureText(MAT_ICONS[d->type], 11);
-        DrawText(MAT_ICONS[d->type], cx - iw/2, cy - 5, 11, col);
+        int iw = mtxt(MAT_ICONS[d->type], 11);
+        dtxt(MAT_ICONS[d->type], cx - iw/2, cy - 5, 11, col);
     }
 }

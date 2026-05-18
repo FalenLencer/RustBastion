@@ -155,18 +155,19 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
         // ── Atteint la base ───────────────────────────────────
         if (e->reached_base) {
             // Décrémente la base individuelle selon le chemin emprunté
+            // Si la base est déjà tombée, l'ennemi disparaît sans effet
             if (map && e->path_id >= 0 && e->path_id < paths->count) {
                 int bid = paths->paths[e->path_id].base_id;
-                if (bid >= 0 && bid < map->base_count) {
+                if (bid >= 0 && bid < map->base_count && map->bases[bid].active) {
                     map->bases[bid].hp -= e->damage;
                     if (map->bases[bid].hp <= 0) {
                         map->bases[bid].hp     = 0;
                         map->bases[bid].active = 0;
                     }
+                    *lives -= e->damage;
+                    if (*lives < 0) *lives = 0;
                 }
             }
-            *lives -= e->damage;
-            if (*lives < 0) *lives = 0;
             e->active = 0;
             if (pool->count > 0) pool->count--;
             continue;

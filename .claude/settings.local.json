@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl --exec bash -c \"grep -n 'endless\\\\|Endless\\\\|ENDLESS\\\\|mode\\\\|Mode\\\\|theme\\\\|Theme\\\\|map_name\\\\|carte\\\\|nom' /home/clement/Game/Src/ui/hud.c | head -40\")"
+    ]
+  }
+}

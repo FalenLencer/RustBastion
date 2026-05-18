@@ -3,10 +3,42 @@
 #include "ui_utils.h"
 #include "campaign_data.h"
 #include "../engine/audio.h"
+#include "../engine/paths.h"
 #include "../game/meta.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+
+// ════════════════════════════════════════════════════
+// PERSISTANCE DES OPTIONS
+// ════════════════════════════════════════════════════
+#define OPTS_MAGIC   0x52424F50u   /* "RBOP" */
+#define OPTS_VERSION 1
+
+typedef struct { unsigned int magic; int version; AppOptions opts; } OptsFile;
+
+void opts_save(const AppOptions *o) {
+    data_mkdir("config");
+    char path[512];
+    FILE *f = fopen(data_path(path, sizeof(path), "config/settings.bin"), "wb");
+    if (!f) return;
+    OptsFile hdr = { OPTS_MAGIC, OPTS_VERSION, *o };
+    fwrite(&hdr, sizeof(hdr), 1, f);
+    fclose(f);
+}
+
+int opts_load(AppOptions *o) {
+    char path[512];
+    FILE *f = fopen(data_path(path, sizeof(path), "config/settings.bin"), "rb");
+    if (!f) return 0;
+    OptsFile hdr;
+    int ok = (fread(&hdr, sizeof(hdr), 1, f) == 1)
+          && hdr.magic   == OPTS_MAGIC
+          && hdr.version == OPTS_VERSION;
+    fclose(f);
+    if (ok) *o = hdr.opts;
+    return ok;
+}
 
 // ════════════════════════════════════════════════════
 // PALETTE — couleurs communes à tout le menu
@@ -36,16 +68,17 @@
 // ════════════════════════════════════════════════════
 // SOURIS VIRTUELLE
 // ════════════════════════════════════════════════════
-static float g_ox = 0.0f, g_oy = 0.0f, g_sc = 1.0f;
+static float g_ox = 0.0f, g_oy = 0.0f, g_sx = 1.0f, g_sy = 1.0f;
 
-void menu_set_mouse_offset(float ox, float oy, float scale) {
+void menu_set_mouse_offset(float ox, float oy, float sx, float sy) {
     g_ox = ox; g_oy = oy;
-    g_sc = scale > 0.001f ? scale : 1.0f;
+    g_sx = sx > 0.001f ? sx : 1.0f;
+    g_sy = sy > 0.001f ? sy : 1.0f;
 }
 
 static Vector2 vmouse(void) {
     Vector2 r = GetMousePosition();
-    return (Vector2){(r.x - g_ox)/g_sc, (r.y - g_oy)/g_sc};
+    return (Vector2){(r.x - g_ox)/g_sx, (r.y - g_oy)/g_sy};
 }
 
 static int vhov(int x, int y, int w, int h) {
@@ -80,7 +113,7 @@ static void pop_back_screen(MenuState *m) {
 
 // Texte centré horizontalement
 static void txt_c(const char *s, int cx, int y, int fs, Color col) {
-    DrawText(s, cx - MeasureText(s, fs)/2, y, fs, col);
+    dtxt(s, cx - mtxt(s, fs)/2, y, fs, col);
 }
 
 // Ligne de séparation horizontale
@@ -90,7 +123,7 @@ static void draw_sep(int x, int y, int w, Color col) {
 
 // Texte centré avec petit cadre sombre pour lisibilité sur fond d'image
 static void txt_c_boxed(const char *s, int cx, int y, int fs, Color col) {
-    int tw = MeasureText(s, fs);
+    int tw = mtxt(s, fs);
     int px = 8, py = 3;
     DrawRectangleRounded(
         (Rectangle){(float)(cx - tw/2 - px), (float)(y - py),
@@ -100,12 +133,12 @@ static void txt_c_boxed(const char *s, int cx, int y, int fs, Color col) {
         (Rectangle){(float)(cx - tw/2 - px), (float)(y - py),
                     (float)(tw + px*2), (float)(fs + py*2)},
         0.25f, 4, 1.0f, (Color){55, 36, 12, 120});
-    DrawText(s, cx - tw/2, y, fs, col);
+    dtxt(s, cx - tw/2, y, fs, col);
 }
 
 // Texte aligné à gauche avec petit cadre sombre
 static void draw_text_boxed(const char *s, int x, int y, int fs, Color col) {
-    int tw = MeasureText(s, fs);
+    int tw = mtxt(s, fs);
     int px = 6, py = 3;
     DrawRectangleRounded(
         (Rectangle){(float)(x - px), (float)(y - py),
@@ -115,7 +148,7 @@ static void draw_text_boxed(const char *s, int x, int y, int fs, Color col) {
         (Rectangle){(float)(x - px), (float)(y - py),
                     (float)(tw + px*2), (float)(fs + py*2)},
         0.25f, 4, 1.0f, (Color){55, 36, 12, 120});
-    DrawText(s, x, y, fs, col);
+    dtxt(s, x, y, fs, col);
 }
 
 // Fond quadrillage décoratif ou image de fond de menu
@@ -216,8 +249,8 @@ static int draw_btn(const char *label, int x, int y, int w, int h,
     DrawRectangleRoundedLinesEx(r, rnd, 6, bw, bc);
 
     int fs = 14;
-    int tw = MeasureText(label, fs);
-    DrawText(label, x + w/2 - tw/2, y + h/2 - fs/2, fs, col);
+    int tw = mtxt(label, fs);
+    dtxt(label, x + w/2 - tw/2, y + h/2 - fs/2, fs, col);
     if (vclick_r(r)) {
         audio_play_sfx(AUDIO_SFX_MENU_CLICK);
         return 1;
@@ -252,7 +285,7 @@ static int draw_volume_slider(const char *label, int x, int y, int w,
 
     char percent_text[16];
     snprintf(percent_text, sizeof(percent_text), "%d%%", value);
-    DrawText(percent_text, x + w - MeasureText(percent_text, 11),
+    dtxt(percent_text, x + w - mtxt(percent_text, 11),
              y + (int)track.height + 6, 11, C_TEXT);
 
     if (dragging) {
@@ -291,16 +324,16 @@ static int draw_nav_btn(const char *icon, const char *title,
         (Color){col.r, col.g, col.b, hov ? 255 : 110});
 
     // Icône
-    DrawText(icon, x + M_PAD + 4, y + h/2 - 13, 26, col);
+    dtxt(icon, x + M_PAD + 4, y + h/2 - 13, 26, col);
 
     // Titre
-    DrawText(title, x + M_PAD + 36, y + M_IN + 2, 16,
+    dtxt(title, x + M_PAD + 36, y + M_IN + 2, 16,
              hov ? col : C_TEXT);
 
     // Description clippée
     char dbuf[72];
     clip_text(desc, w - M_PAD - 36 - M_IN, 10, dbuf, sizeof(dbuf));
-    DrawText(dbuf, x + M_PAD + 36, y + M_IN + 22, 10,
+    dtxt(dbuf, x + M_PAD + 36, y + M_IN + 22, 10,
              hov ? C_TEXT : (Color){130, 110, 72, 255});
 
     if (vclick_r(r)) {
@@ -322,7 +355,7 @@ static void draw_msg(MenuState *m, int vw, int vh) {
     if (m->msg_timer <= 0.0f) return;
     float a = fminf(m->msg_timer / 0.4f, 1.0f);
     int alpha = (int)(a * 220.0f);
-    int tw = MeasureText(m->msg_buf, 13);
+    int tw = mtxt(m->msg_buf, 13);
     int mx = vw/2 - tw/2, my = vh - M_PAD - 20;
     int px = 10, py = 4;
     DrawRectangleRounded(
@@ -333,7 +366,7 @@ static void draw_msg(MenuState *m, int vw, int vh) {
         (Rectangle){(float)(mx - px), (float)(my - py),
                     (float)(tw + px*2), (float)(13 + py*2)},
         0.3f, 4, 1.2f, (Color){232, 152, 32, (unsigned char)(alpha/2)});
-    DrawText(m->msg_buf, mx, my, 13, (Color){232,152,32,(unsigned char)alpha});
+    dtxt(m->msg_buf, mx, my, 13, (Color){232,152,32,(unsigned char)alpha});
 }
 
 static void set_msg(MenuState *m, const char *s) {
@@ -411,7 +444,7 @@ static MenuAction draw_title(MenuState *m, int vw, int vh) {
         act.quit_app = 1;
 
     // Version
-    DrawText("v0.1", vw - M_PAD - 28, vh - M_PAD - 12, 9, C_DIM);
+    dtxt("v0.1", vw - M_PAD - 28, vh - M_PAD - 12, 9, C_DIM);
     return act;
 }
 
@@ -521,15 +554,15 @@ static MenuAction draw_slot_list(MenuState *m, int vw, int vh,
                 clip_text(raw, max_cw, 12, cbuf, sizeof(cbuf));
                 draw_text_boxed(cbuf, tx, ty, 12, C_GOLD);
             } else {
-                DrawText(TextFormat("ARCADE  —  %s", si->theme_name),
+                dtxt(TextFormat("ARCADE  —  %s", si->theme_name),
                          tx, ty, 12, C_BLUE);
             }
             ty += 16;
-            DrawText(TextFormat("Vague %d  |  %d vies  |  %d or",
+            dtxt(TextFormat("Vague %d  |  %d vies  |  %d or",
                          si->wave, si->lives, si->gold),
                      tx, ty, 10, C_TEXT);
             ty += M_LINE;
-            DrawText(TextFormat("Slot %d", i+1),
+            dtxt(TextFormat("Slot %d", i+1),
                      tx, ty, 9, C_DIM);
 
             // Bouton REPRENDRE
@@ -549,8 +582,8 @@ static MenuAction draw_slot_list(MenuState *m, int vw, int vh,
                 xhov ? (Color){48,6,6,255} : (Color){28,4,4,255});
             DrawRectangleRoundedLinesEx(xr, 0.3f, 4, 1.2f,
                 xhov ? C_RED : (Color){90,16,16,255});
-            int xw = MeasureText("x", 10);
-            DrawText("x", (int)(xr.x + xr.width/2 - xw/2),
+            int xw = mtxt("x", 10);
+            dtxt("x", (int)(xr.x + xr.width/2 - xw/2),
                      (int)(xr.y + xr.height/2 - 5), 10, C_RED);
             if (vclick_r(xr)) {
                 m->confirm_del_slot = i;
@@ -559,7 +592,7 @@ static MenuAction draw_slot_list(MenuState *m, int vw, int vh,
 
         } else if (!si->exists) {
             // Slot vide
-            DrawText(TextFormat("Emplacement %d — vide", i+1),
+            dtxt(TextFormat("Emplacement %d — vide", i+1),
                      tx, y + sh/2 - 8, 11, C_DIM);
             int bw2 = 148, bh2 = 26;
             int bx2 = sx + sw - bw2 - M_IN;
@@ -574,7 +607,7 @@ static MenuAction draw_slot_list(MenuState *m, int vw, int vh,
                                         : MENU_NEW_ARCADE;
             }
         } else {
-            DrawText(TextFormat("Emplacement %d — autre mode", i+1),
+            dtxt(TextFormat("Emplacement %d — autre mode", i+1),
                      tx, y + sh/2 - 8, 11, C_DIM);
         }
 
@@ -613,15 +646,15 @@ static MenuAction draw_new_campaign(MenuState *m,
     int px = cx - pw/2 + M_PAD;
     int py = cy - ph/2 + M_PAD;
 
-    DrawText(TextFormat("Emplacement : %d", m->new_slot+1),
+    dtxt(TextFormat("Emplacement : %d", m->new_slot+1),
              px, py, 10, C_DIM);
     py += M_LINE + 2;
-    DrawText(TextFormat("Campagne n°%d", meta->campaigns_completed+1),
+    dtxt(TextFormat("Campagne n°%d", meta->campaigns_completed+1),
              px, py, 17, C_GOLD);
     py += 22;
     draw_sep(px, py, pw - M_PAD*2, C_BORDER);
     py += M_IN + 2;
-    DrawText("Ordre des environnements :", px, py, 10, C_DIM);
+    dtxt("Ordre des environnements :", px, py, 10, C_DIM);
     py += M_LINE + 2;
 
     static const Color stage_cols[CAMPAIGN_STAGES] = {
@@ -638,18 +671,18 @@ static MenuAction draw_new_campaign(MenuState *m,
             (Color){stage_cols[i].r/3,stage_cols[i].g/3,
                     stage_cols[i].b/3, 180});
 
-        DrawText(TextFormat("%d.", i+1), px + M_IN, py + 8, 11, C_DIM);
+        dtxt(TextFormat("%d.", i+1), px + M_IN, py + 8, 11, C_DIM);
 
-        DrawText(th->name, px + M_IN + 22, py + 8, 11, stage_cols[i]);
+        dtxt(th->name, px + M_IN + 22, py + 8, 11, stage_cols[i]);
 
         // Description clippée à droite
         int avail = pw - M_PAD*2 - M_IN - 22 -
-                    MeasureText(th->name, 11) - M_IN*2;
+                    mtxt(th->name, 11) - M_IN*2;
         if (avail > 40) {
             char dbuf[48];
             clip_text(th->description, avail, 9, dbuf, sizeof(dbuf));
-            DrawText(dbuf,
-                     px + M_IN + 22 + MeasureText(th->name,11) + M_IN,
+            dtxt(dbuf,
+                     px + M_IN + 22 + mtxt(th->name,11) + M_IN,
                      py + 10, 9, C_DIM);
         }
         py += 28 + 4;
@@ -686,7 +719,7 @@ static MenuAction draw_new_arcade(MenuState *m, int vw, int vh) {
     draw_bg(m, vw, vh);
     draw_header("NOUVELLE PARTIE ARCADE", vw);
 
-    DrawText(TextFormat("Emplacement : %d", m->new_slot+1),
+    dtxt(TextFormat("Emplacement : %d", m->new_slot+1),
              cx - 100, M_PAD + 62, 11, C_TEXT);
 
     int bw = 300, bh = 30, gap = 5;
@@ -707,11 +740,11 @@ static MenuAction draw_new_arcade(MenuState *m, int vw, int vh) {
 
         DrawRectangleRounded(r, rnd, 5, bg);
         DrawRectangleRoundedLinesEx(r, rnd, 5, lw, brd);
-        DrawText(THEME_LABELS[i], bx + M_IN, by + bh/2 - 5, 11,
+        dtxt(THEME_LABELS[i], bx + M_IN, by + bh/2 - 5, 11,
                  is_sel ? C_BLUE : C_TEXT);
         if (is_sel) {
             const char *chk = "✓";
-            DrawText(chk, bx + bw - M_IN - MeasureText(chk,11),
+            dtxt(chk, bx + bw - M_IN - mtxt(chk,11),
                      by + bh/2 - 5, 11, C_BLUE);
         }
         if (vclick_r(r)) m->new_theme = (ThemeID)i;
@@ -817,7 +850,7 @@ static MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
         if (desc_max > 30) {
             char udesc[48];
             clip_text(UPGRADE_DESC[i], desc_max, 9, udesc, sizeof(udesc));
-            DrawText(udesc, desc_x, y + 11, 9, C_TEXT);
+            dtxt(udesc, desc_x, y + 11, 9, C_TEXT);
         }
 
         // Coût / MAX à droite
@@ -894,8 +927,8 @@ static MenuAction draw_options(MenuState *m, int vw, int vh) {
         DrawRectangleRounded(tr, 0.3f, 4, bg);
         DrawRectangleRoundedLinesEx(tr, 0.3f, 4, bw, bd);
 
-        int tlen = MeasureText(tabs[i], 11);
-        DrawText(tabs[i], tx + tab_w/2 - tlen/2, py + tab_h/2 - 6, 11,
+        int tlen = mtxt(tabs[i], 11);
+        dtxt(tabs[i], tx + tab_w/2 - tlen/2, py + tab_h/2 - 6, 11,
                  is_sel ? C_GOLD : C_TEXT);
 
         if (hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
@@ -1224,9 +1257,9 @@ static MenuAction draw_world_map(MenuState *m,
                         : (Color){40,30,12,255});
 
         // Numéro + nom chapitre
-        DrawText(TextFormat("CH.%d", ch+1),
+        dtxt(TextFormat("CH.%d", ch+1),
                  chapter_x + M_IN, chapter_y + M_IN, 10, C_DIM);
-        DrawText(CHAPTER_NAMES[ch],
+        dtxt(CHAPTER_NAMES[ch],
                  chapter_x + M_IN + 34, chapter_y + M_IN, 14,
                  ch_unlocked ? col : C_DIM);
 
@@ -1254,19 +1287,19 @@ static MenuAction draw_world_map(MenuState *m,
             // Titre acte clippé
             char abuf[32];
             clip_text(ad->title, act_w - 6, 9, abuf, sizeof(abuf));
-            DrawText(abuf, ax+3, ay+2, 9,
+            dtxt(abuf, ax+3, ay+2, 9,
                      unlocked ? (stars>0 ? col : C_TEXT) : C_DIM);
 
             // Étoiles
             for (int s = 0; s < 2; s++) {
                 Color sc = (s < stars) ? (Color){232,200,32,255}
                                        : (Color){40,32,12,255};
-                DrawText("*", ax + 3 + s*12, ay + ah - 14, 12, sc);
+                dtxt("*", ax + 3 + s*12, ay + ah - 14, 12, sc);
             }
 
             // Verrou si non débloqué
             if (!unlocked)
-                DrawText("[x]", ax + act_w/2 - 8, ay + ah/2 - 5, 10, C_DIM);
+                dtxt("[x]", ax + act_w/2 - 8, ay + ah/2 - 5, 10, C_DIM);
         }
 
         chapter_y += chapter_h + gap;

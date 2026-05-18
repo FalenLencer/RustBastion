@@ -4,15 +4,16 @@
 # ═══════════════════════════════════════════════════════════════
 
 # ── Sources ─────────────────────────────────────────────────────
-SRC = Src/main.c                                                         \
-      Src/engine/audio.c       Src/engine/canvas.c    Src/engine/window.c  \
-      Src/game/game_state.c    Src/game/game_init.c   Src/game/save.c      \
-      Src/game/meta.c                                                       \
-      Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c      \
-      Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c   \
+SRC = Src/main.c                                                              \
+      Src/engine/audio.c       Src/engine/canvas.c    Src/engine/window.c   \
+      Src/engine/assets.c      Src/engine/paths.c                            \
+      Src/game/game_state.c    Src/game/game_init.c   Src/game/save.c       \
+      Src/game/meta.c          Src/game/app.c                                \
+      Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c       \
+      Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c    \
       Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
-      Src/ui/renderer.c        Src/ui/hud.c           Src/ui/ui_utils.c    \
-      Src/ui/menu.c            Src/ui/interlude.c   Src/ui/campaign_data.c  \
+      Src/ui/renderer.c        Src/ui/hud.c           Src/ui/ui_utils.c     \
+      Src/ui/menu.c            Src/ui/interlude.c     Src/ui/campaign_data.c \
 
 # ── Dossiers ────────────────────────────────────────────────────
 ASSETS_DIR   = assets

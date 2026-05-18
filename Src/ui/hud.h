@@ -7,11 +7,21 @@
 typedef struct GameState GameState;
 
 #define UI_HUD_HEIGHT    150
-#define UI_PANEL_W       190
-#define UI_BTN_W          58
-#define UI_BTN_H          56
+#define UI_LEFT_PANEL_W  160   // panneau gauche (barres HP)
+#define UI_PANEL_W       360   // panneau droit (stats / info)
+#define UI_BTN_W          68
+#define UI_BTN_H          52
 #define UI_MARGIN          8
 #define UI_RADIUS          4
+#define MAX_NOTIFS         8
+
+// Notification flottante (texte qui monte et disparaît)
+typedef struct {
+    char  text[52];
+    float timer;   // durée restante (2.2s total)
+    float y_off;   // offset Y vers le haut (px, croît avec le temps)
+    Color col;
+} FloatNotif;
 
 typedef enum {
     TOOL_NONE = -1,
@@ -46,10 +56,14 @@ typedef struct {
     int           show_fps;
     int           speed_mult;
     int           worker_selected_idx;
+    // Notifications flottantes
+    FloatNotif    notifs[MAX_NOTIFS];
+    int           notif_count;
 } UIState;
 
 void       ui_init            (UIState *ui);
-void       ui_set_mouse_offset(float ox, float oy, float scale);
+void       ui_push_notif      (UIState *ui, const char *text, Color col);
+void       ui_set_mouse_offset(float ox, float oy, float sx, float sy);
 void       ui_update          (UIState *ui, GameState *gs);
 void       ui_render          (const UIState *ui, const GameState *gs);
 int        ui_tool_is_tower   (ToolID id);

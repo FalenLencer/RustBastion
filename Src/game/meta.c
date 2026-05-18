@@ -87,17 +87,36 @@ int meta_load(MetaProgress *meta) {
 // ════════════════════════════════════════════════════
 // CALCUL DES BONUS
 // ════════════════════════════════════════════════════
+/* Utilitaire : clamp int entre 0 et max */
+static int clamp_lvl(int v, int max) {
+    if (v < 0) return 0;
+    if (v > max) return max;
+    return v;
+}
+
 void meta_compute(const MetaProgress *meta, MetaBonuses *out) {
-    out->tower_dmg_mult   = 1.0f + meta->lvl_tower_dmg    * 0.15f;
-    out->tower_range_mult = 1.0f + meta->lvl_tower_range  * 0.10f;
-    out->tower_rate_mult  = 1.0f + meta->lvl_tower_rate   * 0.10f;
-    out->unit_hp_mult     = 1.0f + meta->lvl_unit_hp      * 0.20f;
-    out->unit_dmg_mult    = 1.0f + meta->lvl_unit_dmg     * 0.15f;
-    out->start_gold       = 100  + meta->lvl_start_gold   * 25;
-    out->start_lives      = 20   + meta->lvl_lives        * 5;
-    out->scrap_mult       = 1.0f + meta->lvl_scrap_bonus  * 0.20f;
-    out->tower_limit_bonus = meta->lvl_tower_limit;
-    out->unit_limit_bonus  = meta->lvl_unit_limit;
+    /* Clampés pour résister à une éventuelle corruption du fichier */
+    int tdmg  = clamp_lvl(meta->lvl_tower_dmg,   MAX_LVL_TOWER_DMG);
+    int trng  = clamp_lvl(meta->lvl_tower_range,  MAX_LVL_TOWER_RANGE);
+    int trate = clamp_lvl(meta->lvl_tower_rate,   MAX_LVL_TOWER_RATE);
+    int uhp   = clamp_lvl(meta->lvl_unit_hp,      MAX_LVL_UNIT_HP);
+    int udmg  = clamp_lvl(meta->lvl_unit_dmg,     MAX_LVL_UNIT_DMG);
+    int sgold = clamp_lvl(meta->lvl_start_gold,   MAX_LVL_START_GOLD);
+    int lives = clamp_lvl(meta->lvl_lives,         MAX_LVL_LIVES);
+    int scrap = clamp_lvl(meta->lvl_scrap_bonus,  MAX_LVL_SCRAP_BONUS);
+    int tlim  = clamp_lvl(meta->lvl_tower_limit,  MAX_LVL_TOWER_LIMIT);
+    int ulim  = clamp_lvl(meta->lvl_unit_limit,   MAX_LVL_UNIT_LIMIT);
+
+    out->tower_dmg_mult    = 1.0f + tdmg  * 0.15f;
+    out->tower_range_mult  = 1.0f + trng  * 0.10f;
+    out->tower_rate_mult   = 1.0f + trate * 0.10f;
+    out->unit_hp_mult      = 1.0f + uhp   * 0.20f;
+    out->unit_dmg_mult     = 1.0f + udmg  * 0.15f;
+    out->start_gold        = 100  + sgold * 25;
+    out->start_lives       = 20   + lives * 5;
+    out->scrap_mult        = 1.0f + scrap * 0.20f;
+    out->tower_limit_bonus = tlim;
+    out->unit_limit_bonus  = ulim;
 }
 
 // ════════════════════════════════════════════════════
