@@ -1,1 +1,3 @@
 raylib/
+release/*.gz
+release/*.zip
