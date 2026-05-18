@@ -135,6 +135,18 @@ static void game_do_input(AppContext *ctx) {
         ctx->menu.paused ^= 1;
         ctx->menu.screen  = ctx->menu.paused ? MENU_PAUSE : MENU_TITLE;
     }
+    /* Bouton pause cliqué dans le HUD */
+    if (!ctx->menu.paused && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        int sh = GetScreenHeight();
+        float scale = (float)sh / VIRT_H;
+        if (scale < 0.05f) scale = 0.05f;
+        Vector2 mp = GetMousePosition();
+        Vector2 vm = { mp.x / scale, mp.y / scale };
+        if (CheckCollisionPointRec(vm, ctx->gs.ui.pause_btn)) {
+            ctx->menu.paused = 1;
+            ctx->menu.screen = MENU_PAUSE;
+        }
+    }
 }
 
 static void game_do_update(AppContext *ctx, float dt) {
@@ -158,15 +170,18 @@ static void game_do_update(AppContext *ctx, float dt) {
 static void game_handle_gameover(AppContext *ctx) {
     if (ctx->gs.phase != PHASE_GAMEOVER || ctx->interlude != INTER_NONE)
         return;
-    if (ctx->gs.is_endless) {
+    /* Enregistre le score endless une seule fois */
+    if (ctx->gs.is_endless && !ctx->gameover_meta_done) {
         meta_endless_end(&ctx->gs.meta,
                          ctx->gs.wave_manager.number,
                          ctx->gs.endless_multiplier, 0);
         menu_refresh_slots(&ctx->menu);
+        ctx->gameover_meta_done = 1;
     }
-    if (IsKeyPressed(KEY_SPACE)) {
+    if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         if (ctx->active_slot >= 0) save_delete(ctx->active_slot);
-        ctx->active_slot  = -1;
+        ctx->active_slot        = -1;
+        ctx->gameover_meta_done = 0;  /* reset pour la prochaine partie */
         menu_refresh_slots(&ctx->menu);
         ctx->menu.paused  = 0;
         ctx->menu.screen  = ctx->gs.is_campaign ? MENU_WORLD_MAP : MENU_ARCADE;
@@ -205,7 +220,8 @@ static void game_handle_campaign_end(AppContext *ctx) {
 }
 
 static void game_handle_dialog_after(AppContext *ctx) {
-    if (ctx->interlude != INTER_DIALOG_AFTER || !IsKeyPressed(KEY_SPACE))
+    if (ctx->interlude != INTER_DIALOG_AFTER) return;
+    if (!IsKeyPressed(KEY_SPACE) && !IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
         return;
     if (ctx->interlude_last) {
         if (ctx->active_slot >= 0) save_delete(ctx->active_slot);
@@ -219,6 +235,7 @@ static void game_handle_dialog_after(AppContext *ctx) {
     } else {
         game_next_campaign_stage(&ctx->gs);
         save_write(&ctx->gs, ctx->active_slot);
+        audio_play_theme_music(ctx->gs.map.theme);
         ctx->interlude = INTER_DIALOG_BEFORE;
     }
 }
@@ -226,28 +243,53 @@ static void game_handle_dialog_after(AppContext *ctx) {
 static void game_handle_extract(AppContext *ctx) {
     if (ctx->interlude != INTER_EXTRACT) return;
 
-    if (IsKeyPressed(KEY_E)) {
-        meta_endless_end(&ctx->gs.meta,
-                         ctx->gs.wave_manager.number,
-                         ctx->gs.endless_multiplier, 1);
-        menu_refresh_slots(&ctx->menu);
-        if (ctx->active_slot >= 0) save_delete(ctx->active_slot);
-        ctx->active_slot  = -1;
-        ctx->menu.paused  = 0;
-        ctx->menu.screen  = MENU_ARCADE;
-        ctx->screen       = SCREEN_MENU;
-        ctx->interlude    = INTER_NONE;
-        audio_stop_music();
-    } else if (IsKeyPressed(KEY_SPACE)) {
-        ctx->gs.endless_multiplier *= 1.5f;
-        if (ctx->gs.endless_multiplier > 6.0f)
-            ctx->gs.endless_multiplier = 6.0f;
-        ctx->gs.endless_series++;
-        ctx->gs.endless_pending_extract = 0;
-        game_init_map(&ctx->gs,
-                      (ThemeID)((ctx->gs.map.theme + 1) % THEME_COUNT));
-        audio_play_theme_music(ctx->gs.map.theme);
-        ctx->interlude = INTER_NONE;
+    /* Souris virtuelle (même calcul que dans game_do_render) */
+    int sh = GetScreenHeight();
+    float scale = (float)sh / VIRT_H;
+    if (scale < 0.05f) scale = 0.05f;
+    Vector2 mp = GetMousePosition();
+    Vector2 vm = { mp.x / scale, mp.y / scale };
+
+    /* Rectangles des boutons — doivent correspondre à interlude_render_extract */
+    {
+        int vw = g_canvas_virt_w, vh = VIRT_H;
+        int cx = vw / 2, cy = vh / 2;
+        int ph = 260, bw = 160, bh = 32, ms = 8;
+        int by2 = cy + ph / 2 - ms - bh;
+        Rectangle extract_btn  = {(float)(cx - bw - ms), (float)by2,
+                                   (float)bw,             (float)bh};
+        Rectangle continue_btn = {(float)(cx + ms),      (float)by2,
+                                   (float)bw,             (float)bh};
+        int click = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+        int extract_clicked  = click && CheckCollisionPointRec(vm, extract_btn);
+        int continue_clicked = click && CheckCollisionPointRec(vm, continue_btn);
+
+        if (IsKeyPressed(KEY_E) || extract_clicked) {
+            meta_endless_end(&ctx->gs.meta,
+                             ctx->gs.wave_manager.number,
+                             ctx->gs.endless_multiplier, 1);
+            menu_refresh_slots(&ctx->menu);
+            if (ctx->active_slot >= 0) save_delete(ctx->active_slot);
+            ctx->active_slot  = -1;
+            ctx->menu.paused  = 0;
+            ctx->menu.screen  = MENU_ARCADE;
+            ctx->screen       = SCREEN_MENU;
+            ctx->interlude    = INTER_NONE;
+            audio_stop_music();
+            return;
+        }
+        if (IsKeyPressed(KEY_SPACE) || continue_clicked) {
+            ctx->gs.endless_multiplier *= 1.5f;
+            if (ctx->gs.endless_multiplier > 6.0f)
+                ctx->gs.endless_multiplier = 6.0f;
+            ctx->gs.endless_series++;
+            ctx->gs.endless_pending_extract = 0;
+            game_init_map(&ctx->gs,
+                          (ThemeID)((ctx->gs.map.theme + 1) % THEME_COUNT));
+            audio_play_theme_music(ctx->gs.map.theme);
+            ctx->interlude = INTER_NONE;
+            return;
+        }
     }
 }
 
@@ -347,7 +389,7 @@ static int game_do_render(AppContext *ctx) {
     if (ctx->interlude == INTER_DIALOG_BEFORE) {
         interlude_render_dialog_before(campaign_act_get(gs->campaign_stage),
                                        g_canvas_virt_w, VIRT_H);
-        if (IsKeyPressed(KEY_SPACE))
+        if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
             ctx->interlude = INTER_NONE;
     }
     if (ctx->interlude == INTER_DIALOG_AFTER) {

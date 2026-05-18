@@ -361,6 +361,11 @@ static int place_base(Map *map, int base_id, Edge base_edge,
         map->bases[base_id].max_hp     = (base_id == 0) ? 20 : 10;
         map->bases[base_id].hp         = map->bases[base_id].max_hp;
         map->bases[base_id].damage     = (base_id == 0) ? 2 : 1;
+
+        // Marque la tuile BASE immédiatement pour que walk_to ne la crase pas
+        map->tiles[pos.y][pos.x].type      = TILE_BASE;
+        map->tiles[pos.y][pos.x].passable  = 1;
+        map->tiles[pos.y][pos.x].buildable = 0;
         return 1;
     }
     return 0;
@@ -517,6 +522,22 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id) {
         map->tiles[sp.y][sp.x].buildable = 0;
     }
 
+    // ── Zone d'exclusion autour des spawns : non constructible ─
+    for (int i = 0; i < map->path_count; i++) {
+        if (!map->paths[i].active) continue;
+        Point sp = map->paths[i].spawn;
+        for (int ey = -SPAWN_EXCLUSION_RADIUS; ey <= SPAWN_EXCLUSION_RADIUS; ey++) {
+            for (int ex = -SPAWN_EXCLUSION_RADIUS; ex <= SPAWN_EXCLUSION_RADIUS; ex++) {
+                if (abs(ex) + abs(ey) > SPAWN_EXCLUSION_RADIUS) continue;
+                int nx = sp.x + ex, ny = sp.y + ey;
+                if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+                TileType tt = map->tiles[ny][nx].type;
+                if (tt == TILE_BASE || tt == TILE_PATH || tt == TILE_SPAWN) continue;
+                map->tiles[ny][nx].buildable = 0;
+            }
+        }
+    }
+
     // ── Dépôts de matériaux ───────────────────────────────────
     {
         rng_init((uint32_t)(seed + 8888));
@@ -552,6 +573,7 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id) {
             map->deposits[placed].tile_y = dy;
             map->deposits[placed].type   = (MaterialType)rng_int(MAT_COUNT);
             map->deposits[placed].active = 1;
+            map->tiles[dy][dx].buildable = 0;   // pas de tour sur un dépôt
             placed++;
         }
         map->deposit_count = placed;

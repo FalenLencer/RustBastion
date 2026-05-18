@@ -16,7 +16,6 @@
 typedef enum {
     INTER_NONE          = 0,
     INTER_DIALOG_BEFORE,
-    INTER_STAGE_WIN,
     INTER_DIALOG_AFTER,
     INTER_EXTRACT,
 } InterludeState;

@@ -188,7 +188,7 @@ int meta_end_of_campaign_stage(MetaProgress *meta, int wave_reached,
     if (wave_reached > meta->best_wave)
         meta->best_wave = wave_reached;
 
-    if (stage_index == CAMPAIGN_STAGES - 1)
+    if (stage_index == CAMPAIGN_TOTAL - 1)
         meta->campaigns_completed++;
 
     meta_save(meta);
@@ -267,9 +267,14 @@ int meta_endless_score(int wave, float mult) {
 void meta_endless_end(MetaProgress *meta, int wave, float mult,
                       int extracted)
 {
+    // Statistiques toujours enregistrées (game over ou extraction)
+    meta->runs_completed++;
+    if (wave > meta->best_wave)
+        meta->best_wave = wave;
+
     if (!extracted) {
         meta_save(meta);
-        return; // 0 ferraille si pas extrait
+        return; // 0 ferraille si pas extrait / game over
     }
     int score = meta_endless_score(wave, mult);
     if (score > meta->endless_best_score) {
@@ -298,4 +303,11 @@ int meta_record_act(MetaProgress *meta, int stage_index,
 int meta_act_unlocked(const MetaProgress *meta, int stage_index) {
     if (stage_index <= 0) return 1;              // premier acte toujours débloqué
     return meta->act_stars[stage_index - 1] > 0; // acte précédent complété
+}
+
+int meta_max_stage_completed(const MetaProgress *meta) {
+    int max = -1;
+    for (int i = 0; i < CAMPAIGN_TOTAL; i++)
+        if (meta->act_stars[i] > 0) max = i;
+    return max;
 }

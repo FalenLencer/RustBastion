@@ -53,7 +53,9 @@ typedef struct {
     TileSelection selection;
     Rectangle     tool_btns[TOOL_COUNT];
     Rectangle     wave_btn;
+    Rectangle     pause_btn;
     Rectangle     sell_btn;
+    Rectangle     unit_sell_btn;
     Rectangle     apply_mat_btn;
     int           apply_mat_visible;
     int           hovered_tool;
@@ -62,6 +64,12 @@ typedef struct {
     int           show_fps;
     int           speed_mult;
     int           worker_selected_idx;
+    int           sell_unit_idx;       // unité sélectionnée pour vente (-1 = aucune)
+    // Overlays déplaçables (positions en coordonnées virtuelles)
+    Vector2       overlay_tl_pos;     // panneau haut-gauche (or / tours / unités)
+    Vector2       overlay_tr_pos;     // panneau haut-droit  (vague / kills / ennemis)
+    int           dragging_overlay;   // -1=aucun, 0=TL, 1=TR
+    Vector2       drag_grab;          // décalage souris → coin overlay au début du drag
     // Notifications flottantes
     FloatNotif    notifs[MAX_NOTIFS];
     int           notif_count;

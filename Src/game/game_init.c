@@ -114,7 +114,6 @@ void game_init_campaign(GameState *gs, int campaign_num, int slot, int seed) {
 
     printf("Campagne %d acte 0 slot=%d theme=%d\n",
            campaign_num, slot, (int)theme);
-    (void)seed;
 }
 
 void game_next_campaign_stage(GameState *gs) {

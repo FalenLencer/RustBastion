@@ -16,8 +16,6 @@
 #define MAX_TOWERS_UPGR   2
 #define MAX_TOWERS       MAX_TOWERS_HARD
 #define MAX_PROJECTILES  256
-#define SPAWN_EXCLUSION_RADIUS  3
-
 typedef enum {
     TOWER_GUN    = 0,
     TOWER_SNIPER,

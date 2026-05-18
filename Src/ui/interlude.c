@@ -98,7 +98,7 @@ void interlude_render_dialog_before(const ActData *act, int vw, int vh) {
     }
 
     // Hint
-    txt_c("[ESPACE] Commencer l'acte", cx, cy + ph/2 - M - 12, 10,
+    txt_c("ESPACE -- Commencer l'acte", cx, cy + ph/2 - M - 12, 10,
           (Color){80,65,40,255});
 }
 
@@ -174,8 +174,8 @@ void interlude_render_dialog_after(const ActData *act, int stars,
         }
     }
 
-    const char *hint = is_last ? "[ESPACE] Retour au menu"
-                                : "[ESPACE] Stage suivant";
+    const char *hint = is_last ? "ESPACE -- Retour au menu"
+                                : "ESPACE -- Stage suivant";
     txt_c(hint, cx, cy + ph/2 - M - 12, 10, (Color){80,65,40,255});
 }
 
@@ -215,9 +215,9 @@ void interlude_render_gameover(const GameState *gs, int vw, int vh) {
     py += 24;
 
     const char *hint = gs->is_campaign
-        ? "[ESPACE] Retour a la carte"
-        : "[ESPACE] Retour au menu";
-    txt_c(hint, cx, cy + ph/2 - M - 12, 11, (Color){80,65,40,255});
+        ? "ESPACE  ou  clic  --  Retour a la carte"
+        : "ESPACE  ou  clic  --  Retour au menu";
+    txt_c(hint, cx, cy + ph/2 - M - 12, 10, (Color){80,65,40,255});
     (void)py;
 }
 
@@ -278,7 +278,7 @@ void interlude_render_extract(const GameState *gs, int vw, int vh,
             hov ? (Color){8,28,8,255} : (Color){4,16,4,255});
         DrawRectangleRoundedLinesEx(r, 5.0f/bh, 6, 1.5f,
             hov ? (Color){42,190,105,255} : (Color){20,80,40,255});
-        const char *lbl = "[E] EXTRAIRE";
+        const char *lbl = "E -- EXTRAIRE";
         dtxt(lbl, bx1+bw/2-mtxt(lbl,13)/2, by2+bh/2-7,
                  13, (Color){42,190,105,255});
     }
@@ -290,7 +290,7 @@ void interlude_render_extract(const GameState *gs, int vw, int vh,
             hov ? (Color){6,18,32,255} : (Color){4,12,20,255});
         DrawRectangleRoundedLinesEx(r, 5.0f/bh, 6, 1.5f,
             hov ? (Color){52,140,210,255} : (Color){24,70,110,255});
-        const char *lbl = "[ESPACE] CONTINUER";
+        const char *lbl = "ESPACE -- CONTINUER";
         dtxt(lbl, bx2+bw/2-mtxt(lbl,11)/2, by2+bh/2-7,
                  11, (Color){52,140,210,255});
     }

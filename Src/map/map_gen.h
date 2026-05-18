@@ -16,6 +16,9 @@
 #define MAX_PATHS    3   // spawners max
 #define MAX_BASES    2   // bases défendables max (1 principale + 1 secondaire)
 
+// Zone autour de chaque spawn interdite à la construction
+#define SPAWN_EXCLUSION_RADIUS  3
+
 typedef enum {
     TILE_GROUND = 0,
     TILE_RUIN,

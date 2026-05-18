@@ -61,7 +61,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "Des ingenieurs rejoignent nos rangs — ils ont trouve\n"
             "des plans de construction avances dans les ruines.\"\n",
         .min_waves  = 6,
-        .unlock_msg = NULL,
+        .unlock_msg = "DEBLOQUE : Tourelle Sniper",
     },
 
     [2] = {
@@ -164,7 +164,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "elle a emis un signal. Quelqu'un d'autre les controle.\n"
             "Et ce quelqu'un vient du desert.\"\n",
         .min_waves  = 8,
-        .unlock_msg = NULL,
+        .unlock_msg = "DEBLOQUE : Tourelle Flammes",
     },
 
     // ── CHAPITRE 3 — LE DESERT IRRADIE ───────────────────────

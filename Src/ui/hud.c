@@ -20,6 +20,14 @@
 #include <stdlib.h>
 
 // ════════════════════════════════════════════════════
+// DIMENSIONS DES OVERLAYS DÉPLAÇABLES
+// ════════════════════════════════════════════════════
+#define OVERLAY_W      164
+#define OVERLAY_OV_P     6
+#define OVERLAY_TL_H   (OVERLAY_OV_P + 14+3 + 12+3 + 12 + OVERLAY_OV_P)
+#define OVERLAY_TR_H   (OVERLAY_OV_P + 14+3 + 12+3 + 12+3 + 9+5 + 12 + OVERLAY_OV_P)
+
+// ════════════════════════════════════════════════════
 // TRANSFORMATION SOURIS
 // ════════════════════════════════════════════════════
 static float g_mouse_ox = 0.0f;
@@ -95,6 +103,36 @@ TowerType ui_tool_to_tower(ToolID id) { return (TowerType)(id - TOOL_TOWER_GUN);
 UnitType  ui_tool_to_unit (ToolID id) { return (UnitType) (id - TOOL_UNIT_SOLDIER); }
 
 // ════════════════════════════════════════════════════
+// DÉBLOCAGE DES TOURS PAR PROGRESSION DE CAMPAGNE
+// Seuil = index du dernier acte à compléter pour débloquer.
+// -1 = toujours disponible. Arcade = tout débloqué.
+// ════════════════════════════════════════════════════
+// Ordre narratif : GUN (tjs) → SNIPER (acte 2) → TESLA (acte 3) → FLAME (acte 6)
+static const int TOWER_UNLOCK_AT[TOWER_TYPE_COUNT] = {
+    [TOWER_GUN]    = -1,  // toujours disponible
+    [TOWER_SNIPER] =  1,  // après avoir complété l'acte index 1 (La route du nord)
+    [TOWER_FLAME]  =  5,  // après avoir complété l'acte index 5 (La reine des marais)
+    [TOWER_TESLA]  =  2,  // après avoir complété l'acte index 2 (Le convoi)
+};
+
+// Texte court identifiant l'acte de déblocage pour chaque tour
+static const char *TOWER_UNLOCK_ACT_NAME[TOWER_TYPE_COUNT] = {
+    [TOWER_GUN]    = NULL,
+    [TOWER_SNIPER] = "Ch.1 — Acte 2",
+    [TOWER_FLAME]  = "Ch.2 — Acte 3",
+    [TOWER_TESLA]  = "Ch.1 — Acte 3",
+};
+
+static int tool_is_unlocked(ToolID id, const GameState *gs) {
+    if (!gs->is_campaign) return 1;            // arcade : tout disponible
+    if (!ui_tool_is_tower(id)) return 1;       // unités : toujours dispo
+    TowerType tt = ui_tool_to_tower(id);
+    int threshold = TOWER_UNLOCK_AT[tt];
+    if (threshold < 0) return 1;
+    return meta_max_stage_completed(&gs->meta) >= threshold;
+}
+
+// ════════════════════════════════════════════════════
 // HELPERS DE RENDU INTERNES
 // ════════════════════════════════════════════════════
 
@@ -143,7 +181,7 @@ static int draw_portrait(Texture2D tex, int px, int py, int psz, Color border) {
 
 static void draw_tool_btn(const Rectangle *r, ToolID id,
                            int is_selected, int is_hovered,
-                           int can_afford)
+                           int can_afford, int is_locked)
 {
     const ToolInfo *info = &TOOL_INFO[id];
     Color col = TOOL_COLORS[id];
@@ -163,6 +201,25 @@ static void draw_tool_btn(const Rectangle *r, ToolID id,
     if (!can_afford) col = (Color){65, 50, 32, 255};
 
     // Splash art si disponible, icône texte sinon
+    /* ── Bouton verrouillé : overlay sombre + cadenas ─────────── */
+    if (is_locked) {
+        DrawRectangleRounded(*r, rnd, 6, (Color){6, 4, 2, 240});
+        DrawRectangleRoundedLinesEx(*r, rnd, 6, 1.0f, (Color){40, 28, 10, 160});
+        // Symbole cadenas centré
+        int cx2 = (int)(r->x + r->width  / 2);
+        int cy2 = (int)(r->y + r->height / 2);
+        DrawRectangle(cx2 - 7, cy2 - 2, 14, 10, (Color){55, 40, 15, 220});
+        DrawRectangleLines(cx2 - 7, cy2 - 2, 14, 10, (Color){90, 65, 20, 255});
+        DrawCircleLines(cx2, cy2 - 6, 6, (Color){90, 65, 20, 255});
+        // Nom grisé en bas
+        int nw2 = mtxt(info->shortname, 9);
+        dtxt(info->shortname,
+                 cx2 - nw2/2,
+                 (int)(r->y + r->height - 13), 9,
+                 (Color){55, 42, 22, 255});
+        return;
+    }
+
     Texture2D splash = {0};
     if (ui_tool_is_tower(id))
         splash = g_tower_splash[ui_tool_to_tower(id)];
@@ -260,6 +317,10 @@ void ui_init(UIState *ui) {
     ui->speed_mult          = 1;
     ui->apply_mat_visible   = 0;
     ui->worker_selected_idx = -1;
+    ui->sell_unit_idx       = -1;
+    ui->overlay_tl_pos      = (Vector2){-1.0f, -1.0f};  // sentinel : init au 1er frame
+    ui->overlay_tr_pos      = (Vector2){-1.0f, -1.0f};
+    ui->dragging_overlay    = -1;
 
     const int HUD_Y  = MAP_H * TILE_SIZE;
     const int M      = UI_MARGIN;
@@ -290,6 +351,11 @@ void ui_init(UIState *ui) {
         wave_x, row1_y, 108, wave_h
     };
 
+    // ── Bouton PAUSE ─────────────────────────────────────────
+    ui->pause_btn = (Rectangle){
+        wave_x + 108 + M, row1_y, 36, wave_h
+    };
+
     // ── Boutons panneau droit (positions initiales, recalculées dans ui_update) ─
     int right_x = (MAP_W * TILE_SIZE) - UI_PANEL_W + M;
     int right_w = UI_PANEL_W - M * 2;
@@ -298,6 +364,12 @@ void ui_init(UIState *ui) {
     ui->sell_btn = (Rectangle){
         right_x,
         HUD_Y + UI_HUD_HEIGHT - M - btn_h * 2 - 5,
+        right_w, btn_h
+    };
+
+    ui->unit_sell_btn = (Rectangle){
+        right_x,
+        HUD_Y + UI_HUD_HEIGHT - M - btn_h,
         right_w, btn_h
     };
 
@@ -315,7 +387,15 @@ void ui_update(UIState *ui, GameState *gs) {
     Vector2   mouse = virt_mouse();
     const int HUD_Y = MAP_H * TILE_SIZE;
 
-    // Nettoyage ouvrier mort : désélectionner si l'unité n'est plus active
+    // Nettoyage unité morte : désélectionner si l'unité n'est plus active
+    if (ui->sell_unit_idx >= 0) {
+        const Unit *su = &gs->units.units[ui->sell_unit_idx];
+        if (!su->active) {
+            ui->sell_unit_idx       = -1;
+            ui->worker_selected_idx = -1;
+            gs->units.selected_unit = -1;
+        }
+    }
     if (ui->worker_selected_idx >= 0) {
         const Unit *wu = &gs->units.units[ui->worker_selected_idx];
         if (!wu->active) {
@@ -358,10 +438,21 @@ void ui_update(UIState *ui, GameState *gs) {
             HUD_Y + UI_HUD_HEIGHT - M - btn_h * 2 - 6,
             right_w, btn_h
         };
+        ui->unit_sell_btn = (Rectangle){
+            right_x,
+            HUD_Y + UI_HUD_HEIGHT - M - btn_h,
+            right_w, btn_h
+        };
         ui->apply_mat_btn = (Rectangle){
             right_x,
             HUD_Y + UI_HUD_HEIGHT - M - btn_h,
             right_w, btn_h
+        };
+        ui->pause_btn = (Rectangle){
+            (float)(UI_LEFT_PANEL_W + M + 6 + 5*(UI_BTN_W+6) + M + 108 + M),
+            (float)(HUD_Y + 18),
+            36.0f,
+            (float)(UI_BTN_H * 2 + 6 + 14)
         };
     }
 
@@ -377,13 +468,67 @@ void ui_update(UIState *ui, GameState *gs) {
         ui->apply_mat_visible = _mat_ok;
     }
 
+    // ── Overlays déplaçables ──────────────────────────────────
+    {
+        // Initialisation des positions par défaut au 1er frame
+        if (ui->overlay_tl_pos.x < 0.0f) {
+            ui->overlay_tl_pos = (Vector2){
+                (float)(g_map_x_off + 8),
+                8.0f
+            };
+            ui->overlay_tr_pos = (Vector2){
+                (float)(g_map_x_off + MAP_W * TILE_SIZE - 8 - OVERLAY_W),
+                8.0f
+            };
+        }
+
+        // Mise à jour de la position pendant le drag
+        if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON))
+            ui->dragging_overlay = -1;
+
+        if (ui->dragging_overlay >= 0) {
+            Vector2 *pos = (ui->dragging_overlay == 0)
+                         ? &ui->overlay_tl_pos : &ui->overlay_tr_pos;
+            float oh = (ui->dragging_overlay == 0) ? OVERLAY_TL_H : OVERLAY_TR_H;
+            pos->x = mouse.x - ui->drag_grab.x;
+            pos->y = mouse.y - ui->drag_grab.y;
+            // Clamp dans le canvas
+            int canvas_h = MAP_H * TILE_SIZE + UI_HUD_HEIGHT;
+            if (pos->x < 0) pos->x = 0;
+            if (pos->y < 0) pos->y = 0;
+            if (pos->x + OVERLAY_W > g_canvas_virt_w) pos->x = g_canvas_virt_w - OVERLAY_W;
+            if (pos->y + oh > canvas_h)                pos->y = canvas_h - oh;
+        }
+    }
+
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        // Démarrage du drag sur un overlay (priorité sur tout autre clic)
+        {
+            Rectangle tl_r = {ui->overlay_tl_pos.x, ui->overlay_tl_pos.y,
+                               OVERLAY_W, OVERLAY_TL_H};
+            Rectangle tr_r = {ui->overlay_tr_pos.x, ui->overlay_tr_pos.y,
+                               OVERLAY_W, OVERLAY_TR_H};
+            if (CheckCollisionPointRec(mouse, tl_r)) {
+                ui->dragging_overlay = 0;
+                ui->drag_grab = (Vector2){mouse.x - tl_r.x, mouse.y - tl_r.y};
+                goto end_click; // ne pas propager le clic
+            }
+            if (CheckCollisionPointRec(mouse, tr_r)) {
+                ui->dragging_overlay = 1;
+                ui->drag_grab = (Vector2){mouse.x - tr_r.x, mouse.y - tr_r.y};
+                goto end_click;
+            }
+        }
 
         if (ui->hovered_tool != -1) {
-            ui->selected_tool       = (ToolID)ui->hovered_tool;
-            ui->selection.active    = 0;
-            ui->worker_selected_idx = -1;
-            gs->units.selected_unit = -1;
+            if (!tool_is_unlocked((ToolID)ui->hovered_tool, gs)) {
+                /* Tour verrouillée : on ignore le clic */
+            } else {
+                ui->selected_tool       = (ToolID)ui->hovered_tool;
+                ui->selection.active    = 0;
+                ui->worker_selected_idx = -1;
+                gs->units.selected_unit = -1;
+            }
         }
         else if (CheckCollisionPointRec(mouse, ui->wave_btn)) {
             if (gs->phase == PHASE_PREP) {
@@ -414,6 +559,23 @@ void ui_update(UIState *ui, GameState *gs) {
                 ui_push_notif(ui, nbuf, (Color){230, 155, 35, 255});
             }
             ui->selection.active = 0;
+        }
+        else if (ui->sell_unit_idx >= 0 &&
+                 CheckCollisionPointRec(mouse, ui->unit_sell_btn)) {
+            Unit *u = &gs->units.units[ui->sell_unit_idx];
+            if (u->active) {
+                int base_cost = UNIT_BASE_STATS[u->type].cost;
+                int refund    = (int)(base_cost * 0.5f);
+                gs->gold += refund;
+                u->active = 0;
+                gs->units.count--;
+                char nbuf[36];
+                snprintf(nbuf, sizeof(nbuf), "+%d or (unite renvoyee)", refund);
+                ui_push_notif(ui, nbuf, (Color){230, 155, 35, 255});
+            }
+            ui->sell_unit_idx       = -1;
+            ui->worker_selected_idx = -1;
+            gs->units.selected_unit = -1;
         }
         else if (ui->selection.active &&
                  ui->apply_mat_visible &&
@@ -524,10 +686,11 @@ void ui_update(UIState *ui, GameState *gs) {
                         ui_push_notif(ui, "Limite d'unites atteinte !",
                                       (Color){231, 76, 60, 255});
                     } else {
-                        // Vérifie si le clic est proche d'UNE QUELCONQUE base
+                        // Cherche la base active la plus proche du clic dans le rayon
                         int   near_any_base = 0;
                         float spawn_bpx = gs->units.base_px;
                         float spawn_bpy = gs->units.base_py;
+                        float best_dist = 5.0f * TILE_SIZE + 1.0f; // seuil + 1 pour init
                         for (int b = 0; b < gs->map.base_count; b++) {
                             if (!gs->map.bases[b].active) continue;
                             float bpx = gs->map.bases[b].pos.x * TILE_SIZE
@@ -536,11 +699,12 @@ void ui_update(UIState *ui, GameState *gs) {
                                         + TILE_SIZE / 2.0f;
                             float dx = (mouse.x - g_map_x_off) - bpx;
                             float dy = mouse.y - bpy;
-                            if (sqrtf(dx*dx + dy*dy) <= 5.0f * TILE_SIZE) {
-                                spawn_bpx = bpx;
-                                spawn_bpy = bpy;
+                            float dist = sqrtf(dx*dx + dy*dy);
+                            if (dist <= 5.0f * TILE_SIZE && dist < best_dist) {
+                                best_dist     = dist;
+                                spawn_bpx     = bpx;
+                                spawn_bpy     = bpy;
                                 near_any_base = 1;
-                                break;
                             }
                         }
                         if (near_any_base) {
@@ -558,34 +722,44 @@ void ui_update(UIState *ui, GameState *gs) {
                     }
                 }
             } else {
-                // Ouvrier cliqué ?
+                // Unité cliquée ?
+                ui->sell_unit_idx       = -1;
+                ui->worker_selected_idx = -1;
+                gs->units.selected_unit = -1;
                 for (int j = 0; j < MAX_UNITS; j++) {
                     Unit *u = &gs->units.units[j];
-                    if (!u->active || u->type != UNIT_WORKER) continue;
+                    if (!u->active) continue;
                     float dx = (mouse.x - g_map_x_off) - u->x;
                     float dy = mouse.y - u->y;
                     if (sqrtf(dx*dx + dy*dy) <= u->size + 6.0f) {
                         gs->units.selected_unit  = j;
-                        ui->worker_selected_idx  = j;
+                        ui->sell_unit_idx        = j;
                         ui->selection.active     = 0;
+                        if (u->type == UNIT_WORKER)
+                            ui->worker_selected_idx = j;
                         break;
                     }
                 }
             }
         }
+        end_click:;
     }
 
     if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
         ui->selected_tool       = TOOL_NONE;
         ui->selection.active    = 0;
         ui->worker_selected_idx = -1;
+        ui->sell_unit_idx       = -1;
         gs->units.selected_unit = -1;
     }
 
     if (IsKeyPressed(KEY_ONE))   ui->selected_tool = TOOL_TOWER_GUN;
-    if (IsKeyPressed(KEY_TWO))   ui->selected_tool = TOOL_TOWER_SNIPER;
-    if (IsKeyPressed(KEY_THREE)) ui->selected_tool = TOOL_TOWER_FLAME;
-    if (IsKeyPressed(KEY_FOUR))  ui->selected_tool = TOOL_TOWER_TESLA;
+    if (IsKeyPressed(KEY_TWO)   && tool_is_unlocked(TOOL_TOWER_SNIPER, gs))
+        ui->selected_tool = TOOL_TOWER_SNIPER;
+    if (IsKeyPressed(KEY_THREE) && tool_is_unlocked(TOOL_TOWER_FLAME,  gs))
+        ui->selected_tool = TOOL_TOWER_FLAME;
+    if (IsKeyPressed(KEY_FOUR)  && tool_is_unlocked(TOOL_TOWER_TESLA,  gs))
+        ui->selected_tool = TOOL_TOWER_TESLA;
     if (IsKeyPressed(KEY_FIVE))  ui->selected_tool = TOOL_UNIT_SOLDIER;
     if (IsKeyPressed(KEY_SIX))   ui->selected_tool = TOOL_UNIT_HEAVY;
     if (IsKeyPressed(KEY_SEVEN)) ui->selected_tool = TOOL_UNIT_MEDIC;
@@ -611,10 +785,12 @@ void ui_update(UIState *ui, GameState *gs) {
         }
     }
 
+    /* ESCAPE : vide la sélection (la pause est gérée séparément dans game_do_input) */
     if (IsKeyPressed(KEY_ESCAPE)) {
         ui->selected_tool       = TOOL_NONE;
         ui->selection.active    = 0;
         ui->worker_selected_idx = -1;
+        ui->sell_unit_idx       = -1;
         gs->units.selected_unit = -1;
     }
 }
@@ -652,53 +828,60 @@ void ui_render(const UIState *ui, const GameState *gs) {
         const int val_x = UI_LEFT_PANEL_W - 30;
         int py = HUD_Y + M;
 
-        // BASES — une barre HP par base, pulsante si < 25 %
+        // BASES — une barre HP par base, pulsante si critique
         {
             float t = (float)GetTime();
-            float pulse = (sinf(t * 6.0f) + 1.0f) * 0.5f;  // 0 → 1
+            float pulse = (sinf(t * 6.0f) + 1.0f) * 0.5f;
 
             for (int b = 0; b < gs->map.base_count; b++) {
                 const BaseInfo *base = &gs->map.bases[b];
                 float ratio = (base->max_hp > 0)
                     ? (float)base->hp / (float)base->max_hp : 0.0f;
 
+                // Code couleur explicite : vert > jaune > rouge selon HP restant
                 Color bc;
                 if (!base->active || base->hp <= 0) {
                     bc = (Color){100, 35, 35, 255};
-                } else if (base->is_primary) {
-                    bc = ratio > 0.5f  ? (Color){46, 204, 113, 255}
-                       : ratio > 0.25f ? (Color){243, 156,  18, 255}
-                                       : (Color){231,  76,  60, 255};
+                } else if (ratio > 0.60f) {
+                    bc = (Color){46, 204, 113, 255};   // vert = sain
+                } else if (ratio > 0.30f) {
+                    bc = (Color){243, 156,  18, 255};  // orange = endommagé
                 } else {
-                    bc = ratio > 0.5f  ? (Color){ 52, 152, 219, 255}
-                       : ratio > 0.25f ? (Color){155,  89, 182, 255}
-                                       : (Color){231,  76,  60, 255};
+                    bc = (Color){231,  76,  60, 255};  // rouge = critique
                 }
 
-                // Pulsation rouge si critique (< 25 %)
-                if (ratio > 0.0f && ratio <= 0.25f && base->active) {
+                // Pulsation si critique
+                if (ratio > 0.0f && ratio <= 0.30f && base->active) {
                     unsigned char r = (unsigned char)(140 + (int)(91.0f * pulse));
                     unsigned char g = (unsigned char)(20  + (int)(56.0f * pulse));
                     bc = (Color){r, g, 40, 255};
                 }
 
-                const char *bname = base->is_primary ? "Principale"
-                                                      : TextFormat("Sec.%d", b);
-                char hp_str[12];
-                snprintf(hp_str, sizeof(hp_str), "%d",
-                         base->hp > 0 ? base->hp : 0);
-
-                dtxt(bname,  px,    py, 8, bc);
-                dtxt(hp_str, val_x, py, 8, bc);
+                // Étiquette base + HP fraction explicites
+                const char *bname = base->is_primary ? "BASE PRINC." : TextFormat("BASE SEC.%d", b + 1);
+                char hp_str[16];
+                snprintf(hp_str, sizeof(hp_str), "%d/%d",
+                         base->hp > 0 ? base->hp : 0, base->max_hp);
 
                 int bw2 = UI_LEFT_PANEL_W - M * 2;
-                draw_bar(px, py + 10, bw2, 5, fmaxf(ratio, 0.0f), bc,
+
+                // Fond de ligne coloré pour renforcer le code couleur
+                Color bg_line = {bc.r/5, bc.g/5, bc.b/5, 80};
+                DrawRectangle(px - 2, py - 1, bw2 + 4, 9, bg_line);
+
+                dtxt(bname,  px,    py, 8, bc);
+
+                // HP fraction alignée à droite
+                int hw = mtxt(hp_str, 8);
+                dtxt(hp_str, px + bw2 - hw, py, 8, bc);
+
+                draw_bar(px, py + 10, bw2, 6, fmaxf(ratio, 0.0f), bc,
                          (Color){18, 10, 4, 200});
 
                 if (!base->active || base->hp <= 0)
                     dtxt("DETRUITE", px + bw2/2 - 22, py + 10, 7,
                              (Color){180, 60, 60, 255});
-                py += 19;
+                py += 22;
             }
         }
 
@@ -743,67 +926,23 @@ void ui_render(const UIState *ui, const GameState *gs) {
         dtxt("UNITES", lx, row2y - 12, 9, (Color){38, 100, 38, 255});
 
         for (int i = 0; i < TOOL_COUNT; i++) {
-            int can_afford = gs->gold >= TOOL_INFO[i].cost;
+            int locked     = !tool_is_unlocked((ToolID)i, gs);
+            int can_afford = !locked && gs->gold >= TOOL_INFO[i].cost;
 
             // Griser si limite atteinte
-            if (ui_tool_is_tower((ToolID)i) &&
+            if (!locked && ui_tool_is_tower((ToolID)i) &&
                 gs->towers.tower_count >= gs->towers.tower_limit)
                 can_afford = 0;
-            if (ui_tool_is_unit((ToolID)i) &&
+            if (!locked && ui_tool_is_unit((ToolID)i) &&
                 gs->units.count >= gs->units.unit_limit)
                 can_afford = 0;
 
             draw_tool_btn(&ui->tool_btns[i], (ToolID)i,
                           ui->selected_tool == i,
                           ui->hovered_tool  == i,
-                          can_afford);
+                          can_afford, locked);
         }
 
-        // Tooltip
-        if (ui->hovered_tool != -1) {
-            const ToolInfo  *info = &TOOL_INFO[ui->hovered_tool];
-            const Rectangle *rb  = &ui->tool_btns[ui->hovered_tool];
-            const int TW = 170, TH = 62;
-
-            int tx = (int)rb->x;
-            int ty = (int)rb->y - TH - GAP;
-            if (ty < HUD_Y + 2) ty = HUD_Y + 2;
-            if (ty + TH > HUD_Y + HUD_H - 2) ty = HUD_Y + HUD_H - TH - 2;
-            if (tx < UI_LEFT_PANEL_W + M) tx = UI_LEFT_PANEL_W + M;
-            if (tx + TW > VIRT_W - UI_PANEL_W - M)
-                tx = VIRT_W - UI_PANEL_W - M - TW;
-
-            float trnd = (float)UI_RADIUS / TH;
-            DrawRectangleRounded(
-                (Rectangle){(float)tx,(float)ty,(float)TW,(float)TH},
-                trnd, 6, (Color){10, 6, 2, 252});
-            DrawRectangleRoundedLinesEx(
-                (Rectangle){(float)tx,(float)ty,(float)TW,(float)TH},
-                trnd, 6, 1.5f, TOOL_COLORS[ui->hovered_tool]);
-
-            char dbuf[48];
-            clip_text(info->name, TW - M*2, 11, dbuf, sizeof(dbuf));
-            dtxt(dbuf, tx+M, ty+M, 11, TOOL_COLORS[ui->hovered_tool]);
-            clip_text(TextFormat("Dmg:%.0f  Port:%.1ft", info->dmg, info->range),
-                      TW-M*2, 10, dbuf, sizeof(dbuf));
-            dtxt(dbuf, tx+M, ty+23, 10, (Color){145,125,92,255});
-            clip_text(TextFormat("Cad:%.1f/s  Cout:%dor", info->rate, info->cost),
-                      TW-M*2, 10, dbuf, sizeof(dbuf));
-            dtxt(dbuf, tx+M, ty+35, 10, (Color){145,125,92,255});
-            clip_text(info->desc, TW-M*2, 9, dbuf, sizeof(dbuf));
-            dtxt(dbuf, tx+M, ty+49, 9, (Color){82,65,40,255});
-
-            int at_tower_limit = ui_tool_is_tower((ToolID)ui->hovered_tool) &&
-                                 gs->towers.tower_count >= gs->towers.tower_limit;
-            int at_unit_limit  = ui_tool_is_unit((ToolID)ui->hovered_tool) &&
-                                 gs->units.count >= gs->units.unit_limit;
-            if (at_tower_limit || at_unit_limit) {
-                dtxt(TextFormat("LIMITE (%d bases)",
-                             gs->map.base_count),
-                         tx + M, ty + TH - 14, 9,
-                         (Color){231, 76, 60, 255});
-            }
-        }
     }
 
     // ════════════════════════════════════════════════
@@ -851,6 +990,24 @@ void ui_render(const UIState *ui, const GameState *gs) {
             dtxt(l1, wx - mtxt(l1,11)/2,
                      (int)(wb->y + wb->height/2 - 8), 11, wlbl);
         }
+    }
+
+    // ════════════════════════════════════════════════
+    // BOUTON PAUSE
+    // ════════════════════════════════════════════════
+    {
+        const Rectangle *pb  = &ui->pause_btn;
+        float prnd = (float)UI_RADIUS / pb->height;
+        int phov = CheckCollisionPointRec(virt_mouse(), *pb);
+        DrawRectangleRounded(*pb, prnd, 6,
+            phov ? (Color){28, 22, 8, 255} : (Color){14, 10, 3, 255});
+        DrawRectangleRoundedLinesEx(*pb, prnd, 6, 1.5f,
+            phov ? (Color){140, 105, 40, 255} : (Color){60, 44, 14, 180});
+        // Deux barres verticales (icône pause)
+        int pcx = (int)(pb->x + pb->width  / 2);
+        int pcy = (int)(pb->y + pb->height / 2);
+        DrawRectangle(pcx - 7, pcy - 9, 5, 18, (Color){160, 120, 45, 255});
+        DrawRectangle(pcx + 2, pcy - 9, 5, 18, (Color){160, 120, 45, 255});
     }
 
     // ════════════════════════════════════════════════
@@ -903,7 +1060,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                      rx, py, 13, typc); py += 17;
 
             if (tw->material != MAT_NONE) {
-                clip_text(TextFormat("[%s]", MATERIAL_NAMES[tw->material]),
+                clip_text(TextFormat("Mat: %s", MATERIAL_NAMES[tw->material]),
                           max_w, 13, buf, sizeof(buf));
                 dtxt(buf, rx, py, 13, matc);
                 py += 16;
@@ -950,18 +1107,37 @@ void ui_render(const UIState *ui, const GameState *gs) {
                          13, (Color){62,175,200,255});
             }
 
-        } else if (ui->worker_selected_idx >= 0) {
-            const Unit *u = &gs->units.units[ui->worker_selected_idx];
+        } else if (ui->sell_unit_idx >= 0) {
+            const Unit *u = &gs->units.units[ui->sell_unit_idx];
             if (!u->active) goto panel_right_empty;
 
-            dtxt("OUVRIER", rx, py, 16, (Color){192,192,42,255});
-            py += 19;
-            DrawLine(rx, py, rx+max_w, py, (Color){44,44,8,140});
-            py += 7;
+            // Nom et couleur selon le type
+            static const char *UNAMES[UNIT_TYPE_COUNT] = {
+                "SOLDAT", "LOURD", "MEDIC", "CHIEN", "OUVRIER"
+            };
+            static const Color UCOLS[UNIT_TYPE_COUNT] = {
+                {39,174,96,255},{41,128,185,255},{231,76,60,255},
+                {243,156,18,255},{200,200,50,255}
+            };
+            Color ucol = (u->type < UNIT_TYPE_COUNT)
+                       ? UCOLS[u->type] : (Color){148,128,95,255};
+            const char *uname = (u->type < UNIT_TYPE_COUNT)
+                              ? UNAMES[u->type] : "UNITE";
 
-            dtxt(TextFormat("HP   %.0f / %.0f", u->hp, u->max_hp),
-                     rx, py, 13, (Color){148,128,95,255}); py += 17;
+            dtxt(uname, rx, py, 16, ucol); py += 19;
+            DrawLine(rx, py, rx+max_w, py, (Color){44,44,8,140}); py += 7;
 
+            // HP bar
+            float hr = u->max_hp > 0.0f ? u->hp / u->max_hp : 0.0f;
+            Color hc = hr > 0.6f ? (Color){46,204,113,255}
+                     : hr > 0.3f ? (Color){243,156,18,255}
+                                 : (Color){231,76,60,255};
+            snprintf(buf, sizeof(buf), "HP   %.0f / %.0f", u->hp, u->max_hp);
+            dtxt(buf, rx, py, 13, hc); py += 14;
+            draw_bar(rx, py, max_w, 6, fmaxf(hr, 0.0f), hc, (Color){16,16,16,200});
+            py += 13;
+
+            // État
             const char *ss;
             switch (u->state) {
                 case USTATE_GOTO_DEPOSIT: ss = "-> Depot";    break;
@@ -969,21 +1145,33 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 case USTATE_GOTO_BASE:    ss = "<- Base";     break;
                 default:                  ss = "Patrouille";  break;
             }
-            dtxt(ss, rx, py, 13, (Color){182,182,38,255}); py += 17;
+            dtxt(ss, rx, py, 13, (Color){148,128,95,255}); py += 17;
 
-            if (u->state == USTATE_COLLECT && u->collect_duration > 0.0f) {
-                float prog = 1.0f - (u->collect_timer/u->collect_duration);
-                draw_bar(rx, py, max_w, 8, prog,
-                         (Color){62,175,200,255}, (Color){16,16,16,200});
-                py += 13;
-            }
             if (u->has_material && u->carried_mat != MAT_NONE) {
                 dtxt(TextFormat("Porte  %s", MATERIAL_NAMES[u->carried_mat]),
                          rx, py, 13, (Color){62,175,200,255}); py += 17;
             }
-            py += 4;
-            dtxt("Clic depot = mission", rx, py, 11,
-                     (Color){92,92,35,175});
+
+            if (u->type == UNIT_WORKER)
+                dtxt("Clic depot = mission", rx, py, 11, (Color){92,92,35,175});
+
+            // Bouton RENVOYER
+            {
+                Rectangle ub   = ui->unit_sell_btn;
+                float     urnd = (float)UI_RADIUS / ub.height;
+                Vector2   m    = virt_mouse();
+                int hov = CheckCollisionPointRec(m, ub);
+                DrawRectangleRounded(ub, urnd, 6,
+                    hov ? (Color){30,10,4,255} : (Color){14,4,2,255});
+                DrawRectangleRoundedLinesEx(ub, urnd, 6, 1.5f,
+                    hov ? (Color){192,80,48,255} : (Color){80,30,16,255});
+                int refund = (int)(UNIT_BASE_STATS[u->type].cost * 0.5f);
+                snprintf(buf, sizeof(buf), "Renvoyer  +%d or", refund);
+                int bw = mtxt(buf, 13);
+                dtxt(buf, (int)(ub.x + ub.width/2 - bw/2),
+                         (int)(ub.y + ub.height/2 - 7),
+                         13, (Color){192,90,58,255});
+            }
 
         } else if (ui->selected_tool != TOOL_NONE) {
             const ToolInfo *info = &TOOL_INFO[ui->selected_tool];
@@ -1056,19 +1244,29 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
         // ── Haut-gauche : OR / Tours / Unités ─────────────────
         {
-            // Calcul dynamique de la hauteur selon le contenu
-            const int ow = 164, line1_h = 14, line2_h = 12, line3_h = 12;
-            const int oh = OV_P + line1_h + 3 + line2_h + 3 + line3_h + OV_P;
-            const int ox = g_map_x_off + OV_M, oy = OV_M;
+            const int ow = OVERLAY_W, line1_h = 14, line2_h = 12;
+            const int oh = OVERLAY_TL_H;
+            const int ox = (ui->overlay_tl_pos.x >= 0.0f)
+                         ? (int)ui->overlay_tl_pos.x : g_map_x_off + OV_M;
+            const int oy = (ui->overlay_tl_pos.y >= 0.0f)
+                         ? (int)ui->overlay_tl_pos.y : OV_M;
+
+            int dragging_tl = (ui->dragging_overlay == 0);
+            Color border_tl = dragging_tl ? (Color){140, 100, 30, 255}
+                                          : (Color){65, 46, 14, 200};
             DrawRectangleRounded(
                 (Rectangle){ox, oy, ow, oh}, 0.2f, 4,
                 (Color){4, 3, 1, 235});
             DrawRectangleRoundedLinesEx(
-                (Rectangle){ox, oy, ow, oh}, 0.2f, 4, 1.2f,
-                (Color){65, 46, 14, 200});
+                (Rectangle){ox, oy, ow, oh}, 0.2f, 4,
+                dragging_tl ? 1.8f : 1.2f, border_tl);
+            // Poignée de déplacement (3 points)
+            for (int d = 0; d < 3; d++)
+                DrawRectangle(ox + ow/2 - 9 + d*9, oy + 3, 5, 2,
+                              (Color){80, 58, 20, 160});
 
             int tx = ox + OV_P;
-            int ty = oy + OV_P;
+            int ty = oy + OV_P + 4;  // +4 pour la poignée
 
             // Or
             char gbuf[20];
@@ -1108,17 +1306,29 @@ void ui_render(const UIState *ui, const GameState *gs) {
             if (to_spawn < 0) to_spawn = 0;
             int total_left = alive + to_spawn;
 
-            const int ow = 164;
-            const int oh = OV_P + 14+3 + 12+3 + 12+3 + 9+5 + 12 + OV_P;
-            const int ox = g_map_x_off + MAP_W * TILE_SIZE - OV_M - ow, oy = OV_M;
+            const int ow = OVERLAY_W;
+            const int oh = OVERLAY_TR_H;
+            const int ox = (ui->overlay_tr_pos.x >= 0.0f)
+                         ? (int)ui->overlay_tr_pos.x
+                         : g_map_x_off + MAP_W * TILE_SIZE - OV_M - ow;
+            const int oy = (ui->overlay_tr_pos.y >= 0.0f)
+                         ? (int)ui->overlay_tr_pos.y : OV_M;
+
+            int dragging_tr = (ui->dragging_overlay == 1);
+            Color border_tr = dragging_tr ? (Color){140, 100, 30, 255}
+                                          : (Color){65, 46, 14, 200};
             DrawRectangleRounded(
                 (Rectangle){ox, oy, ow, oh}, 0.2f, 4,
                 (Color){4, 3, 1, 235});
             DrawRectangleRoundedLinesEx(
-                (Rectangle){ox, oy, ow, oh}, 0.2f, 4, 1.2f,
-                (Color){65, 46, 14, 200});
+                (Rectangle){ox, oy, ow, oh}, 0.2f, 4,
+                dragging_tr ? 1.8f : 1.2f, border_tr);
+            // Poignée de déplacement (3 points)
+            for (int d = 0; d < 3; d++)
+                DrawRectangle(ox + ow/2 - 9 + d*9, oy + 3, 5, 2,
+                              (Color){80, 58, 20, 160});
 
-            int tx = ox + OV_P, ty = oy + OV_P;
+            int tx = ox + OV_P, ty = oy + OV_P + 4;
             int inner_w = ow - OV_P * 2;
 
             // Vague
@@ -1259,6 +1469,70 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 (Color){4, 3, 1, (unsigned char)(alpha_f * 185.0f)});
             dtxt(n->text, nx - tw2/2, ny, 12,
                      (Color){n->col.r, n->col.g, n->col.b, alpha});
+        }
+    }
+
+    // ════════════════════════════════════════════════
+    // TOOLTIP OUTIL (au-dessus de tout le reste)
+    // ════════════════════════════════════════════════
+    if (ui->hovered_tool != -1) {
+        const ToolInfo  *info   = &TOOL_INFO[ui->hovered_tool];
+        const Rectangle *rb     = &ui->tool_btns[ui->hovered_tool];
+        int              locked = !tool_is_unlocked((ToolID)ui->hovered_tool, gs);
+
+        /* Hauteur du tooltip : plus grand si verrouillé (2 lignes de texte) */
+        const int TW = 170;
+        const int TH = locked ? 52 : 62;
+
+        int tx = (int)rb->x;
+        int ty = (int)rb->y - TH - GAP;
+        if (ty < HUD_Y + 2) ty = HUD_Y + 2;
+        if (ty + TH > HUD_Y + HUD_H - 2) ty = HUD_Y + HUD_H - TH - 2;
+        if (tx < UI_LEFT_PANEL_W + M) tx = UI_LEFT_PANEL_W + M;
+        if (tx + TW > VIRT_W - UI_PANEL_W - M)
+            tx = VIRT_W - UI_PANEL_W - M - TW;
+
+        float trnd = (float)UI_RADIUS / TH;
+        Color border = locked ? (Color){80, 55, 20, 200} : TOOL_COLORS[ui->hovered_tool];
+        DrawRectangleRounded(
+            (Rectangle){(float)tx,(float)ty,(float)TW,(float)TH},
+            trnd, 6, (Color){10, 6, 2, 252});
+        DrawRectangleRoundedLinesEx(
+            (Rectangle){(float)tx,(float)ty,(float)TW,(float)TH},
+            trnd, 6, 1.5f, border);
+
+        char dbuf[48];
+        clip_text(info->name, TW - M*2, 11, dbuf, sizeof(dbuf));
+        dtxt(dbuf, tx+M, ty+M, 11,
+             locked ? (Color){80, 62, 35, 255} : TOOL_COLORS[ui->hovered_tool]);
+
+        if (locked) {
+            /* Tour verrouillée : affiche uniquement le déblocage requis */
+            TowerType tt = ui_tool_to_tower((ToolID)ui->hovered_tool);
+            const char *when = TOWER_UNLOCK_ACT_NAME[tt];
+            clip_text(TextFormat("Deblocage : %s", when ? when : "?"),
+                      TW-M*2, 9, dbuf, sizeof(dbuf));
+            dtxt(dbuf, tx+M, ty+30, 9, (Color){130, 95, 40, 255});
+        } else {
+            /* Tour disponible : stats complètes */
+            clip_text(TextFormat("Dmg:%.0f  Port:%.1ft", info->dmg, info->range),
+                      TW-M*2, 10, dbuf, sizeof(dbuf));
+            dtxt(dbuf, tx+M, ty+23, 10, (Color){145,125,92,255});
+            clip_text(TextFormat("Cad:%.1f/s  Cout:%dor", info->rate, info->cost),
+                      TW-M*2, 10, dbuf, sizeof(dbuf));
+            dtxt(dbuf, tx+M, ty+35, 10, (Color){145,125,92,255});
+            clip_text(info->desc, TW-M*2, 9, dbuf, sizeof(dbuf));
+            dtxt(dbuf, tx+M, ty+49, 9, (Color){82,65,40,255});
+
+            int at_tower_limit = ui_tool_is_tower((ToolID)ui->hovered_tool) &&
+                                 gs->towers.tower_count >= gs->towers.tower_limit;
+            int at_unit_limit  = ui_tool_is_unit((ToolID)ui->hovered_tool) &&
+                                 gs->units.count >= gs->units.unit_limit;
+            if (at_tower_limit || at_unit_limit) {
+                dtxt(TextFormat("LIMITE (%d bases)", gs->map.base_count),
+                         tx + M, ty + TH - 14, 9,
+                         (Color){231, 76, 60, 255});
+            }
         }
     }
 

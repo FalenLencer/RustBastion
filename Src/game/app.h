@@ -43,6 +43,7 @@ typedef struct {
     /* Suivi interne */
     MenuScreen     prev_menu_screen;
     int            applied_fps;
+    int            gameover_meta_done;   /* garde : meta_endless_end déjà appelé */
 } AppContext;
 
 // ────────────────────────────────────────────────────────────────

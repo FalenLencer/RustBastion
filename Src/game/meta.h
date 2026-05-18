@@ -118,6 +118,9 @@ int  meta_record_act(MetaProgress *meta, int stage_index,
 
 // Retourne 1 si un acte est débloqué (précédent complété)
 int  meta_act_unlocked(const MetaProgress *meta, int stage_index);
+
+// Retourne l'index du dernier acte complété (-1 si aucun)
+int  meta_max_stage_completed(const MetaProgress *meta);
 typedef enum {
     UPGRADE_TOWER_DMG   = 0,
     UPGRADE_TOWER_RANGE,

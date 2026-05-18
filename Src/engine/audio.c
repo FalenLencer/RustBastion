@@ -11,28 +11,45 @@
    - audio_apply_volumes() n'itère que les slots valides
    - audio_update() : UpdateMusicStream d'abord, relance si arrêté
    - Volumes par défaut cohérents avec le menu
-   - Wasteland : cycling automatique entre _01 et _02 (sans loop)
+   - Cycling générique : Wasteland / Swamp / Desert (N tracks sans loop)
+   - Pool d'alias SFX pour les sons UI → zéro artefact au chevauchement
    ════════════════════════════════════════════════════════════════ */
 #include "audio.h"
 #include "raylib.h"
 #include <string.h>
 #include <stdio.h>
 
-/* ── Chemins des assets ──────────────────────────────────────── */
+/* ── Thèmes à track unique (loop) ───────────────────────────────── */
 static const char *const AUDIO_MUSIC_FILES[AUDIO_MUSIC_COUNT] = {
-    NULL,                                              /* WASTELAND — géré par WASTELAND_FILES */
-    "assets/sounds/music/Swamp/ambience_swamp.wav",
-    "assets/sounds/music/Desert/ambience_desert.wav",
+    NULL,   /* WASTELAND — cycling géré séparément */
+    NULL,   /* SWAMP     — cycling géré séparément */
+    NULL,   /* DESERT    — cycling géré séparément */
     "assets/sounds/music/City/ambience_city.wav",
     "assets/sounds/music/Factory/ambience_factory.wav",
 };
 
-#define WASTELAND_TRACK_COUNT 2
-static const char *const WASTELAND_FILES[WASTELAND_TRACK_COUNT] = {
-    "assets/sounds/music/Wasteland/ambience_wasteland_01.wav",
-    "assets/sounds/music/Wasteland/ambience_wasteland_02.wav",
-};
+/* ── Thèmes avec cycling multi-tracks ───────────────────────────── */
+#define CYCLE_TRACKS 2   /* nb max de tracks par thème cyclé        */
+#define CYCLE_COUNT  3   /* nb de thèmes avec cycling               */
 
+static const AudioMusicID CYCLE_IDS[CYCLE_COUNT] = {
+    AUDIO_MUSIC_WASTELAND,
+    AUDIO_MUSIC_SWAMP,
+    AUDIO_MUSIC_DESERT,
+};
+static const char *const CYCLE_FILES[CYCLE_COUNT][CYCLE_TRACKS] = {
+    { "assets/sounds/music/Wasteland/ambience_wasteland_01.wav",
+      "assets/sounds/music/Wasteland/ambience_wasteland_02.wav" },
+    { "assets/sounds/music/Swamp/ambience_swamp_01.wav",
+      "assets/sounds/music/Swamp/ambience_swamp_02.wav" },
+    { "assets/sounds/music/Desert/ambience_desert_01.wav",
+      "assets/sounds/music/Desert/ambience_desert_02.wav" },
+};
+static Music g_cycle_tracks[CYCLE_COUNT][CYCLE_TRACKS];
+static int   g_cycle_valid[CYCLE_COUNT][CYCLE_TRACKS];
+static int   g_cycle_cur[CYCLE_COUNT];   /* index du track en lecture */
+
+/* ── SFX ─────────────────────────────────────────────────────────── */
 static const char *const AUDIO_SFX_FILES[AUDIO_SFX_COUNT] = {
     "assets/sounds/sfx/short_metallic_click.wav",   /* MENU_CLICK          */
     "assets/sounds/sfx/Confirmation_sound.wav",      /* MENU_CONFIRM        */
@@ -55,7 +72,7 @@ static const char *const AUDIO_SFX_FILES[AUDIO_SFX_COUNT] = {
     "assets/sounds/sfx/Power-up_application.wav",    /* MATERIAL_APPLY      */
 };
 
-/* ── État interne ────────────────────────────────────────────── */
+/* ── État interne ────────────────────────────────────────────────── */
 static Music  g_music[AUDIO_MUSIC_COUNT];
 static Sound  g_sfx[AUDIO_SFX_COUNT];
 static int    g_sfx_valid[AUDIO_SFX_COUNT];
@@ -66,15 +83,7 @@ static float  g_master_volume = 0.50f;
 static float  g_music_volume  = 0.50f;
 static float  g_sfx_volume    = 0.50f;
 
-/* ── Wasteland cycling ───────────────────────────────────────── */
-static Music g_wasteland[WASTELAND_TRACK_COUNT];
-static int   g_wasteland_valid[WASTELAND_TRACK_COUNT];
-static int   g_wasteland_idx = 0;   /* index du track en cours (0 ou 1) */
-
-/* ── Volume individuel par SFX ───────────────────────────────────
- * Multiplicateur appliqué par-dessus le volume SFX global.
- * Permet de réduire certains sons trop forts sans toucher au mix global.
- * ─────────────────────────────────────────────────────────────── */
+/* ── Volume individuel par SFX ───────────────────────────────────── */
 static const float SFX_VOLUME_SCALE[AUDIO_SFX_COUNT] = {
     1.0f,  /* MENU_CLICK          */
     1.0f,  /* MENU_CONFIRM        */
@@ -97,14 +106,9 @@ static const float SFX_VOLUME_SCALE[AUDIO_SFX_COUNT] = {
     1.0f,  /* MATERIAL_APPLY      */
 };
 
-/* ── Pool d'alias SFX — permet de jouer le même son en overlap ──
- * LoadSoundAlias() partage le buffer audio du son source sans en
- * être propriétaire. Chaque slot a son propre état de lecture.
- * Quand audio_play_sfx() est appelé, on choisit le premier slot
- * libre en round-robin → jamais de StopSound → zéro artefact.
- * ─────────────────────────────────────────────────────────────── */
-#define ALIAS_POOL_SIZE     4
-#define ALIASED_SFX_COUNT   3
+/* ── Pool d'alias SFX ────────────────────────────────────────────── */
+#define ALIAS_POOL_SIZE   4
+#define ALIASED_SFX_COUNT 3
 static const AudioSfxID ALIASED_IDS[ALIASED_SFX_COUNT] = {
     AUDIO_SFX_MENU_CLICK,
     AUDIO_SFX_MENU_CONFIRM,
@@ -114,10 +118,7 @@ static Sound g_sfx_pool[ALIASED_SFX_COUNT][ALIAS_POOL_SIZE];
 static int   g_sfx_pool_valid[ALIASED_SFX_COUNT];
 static int   g_sfx_pool_next[ALIASED_SFX_COUNT];
 
-/* ── Throttle SFX — empêche les redémarrages multiples par frame ─
- * Chaque SFX listé ici ne peut se déclencher qu'une fois par fenêtre
- * de THROTTLE_DELAY secondes.
- * ─────────────────────────────────────────────────────────────── */
+/* ── Throttle SFX ────────────────────────────────────────────────── */
 #define THROTTLE_COUNT 8
 static const AudioSfxID THROTTLED_SFX[THROTTLE_COUNT] = {
     AUDIO_SFX_TOWER_FIRE_GUN,
@@ -130,14 +131,14 @@ static const AudioSfxID THROTTLED_SFX[THROTTLE_COUNT] = {
     AUDIO_SFX_ENEMY_HIT,
 };
 static const float THROTTLE_DELAY[THROTTLE_COUNT] = {
-    0.08f,   /* gun          */
-    0.12f,   /* sniper       */
-    0.06f,   /* flame        */
-    0.10f,   /* tesla        */
-    0.10f,   /* enemy_death  */
-    0.15f,   /* enemy_spawn  */
-    0.20f,   /* unit_spawn   */
-    0.07f,   /* enemy_hit    — splash peut toucher N ennemis/frame */
+    0.08f,  /* gun         */
+    0.12f,  /* sniper      */
+    0.06f,  /* flame       */
+    0.10f,  /* tesla       */
+    0.10f,  /* enemy_death */
+    0.15f,  /* enemy_spawn */
+    0.20f,  /* unit_spawn  */
+    0.07f,  /* enemy_hit   */
 };
 static float g_throttle_timer[AUDIO_SFX_COUNT];
 
@@ -148,12 +149,20 @@ static float clamp01(float v) {
     return v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
 }
 
+/* Retourne l'index dans g_cycle_* pour un music_id, ou -1 */
+static int cycle_of(int music_id) {
+    for (int i = 0; i < CYCLE_COUNT; i++)
+        if (CYCLE_IDS[i] == music_id) return i;
+    return -1;
+}
+
 static void audio_apply_volumes(void) {
     if (!g_audio_ready) return;
     float mv = g_music_volume * g_master_volume;
     float sv = g_sfx_volume   * g_master_volume;
-    for (int i = 0; i < WASTELAND_TRACK_COUNT; i++)
-        if (g_wasteland_valid[i]) SetMusicVolume(g_wasteland[i], mv);
+    for (int c = 0; c < CYCLE_COUNT; c++)
+        for (int t = 0; t < CYCLE_TRACKS; t++)
+            if (g_cycle_valid[c][t]) SetMusicVolume(g_cycle_tracks[c][t], mv);
     for (int i = 0; i < AUDIO_MUSIC_COUNT; i++)
         if (g_music_valid[i]) SetMusicVolume(g_music[i], mv);
     for (int i = 0; i < AUDIO_SFX_COUNT; i++)
@@ -172,13 +181,13 @@ static void audio_apply_volumes(void) {
 int audio_init(void) {
     if (g_audio_ready) return 1;
 
-    memset(g_sfx_valid,       0, sizeof(g_sfx_valid));
-    memset(g_music_valid,     0, sizeof(g_music_valid));
-    memset(g_wasteland_valid, 0, sizeof(g_wasteland_valid));
-    memset(g_throttle_timer,  0, sizeof(g_throttle_timer));
-    memset(g_sfx_pool_valid,  0, sizeof(g_sfx_pool_valid));
-    memset(g_sfx_pool_next,   0, sizeof(g_sfx_pool_next));
-    g_wasteland_idx = 0;
+    memset(g_sfx_valid,      0, sizeof(g_sfx_valid));
+    memset(g_music_valid,    0, sizeof(g_music_valid));
+    memset(g_cycle_valid,    0, sizeof(g_cycle_valid));
+    memset(g_cycle_cur,      0, sizeof(g_cycle_cur));
+    memset(g_throttle_timer, 0, sizeof(g_throttle_timer));
+    memset(g_sfx_pool_valid, 0, sizeof(g_sfx_pool_valid));
+    memset(g_sfx_pool_next,  0, sizeof(g_sfx_pool_next));
 
     SetAudioStreamBufferSizeDefault(32768);
 
@@ -189,6 +198,7 @@ int audio_init(void) {
     }
     g_audio_ready = 1;
 
+    /* SFX */
     for (int i = 0; i < AUDIO_SFX_COUNT; i++) {
         g_sfx[i]       = LoadSound(AUDIO_SFX_FILES[i]);
         g_sfx_valid[i] = IsSoundValid(g_sfx[i]) ? 1 : 0;
@@ -196,19 +206,24 @@ int audio_init(void) {
             fprintf(stderr, "[AUDIO] SFX manquant : %s\n", AUDIO_SFX_FILES[i]);
     }
 
-    /* Wasteland : deux tracks sans loop, cycling géré dans audio_update */
-    for (int i = 0; i < WASTELAND_TRACK_COUNT; i++) {
-        g_wasteland[i]       = LoadMusicStream(WASTELAND_FILES[i]);
-        g_wasteland_valid[i] = IsMusicValid(g_wasteland[i]) ? 1 : 0;
-        if (g_wasteland_valid[i])
-            g_wasteland[i].looping = false;
-        else
-            fprintf(stderr, "[AUDIO] Wasteland track manquante : %s\n", WASTELAND_FILES[i]);
+    /* Thèmes avec cycling (sans loop — on gère la boucle manuellement) */
+    for (int c = 0; c < CYCLE_COUNT; c++) {
+        for (int t = 0; t < CYCLE_TRACKS; t++) {
+            g_cycle_tracks[c][t] = LoadMusicStream(CYCLE_FILES[c][t]);
+            g_cycle_valid[c][t]  = IsMusicValid(g_cycle_tracks[c][t]) ? 1 : 0;
+            if (g_cycle_valid[c][t])
+                g_cycle_tracks[c][t].looping = false;
+            else
+                fprintf(stderr, "[AUDIO] Track manquante : %s\n", CYCLE_FILES[c][t]);
+        }
     }
 
-    /* Autres thèmes musicaux (loop) */
+    /* Thèmes à track unique (loop) */
     for (int i = 0; i < AUDIO_MUSIC_COUNT; i++) {
-        if (i == AUDIO_MUSIC_WASTELAND) { g_music_valid[i] = 0; continue; }
+        if (cycle_of(i) >= 0 || AUDIO_MUSIC_FILES[i] == NULL) {
+            g_music_valid[i] = 0;
+            continue;
+        }
         g_music[i]       = LoadMusicStream(AUDIO_MUSIC_FILES[i]);
         g_music_valid[i] = IsMusicValid(g_music[i]) ? 1 : 0;
         if (g_music_valid[i])
@@ -217,7 +232,7 @@ int audio_init(void) {
             fprintf(stderr, "[AUDIO] Musique manquante : %s\n", AUDIO_MUSIC_FILES[i]);
     }
 
-    /* Pools d'alias pour les sons qui peuvent se chevaucher */
+    /* Pools d'alias pour les sons UI chevauchables */
     for (int a = 0; a < ALIASED_SFX_COUNT; a++) {
         AudioSfxID id = ALIASED_IDS[a];
         if (!g_sfx_valid[id]) continue;
@@ -240,8 +255,9 @@ void audio_shutdown(void) {
         for (int p = 1; p < ALIAS_POOL_SIZE; p++)
             UnloadSoundAlias(g_sfx_pool[a][p]);
     }
-    for (int i = 0; i < WASTELAND_TRACK_COUNT; i++)
-        if (g_wasteland_valid[i]) UnloadMusicStream(g_wasteland[i]);
+    for (int c = 0; c < CYCLE_COUNT; c++)
+        for (int t = 0; t < CYCLE_TRACKS; t++)
+            if (g_cycle_valid[c][t]) UnloadMusicStream(g_cycle_tracks[c][t]);
     for (int i = 0; i < AUDIO_SFX_COUNT; i++)
         if (g_sfx_valid[i])   UnloadSound(g_sfx[i]);
     for (int i = 0; i < AUDIO_MUSIC_COUNT; i++)
@@ -267,25 +283,27 @@ void audio_update(void) {
 
     if (g_current_music == AUDIO_MUSIC_NONE) return;
 
-    /* Wasteland : cycling _01 → _02 → _01 … */
-    if (g_current_music == AUDIO_MUSIC_WASTELAND) {
-        int cur = g_wasteland_idx;
-        if (!g_wasteland_valid[cur]) return;
-        UpdateMusicStream(g_wasteland[cur]);
-        if (!IsMusicStreamPlaying(g_wasteland[cur])) {
-            int nxt = 1 - cur;
-            if (g_wasteland_valid[nxt]) {
-                g_wasteland_idx = nxt;
-                SetMusicVolume(g_wasteland[nxt], g_music_volume * g_master_volume);
-                PlayMusicStream(g_wasteland[nxt]);
+    /* Thème avec cycling : track finie → passe au suivant */
+    int ci = cycle_of(g_current_music);
+    if (ci >= 0) {
+        int cur = g_cycle_cur[ci];
+        if (!g_cycle_valid[ci][cur]) return;
+        UpdateMusicStream(g_cycle_tracks[ci][cur]);
+        if (!IsMusicStreamPlaying(g_cycle_tracks[ci][cur])) {
+            int nxt = (cur + 1) % CYCLE_TRACKS;
+            if (g_cycle_valid[ci][nxt]) {
+                g_cycle_cur[ci] = nxt;
+                SetMusicVolume(g_cycle_tracks[ci][nxt], g_music_volume * g_master_volume);
+                PlayMusicStream(g_cycle_tracks[ci][nxt]);
             } else {
-                /* Seul un track valide → on le relance */
-                PlayMusicStream(g_wasteland[cur]);
+                /* Seul ce track est valide : on le relance */
+                PlayMusicStream(g_cycle_tracks[ci][cur]);
             }
         }
         return;
     }
 
+    /* Thème à track unique */
     if (!g_music_valid[g_current_music]) return;
     UpdateMusicStream(g_music[g_current_music]);
 }
@@ -299,8 +317,7 @@ void audio_play_sfx(AudioSfxID id) {
     if (!g_sfx_valid[id]) return;
     if (g_throttle_timer[id] > 0.0f) return;
 
-    /* Sons avec pool d'alias : on choisit le premier slot libre
-     * en round-robin → chevauchement propre, aucun StopSound. */
+    /* Sons avec pool d'alias : chevauchement propre, aucun StopSound */
     for (int a = 0; a < ALIASED_SFX_COUNT; a++) {
         if (ALIASED_IDS[a] != id) continue;
         if (!g_sfx_pool_valid[a]) break;
@@ -312,11 +329,10 @@ void audio_play_sfx(AudioSfxID id) {
                 return;
             }
         }
-        return; /* tous les slots occupés (extrêmement rare) */
+        return;
     }
 
-    /* Sons sans pool : on joue uniquement si le slot est libre.
-     * On ne coupe jamais un son en cours → zéro artefact. */
+    /* Sons sans pool : on joue uniquement si le slot est libre */
     if (IsSoundPlaying(g_sfx[id])) return;
     PlaySound(g_sfx[id]);
 
@@ -331,6 +347,19 @@ void audio_play_sfx(AudioSfxID id) {
 /* ════════════════════════════════════════════════════════════════
    MUSIQUE
    ════════════════════════════════════════════════════════════════ */
+static void stop_current_music(void) {
+    if (g_current_music == AUDIO_MUSIC_NONE) return;
+    int ci = cycle_of(g_current_music);
+    if (ci >= 0) {
+        int cur = g_cycle_cur[ci];
+        if (g_cycle_valid[ci][cur] && IsMusicStreamPlaying(g_cycle_tracks[ci][cur]))
+            StopMusicStream(g_cycle_tracks[ci][cur]);
+    } else if (g_music_valid[g_current_music] &&
+               IsMusicStreamPlaying(g_music[g_current_music])) {
+        StopMusicStream(g_music[g_current_music]);
+    }
+}
+
 void audio_play_theme_music(ThemeID theme) {
     if (!g_audio_ready) return;
     int next = (int)theme;
@@ -338,33 +367,24 @@ void audio_play_theme_music(ThemeID theme) {
 
     /* Déjà en cours ? */
     if (g_current_music == next) {
-        if (next == AUDIO_MUSIC_WASTELAND) {
-            int cur = g_wasteland_idx;
-            if (g_wasteland_valid[cur] && IsMusicStreamPlaying(g_wasteland[cur])) return;
+        int ci = cycle_of(next);
+        if (ci >= 0) {
+            int cur = g_cycle_cur[ci];
+            if (g_cycle_valid[ci][cur] && IsMusicStreamPlaying(g_cycle_tracks[ci][cur])) return;
         } else {
             if (g_music_valid[next] && IsMusicStreamPlaying(g_music[next])) return;
         }
     }
 
-    /* Arrête la musique actuelle */
-    if (g_current_music == AUDIO_MUSIC_WASTELAND) {
-        int cur = g_wasteland_idx;
-        if (g_wasteland_valid[cur] && IsMusicStreamPlaying(g_wasteland[cur]))
-            StopMusicStream(g_wasteland[cur]);
-    } else if (g_current_music != AUDIO_MUSIC_NONE &&
-               g_music_valid[g_current_music] &&
-               IsMusicStreamPlaying(g_music[g_current_music])) {
-        StopMusicStream(g_music[g_current_music]);
-    }
-
+    stop_current_music();
     g_current_music = next;
 
-    /* Lance la nouvelle musique */
-    if (next == AUDIO_MUSIC_WASTELAND) {
-        g_wasteland_idx = 0;
-        if (!g_wasteland_valid[0]) return;
-        SetMusicVolume(g_wasteland[0], g_music_volume * g_master_volume);
-        PlayMusicStream(g_wasteland[0]);
+    int ci = cycle_of(next);
+    if (ci >= 0) {
+        g_cycle_cur[ci] = 0;
+        if (!g_cycle_valid[ci][0]) return;
+        SetMusicVolume(g_cycle_tracks[ci][0], g_music_volume * g_master_volume);
+        PlayMusicStream(g_cycle_tracks[ci][0]);
     } else {
         if (!g_music_valid[next]) return;
         SetMusicVolume(g_music[next], g_music_volume * g_master_volume);
@@ -374,15 +394,7 @@ void audio_play_theme_music(ThemeID theme) {
 
 void audio_stop_music(void) {
     if (!g_audio_ready) return;
-    if (g_current_music == AUDIO_MUSIC_NONE) return;
-    if (g_current_music == AUDIO_MUSIC_WASTELAND) {
-        int cur = g_wasteland_idx;
-        if (g_wasteland_valid[cur] && IsMusicStreamPlaying(g_wasteland[cur]))
-            StopMusicStream(g_wasteland[cur]);
-    } else if (g_music_valid[g_current_music] &&
-               IsMusicStreamPlaying(g_music[g_current_music])) {
-        StopMusicStream(g_music[g_current_music]);
-    }
+    stop_current_music();
     g_current_music = AUDIO_MUSIC_NONE;
 }
 

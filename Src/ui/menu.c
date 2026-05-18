@@ -386,9 +386,10 @@ static void set_msg(MenuState *m, const char *s) {
 // ════════════════════════════════════════════════════
 void menu_init(MenuState *m, const AppOptions *opts) {
     memset(m, 0, sizeof(MenuState));
-    m->screen      = MENU_TITLE;
-    m->back_screen = MENU_TITLE;
-    m->new_theme   = THEME_COUNT;
+    m->screen           = MENU_TITLE;
+    m->back_screen      = MENU_TITLE;
+    m->new_theme        = THEME_COUNT;
+    m->opt_dropdown_open = -1;  // -1 = fermé (0 = FPS ouvert, 1 = résolution ouverte)
     m->new_slot    = 0;
     m->paused      = 0;
     m->opts.fullscreen = 0;
@@ -832,7 +833,9 @@ static MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
             case UPGRADE_UNIT_DMG:    lvl=meta->lvl_unit_dmg;     maxlvl=MAX_LVL_UNIT_DMG;     break;
             case UPGRADE_START_GOLD:  lvl=meta->lvl_start_gold;   maxlvl=MAX_LVL_START_GOLD;   break;
             case UPGRADE_LIVES:       lvl=meta->lvl_lives;         maxlvl=MAX_LVL_LIVES;        break;
-            case UPGRADE_SCRAP_BONUS: lvl=meta->lvl_scrap_bonus;  maxlvl=MAX_LVL_SCRAP_BONUS;  break;
+            case UPGRADE_SCRAP_BONUS: lvl=meta->lvl_scrap_bonus;  maxlvl=MAX_LVL_SCRAP_BONUS;   break;
+            case UPGRADE_TOWER_LIMIT: lvl=meta->lvl_tower_limit; maxlvl=MAX_LVL_TOWER_LIMIT;   break;
+            case UPGRADE_UNIT_LIMIT:  lvl=meta->lvl_unit_limit;  maxlvl=MAX_LVL_UNIT_LIMIT;    break;
             default: break;
         }
 
@@ -1305,7 +1308,7 @@ static MenuAction draw_world_map(MenuState *m,
 
             // Verrou si non débloqué
             if (!unlocked)
-                dtxt("[x]", ax + act_w/2 - 8, ay + ah/2 - 5, 10, C_DIM);
+                dtxt("---", ax + act_w/2 - 8, ay + ah/2 - 5, 10, C_DIM);
         }
 
         chapter_y += chapter_h + gap;
