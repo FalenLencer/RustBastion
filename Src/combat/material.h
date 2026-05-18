@@ -1,3 +1,9 @@
+/*
+ * RUST BASTION
+ * Copyright (c) 2026 Clément Gaschet. All rights reserved.
+ * Unauthorized copying or distribution is prohibited.
+ */
+
 #pragma once
 
 #define MAX_MATERIAL_DEPOSITS  6   // dépôts max sur une carte

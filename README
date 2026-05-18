@@ -1,0 +1,49 @@
+# RUST BASTION
+
+RUST BASTION est un jeu de stratégie en C construit avec **raylib**. Le projet regroupe un moteur de jeu, un système de combat, une génération de carte, une interface utilisateur et la gestion des assets pour proposer une expérience de tower defense immersive.
+
+## Objectif du projet
+
+- Créer un jeu accessible et modulaire en C.
+- Utiliser `raylib` pour la fenêtre, le rendu et l’audio.
+- Organiser la logique en modules : `engine`, `game`, `map`, `combat`, `ui`.
+
+## Comment jouer
+
+1. Compilation :
+   - Ouvrez un terminal dans le répertoire du projet.
+   - Lancez `make` pour construire la version Linux.
+
+2. Lancement :
+   - Après compilation, exécutez `./launch.sh`.
+   - Le script démarre le jeu depuis le bon répertoire et charge les assets.
+
+3. Contrôles de base :
+   - Déplacez-vous dans les menus avec la souris.
+   - Sélectionnez des éléments et confirmez pour démarrer une partie.
+   - En jeu, placez des tours et gérez les vagues d’ennemis pour protéger votre base.
+
+4. Objectif en jeu :
+   - Survivez à chaque vague d’ennemis.
+   - Construisez et améliorez des tours.
+   - Gagnez en progressant dans les niveaux et en gérant bien vos ressources.
+
+## Structure du projet
+
+- `Src/` : code source principal du jeu.
+- `assets/` : textures, sons et polices.
+- `build/` : fichiers de compilation temporaires et exécutables.
+- `release/` : versions prêtes à distribuer.
+- `raylib/` : dépendance source de la bibliothèque raylib.
+
+## Compilation et distribution
+
+- `make` : compile le jeu pour Linux.
+- `make win` : compile une version Windows (cross-compilation).
+- `make package` : génère les paquets Linux et Windows prêts à distribuer.
+- `make clean` : supprime les fichiers de build.
+
+## Notes
+
+- Assurez-vous d’avoir `raylib` installé et accessible pour la compilation Linux.
+- Les assets doivent rester présents dans `assets/` pour que le jeu fonctionne correctement.

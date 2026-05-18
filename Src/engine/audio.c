@@ -1,3 +1,9 @@
+/*
+ * RUST BASTION
+ * Copyright (c) 2026 Clément Gaschet. All rights reserved.
+ * Unauthorized copying or distribution is prohibited.
+ */
+
 /* ════════════════════════════════════════════════════════════════
    audio.c — RUST BASTION
    - Throttle SFX haute fréquence (tours) → pas de saturation audio

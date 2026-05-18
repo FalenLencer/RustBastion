@@ -1,3 +1,9 @@
+/*
+ * RUST BASTION
+ * Copyright (c) 2026 Clément Gaschet. All rights reserved.
+ * Unauthorized copying or distribution is prohibited.
+ */
+
 #include "interlude.h"
 #include "ui_utils.h"
 #include "campaign_data.h"

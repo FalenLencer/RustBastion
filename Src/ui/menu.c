@@ -1,3 +1,9 @@
+/*
+ * RUST BASTION
+ * Copyright (c) 2026 Clément Gaschet. All rights reserved.
+ * Unauthorized copying or distribution is prohibited.
+ */
+
 #include "menu.h"
 #include "renderer.h"
 #include "ui_utils.h"

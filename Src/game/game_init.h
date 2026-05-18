@@ -1,3 +1,9 @@
+/*
+ * RUST BASTION
+ * Copyright (c) 2026 Clément Gaschet. All rights reserved.
+ * Unauthorized copying or distribution is prohibited.
+ */
+
 #pragma once
 #include "game_state.h"
 #include "../map/theme.h"

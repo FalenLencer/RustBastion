@@ -1,3 +1,9 @@
+/*
+ * RUST BASTION
+ * Copyright (c) 2026 Clément Gaschet. All rights reserved.
+ * Unauthorized copying or distribution is prohibited.
+ */
+
 #pragma once
 #include "../ui/campaign_data.h"   // CAMPAIGN_TOTAL = 15
 

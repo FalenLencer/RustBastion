@@ -1,3 +1,9 @@
+/*
+ * RUST BASTION
+ * Copyright (c) 2026 Clément Gaschet. All rights reserved.
+ * Unauthorized copying or distribution is prohibited.
+ */
+
 /* ════════════════════════════════════════════════════════════════
    game/app.c — logique de boucle principale
    Contient toute la logique de haut niveau extraite de main.c :

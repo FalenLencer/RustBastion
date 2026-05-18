@@ -1,3 +1,9 @@
+/*
+ * RUST BASTION
+ * Copyright (c) 2026 Clément Gaschet. All rights reserved.
+ * Unauthorized copying or distribution is prohibited.
+ */
+
 /* ════════════════════════════════════════════════════════════════
    engine/paths.c — gestion du répertoire de travail
    Définit g_data_prefix et setup_working_dir().
