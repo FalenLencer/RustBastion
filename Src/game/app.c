@@ -59,12 +59,23 @@ void app_init(AppContext *ctx) {
 // ════════════════════════════════════════════════════════════════
 // SAVE / CLEANUP
 // ════════════════════════════════════════════════════════════════
+/* ── Sauvegarde de sortie (fermeture fenêtre ou Alt+F4) ─────── */
 void app_save_on_exit(const AppContext *ctx) {
-    if (ctx->screen == SCREEN_GAME &&
-        ctx->active_slot >= 0     &&
-        ctx->gs.phase != PHASE_GAMEOVER &&
-        ctx->interlude == INTER_NONE)
-        save_write(&ctx->gs, ctx->active_slot);
+    if (ctx->screen != SCREEN_GAME) return;
+    if (ctx->active_slot < 0) return;
+    if (ctx->gs.phase == PHASE_GAMEOVER) return;
+    if (ctx->gs.is_campaign) {
+        /* Campagne : sauvegarde même si un interlude est actif */
+        campaign_save_write(&ctx->gs, ctx->active_slot,
+                            (int)ctx->interlude,
+                            ctx->interlude_scrap,
+                            ctx->interlude_stars,
+                            ctx->interlude_last);
+    } else {
+        /* Arcade/endless : sauvegarde uniquement hors interlude */
+        if (ctx->interlude == INTER_NONE)
+            save_write(&ctx->gs, ctx->active_slot);
+    }
 }
 
 void app_cleanup(AppContext *ctx) {
@@ -102,7 +113,9 @@ static int handle_menu(AppContext *ctx) {
         ctx->gs.campaign_order_seed = act.campaign_order_seed;
         game_init_campaign(&ctx->gs, ctx->gs.meta.campaigns_completed,
                            ctx->active_slot, act.campaign_order_seed);
-        save_write(&ctx->gs, ctx->active_slot);
+        /* Sauvegarde initiale avec état interlude = DIALOG_BEFORE */
+        campaign_save_write(&ctx->gs, ctx->active_slot,
+                            INTER_DIALOG_BEFORE, 0, 0, 0);
         ctx->menu.screen = MENU_TITLE;
         ctx->screen      = SCREEN_GAME;
         ctx->interlude   = INTER_DIALOG_BEFORE;
@@ -111,15 +124,36 @@ static int handle_menu(AppContext *ctx) {
 
     if (act.go_game && !act.start_arcade && !act.start_campaign) {
         int slot = act.resume_slot;
-        if (save_read(&ctx->gs, slot)) {
-            ctx->active_slot = slot;
-            ctx->menu.screen = MENU_TITLE;
-            ctx->screen      = SCREEN_GAME;
+        if (act.resume_is_campaign) {
+            int inter = 0, scrap = 0, stars = 0, last = 0;
+            if (campaign_save_read(&ctx->gs, slot, &inter, &scrap, &stars, &last)) {
+                ctx->active_slot     = slot;
+                ctx->interlude       = (InterludeState)inter;
+                ctx->interlude_scrap = scrap;
+                ctx->interlude_stars = stars;
+                ctx->interlude_last  = last;
+                ctx->menu.screen     = MENU_TITLE;
+                ctx->screen          = SCREEN_GAME;
+            } else {
+                /* Fichier campagne illisible — repart de l'acte 0 */
+                ctx->active_slot = slot;
+                game_init_campaign(&ctx->gs, ctx->gs.meta.campaigns_completed,
+                                   slot, 0);
+                campaign_save_write(&ctx->gs, slot, INTER_DIALOG_BEFORE, 0, 0, 0);
+                ctx->interlude   = INTER_DIALOG_BEFORE;
+                ctx->screen      = SCREEN_GAME;
+            }
         } else {
-            ctx->active_slot = slot;
-            game_init_arcade(&ctx->gs, THEME_COUNT, slot);
-            save_write(&ctx->gs, ctx->active_slot);
-            ctx->screen = SCREEN_GAME;
+            if (save_read(&ctx->gs, slot)) {
+                ctx->active_slot = slot;
+                ctx->menu.screen = MENU_TITLE;
+                ctx->screen      = SCREEN_GAME;
+            } else {
+                ctx->active_slot = slot;
+                game_init_arcade(&ctx->gs, THEME_COUNT, slot);
+                save_write(&ctx->gs, ctx->active_slot);
+                ctx->screen = SCREEN_GAME;
+            }
         }
         audio_play_theme_music(ctx->gs.map.theme);
     }
@@ -179,7 +213,12 @@ static void game_handle_gameover(AppContext *ctx) {
         ctx->gameover_meta_done = 1;
     }
     if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-        if (ctx->active_slot >= 0) save_delete(ctx->active_slot);
+        if (ctx->active_slot >= 0) {
+            if (ctx->gs.is_campaign)
+                campaign_save_delete(ctx->active_slot);
+            else
+                save_delete(ctx->active_slot);
+        }
         ctx->active_slot        = -1;
         ctx->gameover_meta_done = 0;  /* reset pour la prochaine partie */
         menu_refresh_slots(&ctx->menu);
@@ -216,7 +255,9 @@ static void game_handle_campaign_end(AppContext *ctx) {
     ctx->interlude_scrap = earned;
     ctx->interlude_last  = last;
     ctx->interlude_stars = stars;
-    save_write(&ctx->gs, ctx->active_slot);
+    /* Sauvegarde avec état interlude pour éviter le double-ferraille au rechargement */
+    campaign_save_write(&ctx->gs, ctx->active_slot,
+                        INTER_DIALOG_AFTER, earned, stars, last);
 }
 
 static void game_handle_dialog_after(AppContext *ctx) {
@@ -224,7 +265,8 @@ static void game_handle_dialog_after(AppContext *ctx) {
     if (!IsKeyPressed(KEY_SPACE) && !IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
         return;
     if (ctx->interlude_last) {
-        if (ctx->active_slot >= 0) save_delete(ctx->active_slot);
+        /* Dernière étape terminée : supprime la save campagne et retour menu */
+        if (ctx->active_slot >= 0) campaign_save_delete(ctx->active_slot);
         ctx->active_slot  = -1;
         menu_refresh_slots(&ctx->menu);
         ctx->menu.paused  = 0;
@@ -233,8 +275,10 @@ static void game_handle_dialog_after(AppContext *ctx) {
         ctx->interlude    = INTER_NONE;
         audio_stop_music();
     } else {
+        /* Passe à l'acte suivant — sauvegarde en état DIALOG_BEFORE */
         game_next_campaign_stage(&ctx->gs);
-        save_write(&ctx->gs, ctx->active_slot);
+        campaign_save_write(&ctx->gs, ctx->active_slot,
+                            INTER_DIALOG_BEFORE, 0, 0, 0);
         audio_play_theme_music(ctx->gs.map.theme);
         ctx->interlude = INTER_DIALOG_BEFORE;
     }
@@ -411,11 +455,29 @@ static int game_do_render(AppContext *ctx) {
     if (ctx->menu.paused) {
         MenuAction pact = menu_render_and_act(&ctx->menu, &ctx->gs.meta,
                                               g_canvas_virt_w, VIRT_H);
-        if (pact.save_and_quit == 2 && ctx->active_slot >= 0)
-            save_write(&ctx->gs, ctx->active_slot);
-        if (pact.save_and_quit == 1) {
-            if (ctx->active_slot >= 0)
+        /* Sauvegarde rapide (sans quitter) */
+        if (pact.save_and_quit == 2 && ctx->active_slot >= 0) {
+            if (ctx->gs.is_campaign)
+                campaign_save_write(&ctx->gs, ctx->active_slot,
+                                    (int)ctx->interlude,
+                                    ctx->interlude_scrap,
+                                    ctx->interlude_stars,
+                                    ctx->interlude_last);
+            else
                 save_write(&ctx->gs, ctx->active_slot);
+        }
+        /* Sauvegarder et retour au menu */
+        if (pact.save_and_quit == 1) {
+            if (ctx->active_slot >= 0) {
+                if (ctx->gs.is_campaign)
+                    campaign_save_write(&ctx->gs, ctx->active_slot,
+                                        (int)ctx->interlude,
+                                        ctx->interlude_scrap,
+                                        ctx->interlude_stars,
+                                        ctx->interlude_last);
+                else
+                    save_write(&ctx->gs, ctx->active_slot);
+            }
             menu_refresh_slots(&ctx->menu);
             ctx->menu.paused = 0;
             ctx->menu.screen = ctx->gs.is_campaign ? MENU_CAMPAIGN : MENU_ARCADE;
@@ -423,9 +485,18 @@ static int game_do_render(AppContext *ctx) {
             ctx->interlude   = INTER_NONE;
             audio_stop_music();
         }
+        /* Quitter l'application — sauvegarde d'urgence */
         if (pact.quit_app) {
-            if (ctx->active_slot >= 0)
-                save_write(&ctx->gs, ctx->active_slot);
+            if (ctx->active_slot >= 0) {
+                if (ctx->gs.is_campaign)
+                    campaign_save_write(&ctx->gs, ctx->active_slot,
+                                        (int)ctx->interlude,
+                                        ctx->interlude_scrap,
+                                        ctx->interlude_stars,
+                                        ctx->interlude_last);
+                else
+                    save_write(&ctx->gs, ctx->active_slot);
+            }
             return 0;   /* quitter l'application */
         }
         if (pact.toggle_fs == 1) ToggleFullscreen();

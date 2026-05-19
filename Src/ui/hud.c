@@ -24,8 +24,8 @@
 // ════════════════════════════════════════════════════
 #define OVERLAY_W      164
 #define OVERLAY_OV_P     6
-#define OVERLAY_TL_H   (OVERLAY_OV_P + 14+3 + 12+3 + 12 + OVERLAY_OV_P)
-#define OVERLAY_TR_H   (OVERLAY_OV_P + 14+3 + 12+3 + 12+3 + 9+5 + 12 + OVERLAY_OV_P)
+#define OVERLAY_TL_H   (OVERLAY_OV_P + 17+3 + 14+3 + 14 + OVERLAY_OV_P)   // fs12→17, fs10→14 (FONT_SCALE 1.4)
+#define OVERLAY_TR_H   (OVERLAY_OV_P + 17+3 + 14+3 + 14+3 + 9+5 + 14 + OVERLAY_OV_P)
 
 // ════════════════════════════════════════════════════
 // TRANSFORMATION SOURIS
@@ -1244,7 +1244,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
         // ── Haut-gauche : OR / Tours / Unités ─────────────────
         {
-            const int ow = OVERLAY_W, line1_h = 14, line2_h = 12;
+            const int ow = OVERLAY_W, line1_h = 17, line2_h = 14;  // hauteurs réelles après FONT_SCALE=1.4
             const int oh = OVERLAY_TL_H;
             const int ox = (ui->overlay_tl_pos.x >= 0.0f)
                          ? (int)ui->overlay_tl_pos.x : g_map_x_off + OV_M;
@@ -1334,12 +1334,12 @@ void ui_render(const UIState *ui, const GameState *gs) {
             // Vague
             dtxt(TextFormat("Vague %d", gs->wave_manager.number),
                      tx, ty, 12, (Color){185, 145, 60, 255});
-            ty += 14 + 3;
+            ty += 17 + 3;  // fh(12)=17
 
             // Kills
             dtxt(TextFormat("Kills  %d", gs->kills),
                      tx, ty, 10, (Color){148, 128, 95, 255});
-            ty += 12 + 3;
+            ty += 14 + 3;  // fh(10)=14
 
             // Ennemis restants
             dtxt(in_wave ? TextFormat("Ennemis  %d", total_left)
@@ -1347,7 +1347,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                      tx, ty, 10,
                      in_wave ? (Color){218, 90, 70, 255}
                              : (Color){60, 48, 30, 255});
-            ty += 12 + 3;
+            ty += 14 + 3;  // fh(10)=14
 
             // Barre de progression de vague
             {

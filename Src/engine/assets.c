@@ -33,22 +33,34 @@ void assets_load(void) {
     memset(g_tower_splash, 0, sizeof(g_tower_splash));
     memset(g_unit_splash,  0, sizeof(g_unit_splash));
 
-    // ── Police étendue — codepoints ASCII + Latin-1 + symboles utilisés ──
+    // ── Police étendue — codepoints ASCII + Latin-1 complet + symboles ─────
+    // Priorité : Rajdhani-Bold (couverture complète) → GROBOLD → défaut Raylib
     {
-        int cps[300];
+        int cps[512];
         int n = 0;
-        for (int c = 32; c <= 126; c++) cps[n++] = c;     // ASCII imprimable
-        for (int c = 0xC0; c <= 0xFF; c++) cps[n++] = c;  // Latin Extended-1 (accents FR)
-        cps[n++] = 0x2013;  // – tiret demi-cadratin
-        cps[n++] = 0x2014;  // — tiret cadratin
-        cps[n++] = 0x00D7;  // ×
-        cps[n++] = 0x2713;  // ✓
-        cps[n++] = 0x25BC;  // ▼
-        cps[n++] = 0x2019;  // '
-        cps[n++] = 0x2026;  // …
-        const char *font_path = "assets/fonts/GROBOLD.ttf";
+        for (int c = 32;    c <= 126;  c++) cps[n++] = c;  // ASCII imprimable (32-126)
+        for (int c = 0xA0;  c <= 0xFF; c++) cps[n++] = c;  // Latin-1 Supplément COMPLET
+                                                             //  (accents FR, ×, °, ±…)
+        cps[n++] = 0x2013;  // –  tiret demi-cadratin
+        cps[n++] = 0x2014;  // —  tiret cadratin
+        cps[n++] = 0x2019;  // '  apostrophe typographique
+        cps[n++] = 0x2026;  // …  points de suspension
+        cps[n++] = 0x2713;  // ✓  coche
+        cps[n++] = 0x25B2;  // ▲  triangle haut
+        cps[n++] = 0x25BC;  // ▼  triangle bas
+        cps[n++] = 0x25C4;  // ◄  flèche gauche
+        cps[n++] = 0x25BA;  // ►  flèche droite
+        cps[n++] = 0x2665;  // ♥  cœur (vies)
+        cps[n++] = 0x2605;  // ★  étoile pleine
+        cps[n++] = 0x2606;  // ☆  étoile vide
+
+        // Essaie Rajdhani-Bold en premier (couverture complète, thème militaire)
+        const char *font_main    = "assets/fonts/Rajdhani/Rajdhani-Bold.ttf";
+        const char *font_fallback = "assets/fonts/GROBOLD.ttf";
+        const char *font_path = FileExists(font_main) ? font_main : font_fallback;
+
         if (FileExists(font_path))
-            g_font = LoadFontEx(font_path, 32, cps, n);
+            g_font = LoadFontEx(font_path, 72, cps, n);  // 72 px → qualité optimale pour FONT_SCALE=1.4 (fs max ≈ 28*1.4≈39)
         else
             g_font = GetFontDefault();
         SetTextureFilter(g_font.texture, TEXTURE_FILTER_BILINEAR);

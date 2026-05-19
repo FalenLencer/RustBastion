@@ -11,6 +11,7 @@
 #include "../engine/audio.h"
 #include "../engine/paths.h"
 #include "../game/meta.h"
+#include "../game/save.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
@@ -130,14 +131,15 @@ static void draw_sep(int x, int y, int w, Color col) {
 // Texte centré avec petit cadre sombre pour lisibilité sur fond d'image
 static void txt_c_boxed(const char *s, int cx, int y, int fs, Color col) {
     int tw = mtxt(s, fs);
+    int rh = fh(fs);  // hauteur réelle du texte après FONT_SCALE
     int px = 8, py = 3;
     DrawRectangleRounded(
         (Rectangle){(float)(cx - tw/2 - px), (float)(y - py),
-                    (float)(tw + px*2), (float)(fs + py*2)},
+                    (float)(tw + px*2), (float)(rh + py*2)},
         0.25f, 4, (Color){5, 3, 1, 210});
     DrawRectangleRoundedLinesEx(
         (Rectangle){(float)(cx - tw/2 - px), (float)(y - py),
-                    (float)(tw + px*2), (float)(fs + py*2)},
+                    (float)(tw + px*2), (float)(rh + py*2)},
         0.25f, 4, 1.0f, (Color){55, 36, 12, 120});
     dtxt(s, cx - tw/2, y, fs, col);
 }
@@ -145,14 +147,15 @@ static void txt_c_boxed(const char *s, int cx, int y, int fs, Color col) {
 // Texte aligné à gauche avec petit cadre sombre
 static void draw_text_boxed(const char *s, int x, int y, int fs, Color col) {
     int tw = mtxt(s, fs);
+    int rh = fh(fs);
     int px = 6, py = 3;
     DrawRectangleRounded(
         (Rectangle){(float)(x - px), (float)(y - py),
-                    (float)(tw + px*2), (float)(fs + py*2)},
+                    (float)(tw + px*2), (float)(rh + py*2)},
         0.25f, 4, (Color){5, 3, 1, 210});
     DrawRectangleRoundedLinesEx(
         (Rectangle){(float)(x - px), (float)(y - py),
-                    (float)(tw + px*2), (float)(fs + py*2)},
+                    (float)(tw + px*2), (float)(rh + py*2)},
         0.25f, 4, 1.0f, (Color){55, 36, 12, 120});
     dtxt(s, x, y, fs, col);
 }
@@ -256,7 +259,7 @@ static int draw_btn(const char *label, int x, int y, int w, int h,
 
     int fs = 14;
     int tw = mtxt(label, fs);
-    dtxt(label, x + w/2 - tw/2, y + h/2 - fs/2, fs, col);
+    dtxt(label, x + w/2 - tw/2, y + h/2 - fh(fs)/2, fs, col);
     if (vclick_r(r)) {
         audio_play_sfx(AUDIO_SFX_MENU_CLICK);
         return 1;
@@ -307,6 +310,18 @@ static int draw_volume_slider(const char *label, int x, int y, int w,
     return 0;
 }
 
+// Petite flèche triangulaire "▼" dessinée en GPU (Rajdhani n'a pas ce glyphe)
+// Placée à droite d'un bouton dropdown, alignée verticalement au centre.
+static void draw_dropdown_arrow(int bx, int by, int bw, int bh, Color col) {
+    int cx = bx + bw - 16;
+    int cy = by + bh / 2 + 1;
+    DrawTriangle(
+        (Vector2){(float)(cx - 6), (float)(cy - 4)},
+        (Vector2){(float)(cx + 6), (float)(cy - 4)},
+        (Vector2){(float)cx,       (float)(cy + 4)},
+        col);
+}
+
 // Grand bouton de navigation avec barre latérale colorée
 static int draw_nav_btn(const char *icon, const char *title,
                         const char *desc, Color col,
@@ -330,7 +345,7 @@ static int draw_nav_btn(const char *icon, const char *title,
         (Color){col.r, col.g, col.b, hov ? 255 : 110});
 
     // Icône
-    dtxt(icon, x + M_PAD + 4, y + h/2 - 13, 26, col);
+    dtxt(icon, x + M_PAD + 4, y + h/2 - fh(26)/2, 26, col);
 
     // Titre
     dtxt(title, x + M_PAD + 36, y + M_IN + 2, 16,
@@ -410,6 +425,7 @@ void menu_init(MenuState *m, const AppOptions *opts) {
 
 void menu_refresh_slots(MenuState *m) {
     save_scan(m->slots);
+    campaign_save_scan(m->campaign_slots);
 }
 
 void menu_cleanup(MenuState *m) {
@@ -528,37 +544,33 @@ static MenuAction draw_slot_list(MenuState *m, int vw, int vh,
     int y  = M_PAD + 82;
 
     for (int i = 0; i < SAVE_SLOT_COUNT; i++) {
-        const SaveInfo *si = &m->slots[i];
-        int slot_matches = !si->exists ||
-                           ((int)si->mode == (is_campaign
-                                ? SAVE_MODE_CAMPAIGN : SAVE_MODE_ARCADE));
+        /* Lecture depuis le bon tableau selon le mode */
+        const SaveInfo *si = is_campaign ? &m->campaign_slots[i] : &m->slots[i];
 
         Rectangle r = {(float)sx,(float)y,(float)sw,(float)sh};
         int hov = vhov_r(r);
-        Color brd = (si->exists && slot_matches)
-                  ? (is_campaign ? C_GOLD : C_BLUE) : C_BORDER;
+        Color brd = si->exists ? (is_campaign ? C_GOLD : C_BLUE) : C_BORDER;
         Color bg  = hov ? C_HOV : C_PANEL;
 
         DrawRectangleRounded(r, (float)PANEL_R/sh, 6, bg);
-        DrawRectangleRoundedLinesEx(r, (float)PANEL_R/sh, 6,
-                                    1.5f, brd);
+        DrawRectangleRoundedLinesEx(r, (float)PANEL_R/sh, 6, 1.5f, brd);
 
         int tx = sx + M_IN + 4;
         int ty = y  + M_IN;
 
-        if (si->exists && slot_matches) {
+        if (si->exists) {
             if (is_campaign) {
-                int themes[CAMPAIGN_STAGES];
-                meta_campaign_theme_order(si->campaign_order_seed, themes);
-                const Theme *sth = theme_get((ThemeID)themes[si->campaign_stage]);
-
-                char raw[80];
-                snprintf(raw, sizeof(raw), "CAMPAGNE %d  —  Stage %d/%d : %s",
-                         si->campaign_num+1, si->campaign_stage+1,
-                         CAMPAIGN_STAGES, sth->name);
-                char cbuf[80];
-                int max_cw = sw - 120 - M_IN*2;
-                clip_text(raw, max_cw, 12, cbuf, sizeof(cbuf));
+                /* Titre de l'acte en cours */
+                const ActData *ad = campaign_act_get(si->campaign_stage);
+                char raw[96];
+                snprintf(raw, sizeof(raw),
+                         "Campagne %d  —  Acte %d/%d  —  %s",
+                         si->campaign_num + 1,
+                         si->campaign_stage + 1,
+                         CAMPAIGN_TOTAL,
+                         ad ? ad->title : "?");
+                char cbuf[96];
+                clip_text(raw, sw - 120 - M_IN*2, 12, cbuf, sizeof(cbuf));
                 draw_text_boxed(cbuf, tx, ty, 12, C_GOLD);
             } else {
                 dtxt(TextFormat("ARCADE  —  %s", si->theme_name),
@@ -569,16 +581,16 @@ static MenuAction draw_slot_list(MenuState *m, int vw, int vh,
                          si->wave, si->lives, si->gold),
                      tx, ty, 10, C_TEXT);
             ty += M_LINE;
-            dtxt(TextFormat("Slot %d", i+1),
-                     tx, ty, 9, C_DIM);
+            dtxt(TextFormat("Emplacement %d", i+1), tx, ty, 9, C_DIM);
 
             // Bouton REPRENDRE
             int bw2 = 88, bh2 = 26;
             int bx2 = sx + sw - bw2 - M_IN - 22;
             int by2 = y  + sh/2 - bh2/2;
             if (draw_btn("REPRENDRE", bx2, by2, bw2, bh2, C_GREEN, 0)) {
-                act.resume_slot = i;
-                act.go_game     = 1;
+                act.resume_slot       = i;
+                act.resume_is_campaign = is_campaign;
+                act.go_game           = 1;
             }
 
             // Bouton X (supprimer)
@@ -601,7 +613,7 @@ static MenuAction draw_slot_list(MenuState *m, int vw, int vh,
             // Slot vide
             dtxt(TextFormat("Emplacement %d — vide", i+1),
                      tx, y + sh/2 - 8, 11, C_DIM);
-            int bw2 = 148, bh2 = 26;
+            int bw2 = 180, bh2 = 26;
             int bx2 = sx + sw - bw2 - M_IN;
             int by2 = y  + sh/2 - bh2/2;
             const char *lbl = is_campaign ? "NOUVELLE CAMPAGNE"
@@ -613,9 +625,6 @@ static MenuAction draw_slot_list(MenuState *m, int vw, int vh,
                 m->screen = is_campaign ? MENU_NEW_CAMPAIGN
                                         : MENU_NEW_ARCADE;
             }
-        } else {
-            dtxt(TextFormat("Emplacement %d — autre mode", i+1),
-                     tx, y + sh/2 - 8, 11, C_DIM);
         }
 
         y += sh + sg;
@@ -750,9 +759,9 @@ static MenuAction draw_new_arcade(MenuState *m, int vw, int vh) {
         dtxt(THEME_LABELS[i], bx + M_IN, by + bh/2 - 5, 11,
                  is_sel ? C_BLUE : C_TEXT);
         if (is_sel) {
-            const char *chk = "✓";
+            const char *chk = ">";
             dtxt(chk, bx + bw - M_IN - mtxt(chk,11),
-                     by + bh/2 - 5, 11, C_BLUE);
+                     by + bh/2 - fh(11)/2, 11, C_BLUE);
         }
         if (vclick_r(r)) m->new_theme = (ThemeID)i;
         by += bh + gap;
@@ -973,12 +982,13 @@ static MenuAction draw_options(MenuState *m, int vw, int vh) {
             static const char *FPS_LBL [] = {"30 FPS","60 FPS","120 FPS","165 FPS","Illimité"};
             char fps_display[32];
             if (m->opts.target_fps == 0)
-                snprintf(fps_display, sizeof(fps_display), "Illimité ▼");
+                snprintf(fps_display, sizeof(fps_display), "Illimité");
             else
-                snprintf(fps_display, sizeof(fps_display), "%d FPS ▼", m->opts.target_fps);
+                snprintf(fps_display, sizeof(fps_display), "%d FPS", m->opts.target_fps);
 
             if (draw_btn(fps_display, content_x, y, content_w, BTN_H, C_BLUE, 0))
                 m->opt_dropdown_open = (m->opt_dropdown_open == 0) ? -1 : 0;
+            draw_dropdown_arrow(content_x, y, content_w, BTN_H, C_BLUE);
 
             y += BTN_H + 4;
 
@@ -1070,11 +1080,12 @@ static MenuAction draw_options(MenuState *m, int vw, int vh) {
             };
 
             char res_display[64];
-            snprintf(res_display, sizeof(res_display), "%d × %d ▼",
+            snprintf(res_display, sizeof(res_display), "%d × %d",
                      m->opts.win_width, m->opts.win_height);
 
             if (draw_btn(res_display, content_x, y, content_w, BTN_H, C_BLUE, 0))
                 m->opt_dropdown_open = (m->opt_dropdown_open == 1) ? -1 : 1;
+            draw_dropdown_arrow(content_x, y, content_w, BTN_H, C_BLUE);
 
             y += BTN_H + 4;
 
@@ -1129,7 +1140,11 @@ static MenuAction draw_confirm_del(MenuState *m, int vw, int vh) {
     int by2 = cy + ph/2 - M_PAD - bh2;
 
     if (draw_btn("EFFACER",  cx - bw2 - M_IN/2, by2, bw2, bh2, C_RED, 0)) {
-        save_delete(m->confirm_del_slot);
+        /* Supprimer depuis le bon système selon l'écran d'origine */
+        if (m->back_screen == MENU_CAMPAIGN)
+            campaign_save_delete(m->confirm_del_slot);
+        else
+            save_delete(m->confirm_del_slot);
         menu_refresh_slots(m);
         m->screen = (m->back_screen == MENU_CAMPAIGN ||
                      m->back_screen == MENU_ARCADE)

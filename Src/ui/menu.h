@@ -43,7 +43,8 @@ typedef struct {
     MenuScreen  back_screen_stack[8];
     int         back_stack_top;
 
-    SaveInfo    slots[SAVE_SLOT_COUNT];
+    SaveInfo    slots[SAVE_SLOT_COUNT];           // slots arcade
+    SaveInfo    campaign_slots[SAVE_SLOT_COUNT];  // slots campagne (fichiers séparés)
     int         confirm_del_slot;
 
     ThemeID     new_theme;
@@ -66,6 +67,7 @@ typedef struct {
     int     start_arcade;
     int     start_campaign;
     int     resume_slot;
+    int     resume_is_campaign;   // 1 = le slot à reprendre est une save campagne
     int     go_game;
     int     quit_app;
     int     save_and_quit;
@@ -80,7 +82,7 @@ void       opts_save             (const AppOptions *o);
 int        opts_load             (AppOptions *o);
 
 void       menu_init             (MenuState *m, const AppOptions *opts);
-void       menu_refresh_slots    (MenuState *m);
+void       menu_refresh_slots    (MenuState *m);           // rafraîchit les 2 tableaux
 void       menu_set_mouse_offset (float ox, float oy, float sx, float sy);
 void       menu_cleanup          (MenuState *m);
 MenuAction menu_update           (MenuState *m, const MetaProgress *meta);
