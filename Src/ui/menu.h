@@ -25,6 +25,7 @@ typedef enum {
     MENU_OPTIONS,
     MENU_CONFIRM_DEL,
     MENU_PAUSE,
+    MENU_BESTIARY,
 } MenuScreen;
 
 typedef struct {
@@ -35,6 +36,7 @@ typedef struct {
     int master_volume;
     int music_volume;
     int sfx_volume;
+    int show_fps;      // 1 = afficher le compteur FPS (touche [F] en jeu)
 } AppOptions;
 
 typedef struct {
@@ -61,6 +63,13 @@ typedef struct {
 
     int         opt_tab;            // 0=General, 1=Audio, 2=Graphismes
     int         opt_dropdown_open;  // -1=none, 0=FPS, 1=Resolution, etc
+
+    // Bestiaire
+    int         sel_bestiary;       // index ennemi sélectionné (0..ENEMY_TYPE_COUNT-1)
+    int         bestiary_tab;       // 0=Ennemis, 1=Minerais, 2=Tours, 3=Unites
+    int         sel_material;       // index minerai sélectionné (0..MAT_COUNT-1)
+    int         sel_tower;          // index tour sélectionnée (0..TOWER_TYPE_COUNT-1)
+    int         sel_unit;           // index unité sélectionnée (0..UNIT_TYPE_COUNT-1)
 } MenuState;
 
 typedef struct {

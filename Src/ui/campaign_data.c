@@ -62,6 +62,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "des plans de construction avances dans les ruines.\"\n",
         .min_waves  = 6,
         .unlock_msg = "DEBLOQUE : Tourelle Sniper",
+        .forced_base_count = 2,  // texte impose 2 bases
     },
 
     [2] = {
@@ -201,16 +202,16 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
         .theme    = THEME_DESERT,
         .objective = {
             .type        = OBJ_DEFEND_BASES,
-            .target      = 3,
+            .target      = 2,
             .before_wave = 0,
-            .description = "Proteger 3 bases reparties sur la carte",
+            .description = "Proteger 2 bases reparties sur la carte",
         },
         .dialog_before =
             "VOSS :\n"
             "\"Les ruines de l'ancienne ville sont un labyrinthe.\n"
             "Des machines d'artillerie ennemies se positionnent\n"
             "a distance. Elles peuvent detruire nos tours.\n"
-            "Protegez chaque point d'ancrage.\"\n",
+            "Protegez les deux points d'ancrage a tout prix.\"\n",
         .dialog_after  =
             "VOSS :\n"
             "\"Le signal vient bien du complexe militaire.\n"
@@ -218,6 +219,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "C'est une machine.\"\n",
         .min_waves  = 7,
         .unlock_msg = NULL,
+        .forced_base_count = 2,  // texte impose 2 bases (MAX_BASES=2)
     },
 
     [8] = {
@@ -313,7 +315,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
         .dialog_before =
             "VOSS :\n"
             "\"Le chef de la Faction Acier se retranche dans l'ancien parlement.\n"
-            "Quatre bases a defendre. Des gardes d'elite partout.\n"
+            "Deux points vitaux a defendre. Des gardes d'elite partout.\n"
             "Capturez-le vivant. Il sait quelque chose sur les hordes.\"\n",
         .dialog_after  =
             "CHEF CAPTIF :\n"
@@ -322,6 +324,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "Quelque chose les dirige. Une intelligence. Dans l'usine.\"\n",
         .min_waves  = 12,
         .unlock_msg = NULL,
+        .forced_base_count = 2,  // texte impose 2 points vitaux
     },
 
     // ── CHAPITRE 5 — L'USINE ABANDONNEE ──────────────────────

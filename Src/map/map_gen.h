@@ -44,9 +44,10 @@ typedef struct {
     Point pos;
     int   hp;
     int   max_hp;
-    int   is_primary;   // 1 = game over si elle tombe
+    int   is_primary;    // 1 = game over si elle tombe
     int   active;
-    int   damage;       // dégâts infligés par ennemi qui la touche
+    int   damage;        // dégâts infligés par ennemi qui la touche
+    int   repair_count;  // nombre de réparations effectuées (coût croissant)
 } BaseInfo;
 
 // ── Chemin spawn → base ───────────────────────────────────────
@@ -72,4 +73,7 @@ typedef struct {
     int             deposit_count;
 } Map;
 
-void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id);
+// forced_bases : 0 = aléatoire (60% 1 base, 40% 2 bases),
+//                1 ou 2 = nombre de bases garanti (clampé à MAX_BASES)
+void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
+                  int forced_bases);

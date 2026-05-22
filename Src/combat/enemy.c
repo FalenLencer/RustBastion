@@ -30,6 +30,53 @@ const EnemyStats ENEMY_BASE_STATS[ENEMY_TYPE_COUNT] = {
 };
 
 /* ════════════════════════════════════════════════════
+   RÉSISTANCES / FAIBLESSES
+   [type][DamageType] : 1.0 = neutre, <1 = résistance, >1 = faiblesse
+   Ordre : DMG_PHYSICAL(0), DMG_POISON(1), DMG_ELECTRIC(2), DMG_CRYO(3), DMG_NANO(4)
+   ════════════════════════════════════════════════════ */
+const float ENEMY_DMG_MULT[ENEMY_TYPE_COUNT][DAMAGE_TYPE_COUNT] = {
+    [ENEMY_RAIDER]      = { 1.0f, 1.5f, 1.0f, 1.0f, 1.0f }, // organique, très inflammable
+    [ENEMY_BRUTE]       = { 0.7f, 1.0f, 1.4f, 1.0f, 1.0f }, // armure lourde, conductive
+    [ENEMY_RUNNER]      = { 1.0f, 1.3f, 1.0f, 1.4f, 1.0f }, // léger, brûle vite, gelable
+    [ENEMY_VEHICLE]     = { 0.5f, 0.4f, 0.8f, 1.6f, 1.0f }, // blindé, froid grippe les engrenages
+    [ENEMY_MUTANT]      = { 1.0f, 0.4f, 1.3f, 1.0f, 1.0f }, // mutation résiste aux toxines
+    [ENEMY_GHOST]       = { 0.3f, 1.0f, 1.0f, 1.0f, 2.0f }, // semi-incorporel, nano le perturbe
+    [ENEMY_PATHBREAKER] = { 0.8f, 1.4f, 1.0f, 1.0f, 1.0f }, // muscle mais sans armure
+    [ENEMY_HEALER]      = { 1.0f, 1.0f, 1.5f, 1.0f, 1.0f }, // fragile au choc électrique
+    [ENEMY_HUNTER]      = { 1.3f, 1.0f, 1.0f, 1.0f, 1.0f }, // rapide mais peau fine, précision
+    [ENEMY_ARTILLERY]   = { 0.6f, 0.4f, 1.6f, 1.0f, 1.0f }, // machine, très sensible à l'élec
+};
+
+/* ════════════════════════════════════════════════════
+   DESCRIPTIONS BESTIAIRE
+   ════════════════════════════════════════════════════ */
+const char *ENEMY_DESC[ENEMY_TYPE_COUNT] = {
+    [ENEMY_RAIDER]      = "Pillard humain basique. Suit le chemin et attaque\nau corps a corps. Peu d'armure mais nombreux.",
+    [ENEMY_BRUTE]       = "Colosse recouvert de plaques d'acier. Lent mais\nencaisse enormement. Frappe tres fort.",
+    [ENEMY_RUNNER]      = "Eclaireur ultra-rapide. Fonce vers la base\nen evitant le gros des combats.",
+    [ENEMY_VEHICLE]     = "Vehicule blinde de guerre. Presque impossible a\narreter une fois lance. Immune aux ralentissements.",
+    [ENEMY_MUTANT]      = "Creature humanoide mutagene. Se regenere lentement\net resiste aux toxines grace a ses mutations.",
+    [ENEMY_GHOST]       = "Entite semi-incorporelle. Invisible aux tourelles,\nseules vos unites peuvent le detecter.",
+    [ENEMY_PATHBREAKER] = "Guerrier massif qui quitte le chemin a mi-parcours\npour foncer directement vers la base en ligne droite.",
+    [ENEMY_HEALER]      = "Soigneur ennemi. Restaure les PV de tous les\nennemis proches en continu. Priorite critique.",
+    [ENEMY_HUNTER]      = "Predateur qui traque vos unites alliees.\nIgnore le chemin et attaque vos soldats en priorite.",
+    [ENEMY_ARTILLERY]   = "Machine de guerre qui s'arrete a portee et\ndetruit methodiquement vos tourelles.",
+};
+
+const char *ENEMY_SPEC[ENEMY_TYPE_COUNT] = {
+    [ENEMY_RAIDER]      = "Aucune specialite. Chair a canon.",
+    [ENEMY_BRUTE]       = "Armure lourde. Vulnerable aux decharges electriques.",
+    [ENEMY_RUNNER]      = "Vitesse extreme. Peu de PV. Difficile a cibler.",
+    [ENEMY_VEHICLE]     = "Immune aux ralentissements. Froid grippe les engrenages.",
+    [ENEMY_MUTANT]      = "Regeneration passive. Tres resistant au poison.",
+    [ENEMY_GHOST]       = "Invisible aux tours. Nano-armes : vulnerabilite x2.",
+    [ENEMY_PATHBREAKER] = "Quitte le chemin. Fonce en ligne droite. Imprevable.",
+    [ENEMY_HEALER]      = "Soin de zone continue. Eliminez-le en premier.",
+    [ENEMY_HUNTER]      = "Traque les unites. Tres vulnerable aux armes physiques.",
+    [ENEMY_ARTILLERY]   = "Siege : bombarde les tours. Tres sensible a l'electricite.",
+};
+
+/* ════════════════════════════════════════════════════
    INIT
    ════════════════════════════════════════════════════ */
 void enemy_pool_init(EnemyPool *pool) {
@@ -123,7 +170,6 @@ void enemy_spawn(EnemyPool *pool, EnemyType type,
    ════════════════════════════════════════════════════ */
 void enemy_damage(Enemy *e, float dmg) {
     if (!e->active || e->dead) return;
-    if (e->type == ENEMY_BRUTE) dmg *= 0.8f;
     e->hp -= dmg;
     if (e->hp <= 0.0f) { e->hp = 0.0f; e->dead = 1; }
 }
@@ -197,6 +243,13 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
         if (e->poison_timer > 0.0f) {
             e->poison_timer -= dt;
             enemy_damage(e, e->poison_damage * dt);
+        }
+
+        // ── Brûlure (flame stacks) — decay ───────────────
+        if (e->burn_stacks > 0) {
+            e->burn_decay_timer -= dt;
+            if (e->burn_decay_timer <= 0.0f)
+                e->burn_stacks = 0;  // plus brûlé depuis >2.5s → stacks perdus
         }
 
         // ── Cooldowns ─────────────────────────────────────────

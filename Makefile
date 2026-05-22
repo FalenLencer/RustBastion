@@ -12,8 +12,11 @@ SRC = Src/main.c                                                              \
       Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c       \
       Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c    \
       Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
-      Src/ui/renderer.c        Src/ui/hud.c           Src/ui/ui_utils.c     \
-      Src/ui/menu.c            Src/ui/interlude.c     Src/ui/campaign_data.c \
+      Src/ui/renderer.c        Src/ui/ui_utils.c                             \
+      Src/ui/hud.c             Src/ui/hud_input.c     Src/ui/hud_render.c   \
+      Src/ui/menu.c            Src/ui/menu_screens.c  Src/ui/menu_campaign.c \
+      Src/ui/menu_options.c    Src/ui/menu_upgrades.c Src/ui/menu_bestiary.c \
+      Src/ui/interlude.c       Src/ui/campaign_data.c                        \
 
 # ── Dossiers ────────────────────────────────────────────────────
 ASSETS_DIR   = assets

@@ -9,8 +9,9 @@
 #include "../map/theme.h"
 
 /* Génère une nouvelle carte avec un thème donné.
+   forced_bases : 0 = aléatoire, >0 = nombre de bases imposé par le scénario.
    Boucle jusqu'à obtenir au moins un chemin A* valide. */
-void game_init_map(GameState *gs, ThemeID theme);
+void game_init_map(GameState *gs, ThemeID theme, int forced_bases);
 
 /* Démarre une partie arcade */
 void game_init_arcade(GameState *gs, ThemeID theme, int slot);

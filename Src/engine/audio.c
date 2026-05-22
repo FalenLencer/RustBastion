@@ -19,23 +19,27 @@
 #include <string.h>
 #include <stdio.h>
 
-/* ── Thèmes à track unique (loop) ───────────────────────────────── */
+/* ── Thèmes à track unique (loop) — tous NULL : tout est en cycling ── */
 static const char *const AUDIO_MUSIC_FILES[AUDIO_MUSIC_COUNT] = {
-    NULL,   /* WASTELAND — cycling géré séparément */
-    NULL,   /* SWAMP     — cycling géré séparément */
-    NULL,   /* DESERT    — cycling géré séparément */
-    "assets/sounds/music/City/ambience_city.wav",
-    "assets/sounds/music/Factory/ambience_factory.wav",
+    NULL,   /* WASTELAND — cycling */
+    NULL,   /* SWAMP     — cycling */
+    NULL,   /* DESERT    — cycling */
+    NULL,   /* CITY      — cycling */
+    NULL,   /* FACTORY   — cycling */
+    NULL,   /* MENU      — cycling */
 };
 
 /* ── Thèmes avec cycling multi-tracks ───────────────────────────── */
 #define CYCLE_TRACKS 2   /* nb max de tracks par thème cyclé        */
-#define CYCLE_COUNT  3   /* nb de thèmes avec cycling               */
+#define CYCLE_COUNT  6   /* Wasteland, Swamp, Desert, City, Factory, Menu */
 
 static const AudioMusicID CYCLE_IDS[CYCLE_COUNT] = {
     AUDIO_MUSIC_WASTELAND,
     AUDIO_MUSIC_SWAMP,
     AUDIO_MUSIC_DESERT,
+    AUDIO_MUSIC_CITY,
+    AUDIO_MUSIC_FACTORY,
+    AUDIO_MUSIC_MENU,
 };
 static const char *const CYCLE_FILES[CYCLE_COUNT][CYCLE_TRACKS] = {
     { "assets/sounds/music/Wasteland/ambience_wasteland_01.wav",
@@ -44,6 +48,12 @@ static const char *const CYCLE_FILES[CYCLE_COUNT][CYCLE_TRACKS] = {
       "assets/sounds/music/Swamp/ambience_swamp_02.wav" },
     { "assets/sounds/music/Desert/ambience_desert_01.wav",
       "assets/sounds/music/Desert/ambience_desert_02.wav" },
+    { "assets/sounds/music/City/ambience_city_01.wav",
+      "assets/sounds/music/City/ambience_city_02.wav" },
+    { "assets/sounds/music/Factory/ambience_factory_01.wav",
+      "assets/sounds/music/Factory/ambience_factory_02.wav" },
+    { "assets/sounds/music/Menu/ambience_menu_01.wav",
+      NULL },   /* 1 seule track : relance automatique */
 };
 static Music g_cycle_tracks[CYCLE_COUNT][CYCLE_TRACKS];
 static int   g_cycle_valid[CYCLE_COUNT][CYCLE_TRACKS];
@@ -209,6 +219,7 @@ int audio_init(void) {
     /* Thèmes avec cycling (sans loop — on gère la boucle manuellement) */
     for (int c = 0; c < CYCLE_COUNT; c++) {
         for (int t = 0; t < CYCLE_TRACKS; t++) {
+            if (CYCLE_FILES[c][t] == NULL) { g_cycle_valid[c][t] = 0; continue; }
             g_cycle_tracks[c][t] = LoadMusicStream(CYCLE_FILES[c][t]);
             g_cycle_valid[c][t]  = IsMusicValid(g_cycle_tracks[c][t]) ? 1 : 0;
             if (g_cycle_valid[c][t])
@@ -360,14 +371,12 @@ static void stop_current_music(void) {
     }
 }
 
-void audio_play_theme_music(ThemeID theme) {
+static void play_music_id(int next) {
     if (!g_audio_ready) return;
-    int next = (int)theme;
     if (next < 0 || next >= AUDIO_MUSIC_COUNT) next = AUDIO_MUSIC_WASTELAND;
 
-    /* Déjà en cours ? */
+    int ci = cycle_of(next);
     if (g_current_music == next) {
-        int ci = cycle_of(next);
         if (ci >= 0) {
             int cur = g_cycle_cur[ci];
             if (g_cycle_valid[ci][cur] && IsMusicStreamPlaying(g_cycle_tracks[ci][cur])) return;
@@ -379,7 +388,6 @@ void audio_play_theme_music(ThemeID theme) {
     stop_current_music();
     g_current_music = next;
 
-    int ci = cycle_of(next);
     if (ci >= 0) {
         g_cycle_cur[ci] = 0;
         if (!g_cycle_valid[ci][0]) return;
@@ -390,6 +398,14 @@ void audio_play_theme_music(ThemeID theme) {
         SetMusicVolume(g_music[next], g_music_volume * g_master_volume);
         PlayMusicStream(g_music[next]);
     }
+}
+
+void audio_play_theme_music(ThemeID theme) {
+    play_music_id((int)theme);
+}
+
+void audio_play_menu_music(void) {
+    play_music_id(AUDIO_MUSIC_MENU);
 }
 
 void audio_stop_music(void) {

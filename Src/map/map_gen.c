@@ -407,7 +407,8 @@ static void assign_spawns_to_bases(int num_spawns, int num_bases,
 // ════════════════════════════════════════════════════
 // POINT D'ENTRÉE PUBLIC
 // ════════════════════════════════════════════════════
-void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id) {
+void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
+                  int forced_bases) {
     memset(map, 0, sizeof(Map));
     map->seed  = seed;
     map->theme = (theme_id == THEME_COUNT) ? theme_random(seed) : theme_id;
@@ -421,9 +422,15 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id) {
     Edge base_edge = (Edge)rng_int(4);
 
     // ── Nombre de bases (1 à MAX_BASES) ──────────────────────
-    // 60% chance d'avoir 1 base, 40% d'en avoir 2
-    int num_bases = (rng_int(10) < 6) ? 1 : 2;
-    if (num_bases > MAX_BASES) num_bases = MAX_BASES;
+    // forced_bases > 0 : imposé par le scénario (cohérence texte/carte)
+    // sinon : 60% chance 1 base, 40% chance 2 bases
+    int num_bases;
+    if (forced_bases > 0) {
+        num_bases = forced_bases;
+        if (num_bases > MAX_BASES) num_bases = MAX_BASES;
+    } else {
+        num_bases = (rng_int(10) < 6) ? 1 : 2;
+    }
     map->base_count = 0;
 
     // Base principale
@@ -444,7 +451,7 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id) {
                 default:          fb=(Point){0,MAP_H/2};
             }
             force_passable(map, fb);
-            map->bases[0]=(BaseInfo){fb,20,20,1,1,2};
+            map->bases[0]=(BaseInfo){fb,20,20,1,1,2,0};
         }
         map->base_count = 1;
     }

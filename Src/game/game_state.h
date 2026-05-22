@@ -49,6 +49,10 @@ struct GameState {
     int act_objective_done;      // 1 = objectif accompli ce stage
     int act_no_unit_lost;        // 1 = aucune unité perdue (pour OBJ_NO_UNIT_LOST)
     int act_materials_collected; // compteur matériaux collectés ce stages
+
+    // ── Achats de slots en jeu (or) ───────────────────────────
+    int slots_tower_bought;      // slots tours achetés en cours de partie
+    int slots_unit_bought;       // slots unités achetés en cours de partie
 };
 
 typedef struct GameState GameState;

@@ -6,6 +6,8 @@
 
 #include "tower.h"
 #include "projectile.h"
+_Static_assert(META_TOWER_COUNT == TOWER_TYPE_COUNT,
+               "META_TOWER_COUNT dans meta.h ne correspond pas a TOWER_TYPE_COUNT");
 #include "../engine/audio.h"
 #include "../map/pathfinding.h"
 #include <string.h>
@@ -43,6 +45,39 @@ const TowerStats TOWER_BASE_STATS[TOWER_TYPE_COUNT] = {
         .description="Chaine sur 2 ennemis proches. Ignore l'armure.",
     },
 };
+
+const char *TOWER_LORE[TOWER_TYPE_COUNT] = {
+    [TOWER_GUN] =
+        "La tourelle automatique est l'epine dorsale de toute defense.\n"
+        "Peu couteuse, robuste, facile a upgrader. Son canon rotatif\n"
+        "cible le premier ennemi entrant dans sa zone sans jamais faillir.\n"
+        "Ideale en masse sur les couloirs droits.",
+
+    [TOWER_SNIPER] =
+        "Construite a partir de pieces de fusil de precision recuperees.\n"
+        "Un seul tir suffisant pour traverser un blindage leger. La balle\n"
+        "cherche toujours l'ennemi le plus avance — celui qui est\n"
+        "le plus pres de votre base.",
+
+    [TOWER_FLAME] =
+        "Alimentee par des bonbonnes de carburant recuperees en zone industrielle.\n"
+        "Projette un cone de feu persistant qui inflige des degats sur la duree\n"
+        "et ralentit les survivants de 50%. Devastatrice sur les groupes serres.\n"
+        "Portee courte — a placer dans les goulots d'etranglement.",
+
+    [TOWER_TESLA] =
+        "Generateur electromagnetique assemble depuis des equipements militaires.\n"
+        "L'arc initial rebondit sur 2 cibles supplementaires dans un rayon proche.\n"
+        "Les degats electriques ignorent la resistance physique. Parfaite contre\n"
+        "les essaims et les ennemis groupes.",
+};
+
+/* ════════════════════════════════════════════════════
+   COÛTS DES AMÉLIORATIONS
+   ════════════════════════════════════════════════════ */
+const int TOWER_UPG_COST_DMG  [TOWER_UPG_MAX] = { 25,  45,  75, 115, 170 };
+const int TOWER_UPG_COST_RANGE[TOWER_UPG_MAX] = { 20,  35,  55,  85, 125 };
+const int TOWER_UPG_COST_RATE [TOWER_UPG_MAX] = { 30,  55,  90, 140, 210 };
 
 /* ════════════════════════════════════════════════════
    UTILITAIRES
@@ -147,6 +182,14 @@ int tower_place(TowerPool *tp, TowerType type,
     tw->range     = TOWER_BASE_STATS[type].range     * (bonuses ? bonuses->tower_range_mult : 1.0f);
     tw->fire_rate = TOWER_BASE_STATS[type].fire_rate * (bonuses ? bonuses->tower_rate_mult  : 1.0f);
 
+    // Sauvegarde des stats de base (avant upgrades individuels)
+    tw->base_damage    = tw->damage;
+    tw->base_range     = tw->range;
+    tw->base_fire_rate = tw->fire_rate;
+    tw->upg_dmg        = 0;
+    tw->upg_range      = 0;
+    tw->upg_rate       = 0;
+
     tw->dmg_type = DMG_PHYSICAL;
     tw->material = MAT_NONE;
     switch (type) {
@@ -160,6 +203,42 @@ int tower_place(TowerPool *tp, TowerType type,
     map->tiles[tile_y][tile_x].buildable = 0;
     tp->tower_count++;
     return 1;
+}
+
+/* ════════════════════════════════════════════════════
+   AMÉLIORATIONS INDIVIDUELLES
+   ════════════════════════════════════════════════════ */
+int tower_upg_next_cost_dmg(const Tower *t) {
+    if (t->upg_dmg >= TOWER_UPG_MAX) return -1;
+    return TOWER_UPG_COST_DMG[t->upg_dmg];
+}
+int tower_upg_next_cost_range(const Tower *t) {
+    if (t->upg_range >= TOWER_UPG_MAX) return -1;
+    return TOWER_UPG_COST_RANGE[t->upg_range];
+}
+int tower_upg_next_cost_rate(const Tower *t) {
+    if (t->upg_rate >= TOWER_UPG_MAX) return -1;
+    return TOWER_UPG_COST_RATE[t->upg_rate];
+}
+
+void tower_upgrade_dmg(Tower *t) {
+    if (t->upg_dmg >= TOWER_UPG_MAX) return;
+    t->upg_dmg++;
+    t->damage = t->base_damage * (1.0f + t->upg_dmg * 0.10f);
+}
+void tower_upgrade_range(Tower *t) {
+    if (t->upg_range >= TOWER_UPG_MAX) return;
+    t->upg_range++;
+    t->range = t->base_range * (1.0f + t->upg_range * 0.10f);
+}
+void tower_upgrade_rate(Tower *t) {
+    if (t->upg_rate >= TOWER_UPG_MAX) return;
+    t->upg_rate++;
+    t->fire_rate = t->base_fire_rate * (1.0f + t->upg_rate * 0.20f);
+}
+
+void tower_do_repair(Tower *t) {
+    t->hp = TOWER_MAX_HP;
 }
 
 /* ════════════════════════════════════════════════════

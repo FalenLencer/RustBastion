@@ -119,6 +119,9 @@ int save_write(const GameState *gs, int slot) {
     ok &= (fwrite(&gs->act_no_unit_lost,         sizeof(gs->act_no_unit_lost),         1, f) == 1);
     ok &= (fwrite(&gs->act_materials_collected,  sizeof(gs->act_materials_collected),  1, f) == 1);
     ok &= (fwrite(&gs->act_objective_done,       sizeof(gs->act_objective_done),       1, f) == 1);
+    /* Slots achetés en cours de partie (SAVE_VERSION 10) */
+    ok &= (fwrite(&gs->slots_tower_bought,       sizeof(gs->slots_tower_bought),       1, f) == 1);
+    ok &= (fwrite(&gs->slots_unit_bought,        sizeof(gs->slots_unit_bought),        1, f) == 1);
 
     fclose(f);
     return ok;
@@ -182,6 +185,9 @@ int save_read(GameState *gs, int slot) {
     ok &= (fread(&gs->act_no_unit_lost,         sizeof(gs->act_no_unit_lost),         1, f) == 1);
     ok &= (fread(&gs->act_materials_collected,  sizeof(gs->act_materials_collected),  1, f) == 1);
     ok &= (fread(&gs->act_objective_done,       sizeof(gs->act_objective_done),       1, f) == 1);
+    /* Slots achetés en cours de partie (SAVE_VERSION 10) */
+    ok &= (fread(&gs->slots_tower_bought,       sizeof(gs->slots_tower_bought),       1, f) == 1);
+    ok &= (fread(&gs->slots_unit_bought,        sizeof(gs->slots_unit_bought),        1, f) == 1);
 
     fclose(f);
     if (!ok) return 0;
@@ -347,6 +353,11 @@ int campaign_save_write(const GameState *gs, int slot,
                   sizeof(gs->act_materials_collected), 1, f) == 1);
     ok &= (fwrite(&gs->act_objective_done,
                   sizeof(gs->act_objective_done), 1, f) == 1);
+    /* Slots achetés en cours de partie (SAVE_CAMPAIGN_VERSION 4) */
+    ok &= (fwrite(&gs->slots_tower_bought,
+                  sizeof(gs->slots_tower_bought), 1, f) == 1);
+    ok &= (fwrite(&gs->slots_unit_bought,
+                  sizeof(gs->slots_unit_bought), 1, f) == 1);
     fclose(f);
     return ok;
 }
@@ -405,6 +416,11 @@ int campaign_save_read(GameState *gs, int slot,
                  sizeof(gs->act_materials_collected), 1, f) == 1);
     ok &= (fread(&gs->act_objective_done,
                  sizeof(gs->act_objective_done), 1, f) == 1);
+    /* Slots achetés en cours de partie (SAVE_CAMPAIGN_VERSION 4) */
+    ok &= (fread(&gs->slots_tower_bought,
+                 sizeof(gs->slots_tower_bought), 1, f) == 1);
+    ok &= (fread(&gs->slots_unit_bought,
+                 sizeof(gs->slots_unit_bought), 1, f) == 1);
     fclose(f);
     if (!ok) return 0;
 

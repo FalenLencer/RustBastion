@@ -6,9 +6,11 @@
 
 #pragma once
 #include "../ui/campaign_data.h"   // CAMPAIGN_TOTAL = 15
+#include "../combat/enemy.h"       // ENEMY_TYPE_COUNT (bestiaire)
+#include "../combat/material.h"    // MAT_COUNT (bestiaire minerais)
 
 #define META_MAGIC     0x52425354u  // "RBST"
-#define META_VERSION   4            // ← bump pour invalider les anciens saves
+#define META_VERSION   8            // bump : unit_discovered
 
 // ── Niveaux maximum par amélioration ─────────────────────────
 #define MAX_LVL_TOWER_DMG    5
@@ -70,6 +72,24 @@ typedef struct {
     int   endless_best_wave;    // meilleure vague atteinte en endless
     // Étoiles par acte (0=non joué, 1=complété, 2=objectif bonus)
     int act_stars[CAMPAIGN_TOTAL];  // CAMPAIGN_TOTAL = 15
+
+    // Bestiaire — 1 si ce type d'ennemi a déjà été rencontré
+    int bestiary_discovered[ENEMY_TYPE_COUNT];
+
+    // Minerais — 1 si ce type de minerai a déjà été collecté (campagne uniquement)
+    int material_discovered[MAT_COUNT];
+
+    // Tours — 1 si ce type de tour a déjà été posé (campagne uniquement)
+    // TOWER_TYPE_COUNT ne peut pas être inclus ici (dépendance circulaire avec tower.h).
+    // META_TOWER_COUNT = 4 ; un _Static_assert dans tower.c le vérifie.
+#define META_TOWER_COUNT 4
+    int tower_discovered[META_TOWER_COUNT];
+
+    // Unités — 1 si ce type d'unité a déjà été déployé (campagne uniquement)
+    // Même contrainte circulaire que pour les tours.
+    // META_UNIT_COUNT = 5 ; un _Static_assert dans unit.c le vérifie.
+#define META_UNIT_COUNT 5
+    int unit_discovered[META_UNIT_COUNT];
 } MetaProgress;
 
 // ── Multiplicateurs calculés depuis les niveaux ───────────────

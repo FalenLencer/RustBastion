@@ -10,8 +10,9 @@
 // ════════════════════════════════════════════════════
 // TABLEAUX GLOBAUX
 // ════════════════════════════════════════════════════
-Texture2D g_tower_splash[TOWER_TYPE_COUNT];
-Texture2D g_unit_splash [UNIT_TYPE_COUNT];
+Texture2D g_tower_splash [TOWER_TYPE_COUNT];
+Texture2D g_unit_splash  [UNIT_TYPE_COUNT];
+Texture2D g_enemy_splash [ENEMY_TYPE_COUNT];
 Font      g_font;          // police étendue — initialisée dans assets_load()
 
 // ════════════════════════════════════════════════════
@@ -30,8 +31,9 @@ static Texture2D load_safe(const char *path) {
 // CHARGEMENT
 // ════════════════════════════════════════════════════
 void assets_load(void) {
-    memset(g_tower_splash, 0, sizeof(g_tower_splash));
-    memset(g_unit_splash,  0, sizeof(g_unit_splash));
+    memset(g_tower_splash,  0, sizeof(g_tower_splash));
+    memset(g_unit_splash,   0, sizeof(g_unit_splash));
+    memset(g_enemy_splash,  0, sizeof(g_enemy_splash));
 
     // ── Police étendue — codepoints ASCII + Latin-1 complet + symboles ─────
     // Priorité : Rajdhani-Bold (couverture complète) → GROBOLD → défaut Raylib
@@ -78,7 +80,19 @@ void assets_load(void) {
     g_unit_splash[UNIT_HEAVY]   = load_safe("assets/textures/splash_art/lourd_splash_art.png");
     g_unit_splash[UNIT_MEDIC]   = load_safe("assets/textures/splash_art/medic_splash_art.png");
     g_unit_splash[UNIT_DOG]     = load_safe("assets/textures/splash_art/dog_splash_art.png");
-    // UNIT_WORKER — pas de splash art pour l'instant → reste {0}
+    g_unit_splash[UNIT_WORKER]  = load_safe("assets/textures/splash_art/ouvrier_splash_art.png");
+
+    // ── Ennemis (bestiaire) ──────────────────────────────────────
+    g_enemy_splash[ENEMY_RAIDER]      = load_safe("assets/textures/splash_art/Raider_splash_art.png");
+    g_enemy_splash[ENEMY_BRUTE]       = load_safe("assets/textures/splash_art/Brute_splash_art.png");
+    g_enemy_splash[ENEMY_RUNNER]      = load_safe("assets/textures/splash_art/Runner_splash_art.png");
+    g_enemy_splash[ENEMY_VEHICLE]     = load_safe("assets/textures/splash_art/Blinde_splash_art.png");
+    g_enemy_splash[ENEMY_MUTANT]      = load_safe("assets/textures/splash_art/Mutant_splash_art.png");
+    g_enemy_splash[ENEMY_GHOST]       = load_safe("assets/textures/splash_art/Ghost_splash_art.png");
+    g_enemy_splash[ENEMY_PATHBREAKER] = load_safe("assets/textures/splash_art/PathBreaker_splash_art.png");
+    g_enemy_splash[ENEMY_HEALER]      = load_safe("assets/textures/splash_art/Enemie_Healer_splash_art.png");
+    g_enemy_splash[ENEMY_HUNTER]      = load_safe("assets/textures/splash_art/Hunter_splash_art.png");
+    g_enemy_splash[ENEMY_ARTILLERY]   = load_safe("assets/textures/splash_art/Artillery_splash_art.png");
 }
 
 // ════════════════════════════════════════════════════
@@ -89,5 +103,7 @@ void assets_unload(void) {
         if (g_tower_splash[i].id != 0) UnloadTexture(g_tower_splash[i]);
     for (int i = 0; i < UNIT_TYPE_COUNT; i++)
         if (g_unit_splash[i].id != 0)  UnloadTexture(g_unit_splash[i]);
+    for (int i = 0; i < ENEMY_TYPE_COUNT; i++)
+        if (g_enemy_splash[i].id != 0) UnloadTexture(g_enemy_splash[i]);
     if (g_font.texture.id != 0) UnloadFont(g_font);
 }

@@ -1,3 +1,6 @@
 raylib/
 release/*.gz
 release/*.zip
+/.claude
+Game.code-workspace
+build/

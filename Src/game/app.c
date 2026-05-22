@@ -54,6 +54,8 @@ void app_init(AppContext *ctx) {
     ctx->interlude        = INTER_NONE;
     ctx->applied_fps      = 60;
     ctx->prev_menu_screen = ctx->menu.screen;
+
+    audio_play_menu_music();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -105,6 +107,7 @@ static int handle_menu(AppContext *ctx) {
         save_write(&ctx->gs, ctx->active_slot);
         ctx->menu.screen = MENU_TITLE;
         ctx->screen      = SCREEN_GAME;
+        ctx->gs.ui.show_fps = ctx->menu.opts.show_fps;
         audio_play_theme_music(ctx->gs.map.theme);
     }
 
@@ -119,6 +122,7 @@ static int handle_menu(AppContext *ctx) {
         ctx->menu.screen = MENU_TITLE;
         ctx->screen      = SCREEN_GAME;
         ctx->interlude   = INTER_DIALOG_BEFORE;
+        ctx->gs.ui.show_fps = ctx->menu.opts.show_fps;
         audio_play_theme_music(ctx->gs.map.theme);
     }
 
@@ -155,6 +159,7 @@ static int handle_menu(AppContext *ctx) {
                 ctx->screen = SCREEN_GAME;
             }
         }
+        ctx->gs.ui.show_fps = ctx->menu.opts.show_fps;
         audio_play_theme_music(ctx->gs.map.theme);
     }
 
@@ -187,6 +192,8 @@ static void game_do_update(AppContext *ctx, float dt) {
     if (ctx->menu.paused || ctx->interlude != INTER_NONE) return;
 
     ui_update(&ctx->gs.ui, &ctx->gs);
+    // Fiche de découverte visible → jeu gelé (ui_update gère la fermeture)
+    if (ctx->gs.ui.disc_count > 0) return;
     game_state_update(&ctx->gs, dt);
 
     /* Déclenchement extraction endless toutes les 10 vagues */
@@ -225,7 +232,7 @@ static void game_handle_gameover(AppContext *ctx) {
         ctx->menu.paused  = 0;
         ctx->menu.screen  = ctx->gs.is_campaign ? MENU_WORLD_MAP : MENU_ARCADE;
         ctx->screen       = SCREEN_MENU;
-        audio_stop_music();
+        audio_play_menu_music();
     }
 }
 
@@ -273,7 +280,7 @@ static void game_handle_dialog_after(AppContext *ctx) {
         ctx->menu.screen  = MENU_WORLD_MAP;
         ctx->screen       = SCREEN_MENU;
         ctx->interlude    = INTER_NONE;
-        audio_stop_music();
+        audio_play_menu_music();
     } else {
         /* Passe à l'acte suivant — sauvegarde en état DIALOG_BEFORE */
         game_next_campaign_stage(&ctx->gs);
@@ -319,7 +326,7 @@ static void game_handle_extract(AppContext *ctx) {
             ctx->menu.screen  = MENU_ARCADE;
             ctx->screen       = SCREEN_MENU;
             ctx->interlude    = INTER_NONE;
-            audio_stop_music();
+            audio_play_menu_music();
             return;
         }
         if (IsKeyPressed(KEY_SPACE) || continue_clicked) {
@@ -329,7 +336,8 @@ static void game_handle_extract(AppContext *ctx) {
             ctx->gs.endless_series++;
             ctx->gs.endless_pending_extract = 0;
             game_init_map(&ctx->gs,
-                          (ThemeID)((ctx->gs.map.theme + 1) % THEME_COUNT));
+                          (ThemeID)((ctx->gs.map.theme + 1) % THEME_COUNT),
+                          0);  // arcade : nombre de bases aléatoire
             audio_play_theme_music(ctx->gs.map.theme);
             ctx->interlude = INTER_NONE;
             return;
@@ -483,7 +491,7 @@ static int game_do_render(AppContext *ctx) {
             ctx->menu.screen = ctx->gs.is_campaign ? MENU_CAMPAIGN : MENU_ARCADE;
             ctx->screen      = SCREEN_MENU;
             ctx->interlude   = INTER_NONE;
-            audio_stop_music();
+            audio_play_menu_music();
         }
         /* Quitter l'application — sauvegarde d'urgence */
         if (pact.quit_app) {
@@ -530,6 +538,15 @@ int app_update(AppContext *ctx, float dt) {
     /* SCREEN_GAME */
     game_do_input(ctx);
     game_do_update(ctx, dt);
+
+    /* Sync show_fps opts ↔ ui :
+       - En jeu (non pausé) : [F] peut avoir changé ui → on met à jour opts pour persistance.
+       - En pause          : le checkbox Options peut avoir changé opts → on l'applique à ui. */
+    if (ctx->menu.paused)
+        ctx->gs.ui.show_fps = ctx->menu.opts.show_fps;
+    else
+        ctx->menu.opts.show_fps = ctx->gs.ui.show_fps;
+
     game_handle_gameover(ctx);
     game_handle_campaign_end(ctx);
     game_handle_dialog_after(ctx);

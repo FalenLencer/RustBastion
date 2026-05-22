@@ -8,6 +8,7 @@
 #include "raylib.h"
 #include "../combat/tower.h"
 #include "../combat/unit.h"
+#include "../combat/enemy.h"
 
 // ════════════════════════════════════════════════════
 // ASSETS — splash arts tours et unités
@@ -17,8 +18,9 @@
 // Texture.id == 0 signifie "pas de splash art" pour ce type.
 // ════════════════════════════════════════════════════
 
-extern Texture2D g_tower_splash[TOWER_TYPE_COUNT];
-extern Texture2D g_unit_splash [UNIT_TYPE_COUNT];
+extern Texture2D g_tower_splash [TOWER_TYPE_COUNT];
+extern Texture2D g_unit_splash  [UNIT_TYPE_COUNT];
+extern Texture2D g_enemy_splash [ENEMY_TYPE_COUNT];
 
 // Police globale chargée avec les codepoints étendus (accents, tiret cadratin, etc.)
 extern Font g_font;

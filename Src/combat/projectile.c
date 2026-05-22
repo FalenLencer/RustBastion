@@ -18,32 +18,22 @@ static float dist2(float ax, float ay, float bx, float by) {
 static void apply_damage(Enemy *e, float dmg, DamageType dtype) {
     if (!e->active || e->dead) return;
 
-    float mult = 1.0f;
-    switch (e->type) {
-        case ENEMY_RAIDER:
-            if (dtype == DMG_POISON)   mult = 1.5f;
-            break;
-        case ENEMY_BRUTE:
-            if (dtype == DMG_ELECTRIC) mult = 1.3f;
-            if (dtype == DMG_PHYSICAL) mult = 0.8f;
-            break;
-        case ENEMY_VEHICLE:
-            if (dtype == DMG_CRYO)     mult = 1.4f;
-            break;
-        case ENEMY_MUTANT:
-            if (dtype == DMG_ELECTRIC) mult = 1.3f;
-            if (dtype == DMG_POISON)   mult = 0.5f;
-            break;
-        case ENEMY_GHOST:
-            if (dtype == DMG_NANO)     mult = 2.0f;
-            break;
-        default: break;
-    }
+    // Multiplicateur de résistance/faiblesse depuis la table globale
+    int dt_idx = (int)dtype;
+    if (dt_idx < 0 || dt_idx >= DAMAGE_TYPE_COUNT) dt_idx = 0;
+    float mult = ENEMY_DMG_MULT[e->type][dt_idx];
 
     if (dtype == DMG_POISON) {
+        // ── Accumulation brûlure (lance-flammes) ────────────
+        // burn_mult = 1.0 au 1er tir, +0.1 par stack suivant (max +100%)
+        float burn_mult = 1.0f + e->burn_stacks * 0.10f;
+        e->burn_stacks++;
+        if (e->burn_stacks > BURN_MAX_STACKS) e->burn_stacks = BURN_MAX_STACKS;
+        e->burn_decay_timer = 2.5f;  // réinitialise le timer de décroissance
+
         e->poison_timer  = 3.0f;
-        e->poison_damage = dmg * mult * 0.3f;
-        dmg *= 0.5f * mult;
+        e->poison_damage = dmg * mult * 0.3f * burn_mult;
+        dmg *= 0.5f * mult * burn_mult;
     } else {
         dmg *= mult;
     }

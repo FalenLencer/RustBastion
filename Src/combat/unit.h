@@ -50,6 +50,7 @@ typedef struct {
 } UnitStats;
 
 extern const UnitStats UNIT_BASE_STATS[UNIT_TYPE_COUNT];
+extern const char     *UNIT_LORE      [UNIT_TYPE_COUNT];  // description longue (bestiaire)
 
 typedef struct {
     UnitType   type;

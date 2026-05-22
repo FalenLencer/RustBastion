@@ -57,7 +57,7 @@ void interlude_render_dialog_before(const ActData *act, int vw, int vh) {
 
     // Titre de l'acte
     txt_c(act->title, cx, py, 18, (Color){232,152,32,255});
-    py += 24;
+    py += 27;   // fh(18)=25 → séparateur 2px sous le bas du texte (était 24 → 1px DANS le texte)
 
     // Séparateur
     DrawLine(px, py, px+iw, py, (Color){60,40,12,160});

@@ -38,5 +38,6 @@ typedef struct {
 
 // ── Noms et couleurs ─────────────────────────────────────────
 extern const char  *MATERIAL_NAMES [MAT_COUNT];
-extern const char  *MATERIAL_DESC  [MAT_COUNT];
+extern const char  *MATERIAL_DESC  [MAT_COUNT];   // courte (HUD)
+extern const char  *MATERIAL_LORE  [MAT_COUNT];   // longue (bestiaire)
 extern const char  *DAMAGE_NAMES   [5];

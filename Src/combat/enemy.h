@@ -77,6 +77,10 @@ typedef struct {
     float arty_range;
     float arty_timer;
     int   arty_target;
+
+    // Flammes — accumulation de brûlure
+    int   burn_stacks;       // paliers actifs (0..BURN_MAX_STACKS)
+    float burn_decay_timer;  // temps avant perte des stacks (s)
 } Enemy;
 
 typedef struct {
@@ -95,6 +99,19 @@ typedef struct {
 } EnemyStats;
 
 extern const EnemyStats ENEMY_BASE_STATS[ENEMY_TYPE_COUNT];
+
+// ── Résistances / faiblesses ─────────────────────────────────
+// [EnemyType][DamageType] → multiplicateur de dégâts
+// DMG_PHYSICAL=0, DMG_POISON=1, DMG_ELECTRIC=2, DMG_CRYO=3, DMG_NANO=4
+#define DAMAGE_TYPE_COUNT 5
+extern const float ENEMY_DMG_MULT[ENEMY_TYPE_COUNT][DAMAGE_TYPE_COUNT];
+
+// ── Descriptions bestiaire ───────────────────────────────────
+extern const char *ENEMY_DESC[ENEMY_TYPE_COUNT];
+extern const char *ENEMY_SPEC[ENEMY_TYPE_COUNT];
+
+// ── Paliers de brûlure (lance-flammes) ───────────────────────
+#define BURN_MAX_STACKS 10
 
 // Forward declarations
 typedef struct UnitPool  UnitPool;

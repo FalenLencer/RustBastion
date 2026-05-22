@@ -15,6 +15,7 @@ typedef enum {
     AUDIO_MUSIC_DESERT,
     AUDIO_MUSIC_CITY,
     AUDIO_MUSIC_FACTORY,
+    AUDIO_MUSIC_MENU,
     AUDIO_MUSIC_COUNT,
 } AudioMusicID;
 
@@ -46,6 +47,7 @@ void audio_update(void);
 void audio_shutdown(void);
 void audio_play_sfx(AudioSfxID id);
 void audio_play_theme_music(ThemeID theme);
+void audio_play_menu_music(void);
 void audio_stop_music(void);
 void audio_set_master_volume(float volume);
 void audio_set_music_volume(float volume);

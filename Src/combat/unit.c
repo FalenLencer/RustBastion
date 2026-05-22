@@ -9,6 +9,9 @@
 #include <string.h>
 #include <math.h>
 #include <float.h>
+#include "../game/meta.h"
+_Static_assert(META_UNIT_COUNT == UNIT_TYPE_COUNT,
+               "META_UNIT_COUNT dans meta.h ne correspond pas a UNIT_TYPE_COUNT");
 
 /* ════════════════════════════════════════════════════
    STATS DE BASE
@@ -74,6 +77,33 @@ const UnitStats UNIT_BASE_STATS[UNIT_TYPE_COUNT] = {
         .size            = 5.0f,
         .description     = "Collecte les materiaux sur la carte.",
     },
+};
+
+const char *UNIT_LORE[UNIT_TYPE_COUNT] = {
+    [UNIT_SOLDIER] =
+        "Infanterie standard reconstituee depuis les milices locales.\n"
+        "Peu couteux, rapide a deployer, efficace en nombre. Attaque\n"
+        "le premier ennemi en portee et tient une ligne avec ses allies.",
+
+    [UNIT_HEAVY] =
+        "Combattant blinde en armure de recuperation. Tres lent mais\n"
+        "capable d'absorber de nombreux coups. Fait office de bouclier\n"
+        "pour les unites plus fragiles positionnees derriere lui.",
+
+    [UNIT_MEDIC] =
+        "Ancien infirmier militaire reconverti. Soigne automatiquement\n"
+        "les allies proches entre ses propres attaques. Sa presence\n"
+        "peut doubler la duree de vie de votre ligne de front.",
+
+    [UNIT_DOG] =
+        "Chien de combat mutant eleve dans les ruines. Extremement rapide\n"
+        "et agile. Detecte les ennemis a grande distance et s'y precipite\n"
+        "pour les harceler. Fragile — ne le laissez pas seul.",
+
+    [UNIT_WORKER] =
+        "Non combatif. L'ouvrier se rend sur les depots de materiaux\n"
+        "reperes sur la carte, collecte leur contenu et le rapporte a la\n"
+        "base. Les materiaux amplifieront vos tours au combat. Protegez-le.",
 };
 
 /* ════════════════════════════════════════════════════

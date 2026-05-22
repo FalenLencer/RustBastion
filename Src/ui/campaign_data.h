@@ -40,6 +40,8 @@ typedef struct {
     ThemeID     theme;           // thème de carte imposé
     int         min_waves;       // vagues minimum pour valider l'acte
     const char *unlock_msg;      // message de débloquage si acte terminé (peut être NULL)
+    int         forced_base_count; // 0 = aléatoire, >0 = nombre de bases imposé
+                                   // garantit la cohérence entre le texte et la carte
 } ActData;
 
 // ── API ──────────────────────────────────────────────────────

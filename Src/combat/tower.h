@@ -39,6 +39,17 @@ typedef struct {
 } TowerStats;
 
 extern const TowerStats TOWER_BASE_STATS[TOWER_TYPE_COUNT];
+extern const char      *TOWER_LORE      [TOWER_TYPE_COUNT];  // description longue (bestiaire)
+
+// ── Améliorations par tour ───────────────────────────────────
+#define TOWER_UPG_MAX       5      /* paliers max par catégorie        */
+#define TOWER_REPAIR_COST   20     /* coût fixe de réparation (or)     */
+#define TOWER_MAX_HP       100.0f  /* HP maximum après réparation      */
+
+// Coûts des 5 paliers (or) — déclarés ici, définis dans tower.c
+extern const int TOWER_UPG_COST_DMG  [TOWER_UPG_MAX]; // +10%/palier → +50%
+extern const int TOWER_UPG_COST_RANGE[TOWER_UPG_MAX]; // +10%/palier → +50%
+extern const int TOWER_UPG_COST_RATE [TOWER_UPG_MAX]; // +20%/palier → +100%
 
 typedef struct {
     TowerType    type;
@@ -53,7 +64,17 @@ typedef struct {
     float        fire_rate;
     DamageType   dmg_type;
     MaterialType material;
-    float        hp;          // ← points de vie (pour Artillery)
+    float        hp;           // points de vie (Artillery + réparation)
+
+    // Stats de base au moment du placement (avant upgrades, après meta)
+    float        base_damage;
+    float        base_range;
+    float        base_fire_rate;
+
+    // Niveaux d'amélioration individuels (0 à TOWER_UPG_MAX)
+    int          upg_dmg;
+    int          upg_range;
+    int          upg_rate;
 } Tower;
 
 typedef struct {
@@ -80,7 +101,7 @@ typedef struct TowerPool {
     int        proj_count;
 } TowerPool;
 
-// ── API ──────────────────────────────────────────────────────
+// ── API pool ─────────────────────────────────────────────────
 void tower_pool_init   (TowerPool *tp);
 int  tower_place       (TowerPool *tp, TowerType type,
                         int tile_x, int tile_y, Map *map,
@@ -91,3 +112,15 @@ int  tower_can_place   (const TowerPool *tp, const Map *map,
 int  tower_cost_on_tile(TowerType type, const Map *map,
                         int tile_x, int tile_y);
 int  tower_active_limit(const MetaBonuses *bonuses);
+
+// ── Améliorations individuelles ───────────────────────────────
+// Retourne le coût du prochain palier, ou -1 si niveau max atteint
+int  tower_upg_next_cost_dmg  (const Tower *t);
+int  tower_upg_next_cost_range(const Tower *t);
+int  tower_upg_next_cost_rate (const Tower *t);
+
+void tower_upgrade_dmg  (Tower *t);  // +10% dégâts
+void tower_upgrade_range(Tower *t);  // +10% portée
+void tower_upgrade_rate (Tower *t);  // +20% cadence
+
+void tower_do_repair(Tower *t);      // restaure HP à TOWER_MAX_HP

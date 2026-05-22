@@ -20,39 +20,138 @@ void wave_init(WaveManager *wm) {
     wm->number     = 0;
     wm->prep_timer = PREP_TIME;
     wm->scale      = 1.0f;
+    for (int i = 0; i < ENEMY_TYPE_COUNT; i++)
+        wm->arcade_bias[i] = 1.0f;   // neutre par défaut (campagne)
 }
 
 /* ════════════════════════════════════════════════════
-   TYPE D'ENNEMI
+   BIAIS ALÉATOIRE ARCADE
+   Tire 2 types "dominants" (×1.5–2.5) et 2 types "rares" (×0.2–0.4)
+   parmi tous les types sauf RAIDER (qui sert de fallback).
+   Mélange Fisher-Yates pour garantir une sélection uniforme.
    ════════════════════════════════════════════════════ */
-static EnemyType pick_enemy_type(int wave_num, ThemeID theme) {
-    float r = (float)GetRandomValue(0, 100) / 100.0f;
+void wave_arcade_bias_init(WaveManager *wm) {
+    // Réinitialise tout à 1.0
+    for (int i = 0; i < ENEMY_TYPE_COUNT; i++)
+        wm->arcade_bias[i] = 1.0f;
 
+    // Pool : tous les types sauf RAIDER
+    int pool[ENEMY_TYPE_COUNT];
+    int n = 0;
+    for (int i = 0; i < ENEMY_TYPE_COUNT; i++)
+        if (i != (int)ENEMY_RAIDER) pool[n++] = i;
+
+    // Mélange Fisher-Yates
+    for (int i = n - 1; i > 0; i--) {
+        int j = GetRandomValue(0, i);
+        int tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+    }
+
+    // 2 dominants : biais 1.5 à 2.5
+    for (int i = 0; i < 2 && i < n; i++)
+        wm->arcade_bias[pool[i]] = 1.5f + GetRandomValue(0, 100) / 100.0f;
+
+    // 2 rares : biais 0.2 à 0.4
+    for (int i = 2; i < 4 && i < n; i++)
+        wm->arcade_bias[pool[i]] = 0.2f + GetRandomValue(0, 20) / 100.0f;
+}
+
+/* ════════════════════════════════════════════════════
+   DÉBLOCAGE DES ENNEMIS EN CAMPAGNE
+   Seuil = meta_max_stage_completed() requis (-1 = toujours)
+   Ex : threshold=2 → dispo quand ≥2 actes sont finis
+   ════════════════════════════════════════════════════ */
+static const int ENEMY_UNLOCK_AT[ENEMY_TYPE_COUNT] = {
+    [ENEMY_RAIDER]      = -1, // toujours disponible
+    [ENEMY_BRUTE]       =  0, // après acte 0  → Ch.1-Acte 2 et après
+    [ENEMY_RUNNER]      =  1, // après acte 1  → Ch.1-Acte 3 et après
+    [ENEMY_MUTANT]      =  2, // après acte 2  → Ch.2-Acte 1 et après
+    [ENEMY_VEHICLE]     =  2, // après acte 2  → Ch.2-Acte 1 et après
+    [ENEMY_GHOST]       =  3, // après acte 3  → Ch.2-Acte 2 et après
+    [ENEMY_PATHBREAKER] =  4, // après acte 4  → Ch.2-Acte 3 et après
+    [ENEMY_HEALER]      =  5, // après acte 5  → Ch.3-Acte 1 et après
+    [ENEMY_ARTILLERY]   =  6, // après acte 6  → Ch.3-Acte 2 et après
+    [ENEMY_HUNTER]      =  7, // après acte 7  → Ch.3-Acte 3 et après
+};
+
+/* ════════════════════════════════════════════════════
+   TYPE D'ENNEMI
+   bias : tableau arcade_bias du WaveManager (1.0f en campagne)
+   max_stage : campaign_stage-1 en campagne (déblocage progressif)
+   ════════════════════════════════════════════════════ */
+static EnemyType pick_enemy_type(int wave_num, ThemeID theme,
+                                  int is_campaign, int max_stage,
+                                  const float *bias) {
+    // ── Probabilités de base (fonctions de la vague) ──────────────
     float p_vehicle     = fminf(0.05f * (wave_num / 3.0f), 0.12f);
     float p_brute       = fminf(0.10f + wave_num * 0.02f,  0.25f);
     float p_runner      = fminf(0.10f + wave_num * 0.02f,  0.20f);
     float p_mutant      = 0.10f;
     float p_ghost       = fminf(wave_num >= 4 ? 0.05f+(wave_num-4)*0.02f : 0.0f, 0.15f);
     float p_pathbreaker = fminf(wave_num >= 6 ? 0.04f+(wave_num-6)*0.01f : 0.0f, 0.10f);
-    float p_healer    = fminf(wave_num >= 5  ? 0.04f+(wave_num-5)*0.01f  : 0.0f, 0.08f);
-    float p_hunter    = fminf(wave_num >= 7  ? 0.04f+(wave_num-7)*0.01f  : 0.0f, 0.10f);
-    float p_artillery = fminf(wave_num >= 8  ? 0.03f+(wave_num-8)*0.005f : 0.0f, 0.06f);
+    float p_healer      = fminf(wave_num >= 5 ? 0.04f+(wave_num-5)*0.01f : 0.0f, 0.08f);
+    float p_hunter      = fminf(wave_num >= 7 ? 0.04f+(wave_num-7)*0.01f : 0.0f, 0.10f);
+    float p_artillery   = fminf(wave_num >= 8 ? 0.03f+(wave_num-8)*0.005f: 0.0f, 0.06f);
 
+    // ── Modificateurs de thème ────────────────────────────────────
     if (theme == THEME_SWAMP)   { p_mutant += 0.10f; p_ghost       += 0.05f; }
     if (theme == THEME_DESERT)  { p_runner += 0.10f; p_pathbreaker += 0.05f; }
     if (theme == THEME_FACTORY) { p_brute  += 0.08f; p_vehicle     += 0.04f; }
     if (theme == THEME_CITY)    { p_ghost  += 0.05f; p_pathbreaker += 0.05f; }
 
-    if (r < p_vehicle)                                                            return ENEMY_VEHICLE;
-    if (r < p_vehicle + p_brute)                                                  return ENEMY_BRUTE;
-    if (r < p_vehicle + p_brute + p_runner)                                       return ENEMY_RUNNER;
-    if (r < p_vehicle + p_brute + p_runner + p_mutant)                           return ENEMY_MUTANT;
-    if (r < p_vehicle + p_brute + p_runner + p_mutant + p_ghost)                 return ENEMY_GHOST;
-    if (r < p_vehicle + p_brute + p_runner + p_mutant + p_ghost + p_pathbreaker) return ENEMY_PATHBREAKER;
-    if (r < p_vehicle + p_brute + p_runner + p_mutant + p_ghost + p_pathbreaker + p_healer) return ENEMY_HEALER;
-    if (r < p_vehicle + p_brute + p_runner + p_mutant + p_ghost + p_pathbreaker + p_healer + p_hunter) return ENEMY_HUNTER;
-    if (r < p_vehicle + p_brute + p_runner + p_mutant + p_ghost + p_pathbreaker + p_healer + p_hunter + p_artillery) return ENEMY_ARTILLERY;
-    
+    // ── Campagne : annule les ennemis non encore introduits ───────
+    // max_stage = campaign_stage-1 → l'ennemi s'introduit exactement
+    // au bon acte, indépendamment de la progression méta globale.
+    if (is_campaign) {
+        if (ENEMY_UNLOCK_AT[ENEMY_BRUTE]       > max_stage) p_brute       = 0.0f;
+        if (ENEMY_UNLOCK_AT[ENEMY_RUNNER]      > max_stage) p_runner      = 0.0f;
+        if (ENEMY_UNLOCK_AT[ENEMY_MUTANT]      > max_stage) p_mutant      = 0.0f;
+        if (ENEMY_UNLOCK_AT[ENEMY_VEHICLE]     > max_stage) p_vehicle     = 0.0f;
+        if (ENEMY_UNLOCK_AT[ENEMY_GHOST]       > max_stage) p_ghost       = 0.0f;
+        if (ENEMY_UNLOCK_AT[ENEMY_PATHBREAKER] > max_stage) p_pathbreaker = 0.0f;
+        if (ENEMY_UNLOCK_AT[ENEMY_HEALER]      > max_stage) p_healer      = 0.0f;
+        if (ENEMY_UNLOCK_AT[ENEMY_ARTILLERY]   > max_stage) p_artillery   = 0.0f;
+        if (ENEMY_UNLOCK_AT[ENEMY_HUNTER]      > max_stage) p_hunter      = 0.0f;
+    }
+
+    // ── Arcade : applique les biais aléatoires de la partie ───────
+    // Chaque run a 2 types dominants et 2 types rares tirés au sort.
+    if (!is_campaign) {
+        p_vehicle     *= bias[ENEMY_VEHICLE];
+        p_brute       *= bias[ENEMY_BRUTE];
+        p_runner      *= bias[ENEMY_RUNNER];
+        p_mutant      *= bias[ENEMY_MUTANT];
+        p_ghost       *= bias[ENEMY_GHOST];
+        p_pathbreaker *= bias[ENEMY_PATHBREAKER];
+        p_healer      *= bias[ENEMY_HEALER];
+        p_hunter      *= bias[ENEMY_HUNTER];
+        p_artillery   *= bias[ENEMY_ARTILLERY];
+
+        // Normalise pour que RAIDER garde ~5% de chance (fallback)
+        float total = p_vehicle + p_brute + p_runner + p_mutant + p_ghost
+                    + p_pathbreaker + p_healer + p_hunter + p_artillery;
+        if (total > 0.95f) {
+            float scale = 0.95f / total;
+            p_vehicle     *= scale; p_brute       *= scale;
+            p_runner      *= scale; p_mutant       *= scale;
+            p_ghost       *= scale; p_pathbreaker  *= scale;
+            p_healer      *= scale; p_hunter        *= scale;
+            p_artillery   *= scale;
+        }
+    }
+
+    // ── Sélection cumulative ──────────────────────────────────────
+    float r   = (float)GetRandomValue(0, 10000) / 10000.0f;
+    float cum = 0.0f;
+    cum += p_vehicle;     if (r < cum) return ENEMY_VEHICLE;
+    cum += p_brute;       if (r < cum) return ENEMY_BRUTE;
+    cum += p_runner;      if (r < cum) return ENEMY_RUNNER;
+    cum += p_mutant;      if (r < cum) return ENEMY_MUTANT;
+    cum += p_ghost;       if (r < cum) return ENEMY_GHOST;
+    cum += p_pathbreaker; if (r < cum) return ENEMY_PATHBREAKER;
+    cum += p_healer;      if (r < cum) return ENEMY_HEALER;
+    cum += p_hunter;      if (r < cum) return ENEMY_HUNTER;
+    cum += p_artillery;   if (r < cum) return ENEMY_ARTILLERY;
     return ENEMY_RAIDER;
 }
 
@@ -158,7 +257,8 @@ static int pick_path(WaveManager *wm, const PathSet *paths, const Map *map) {
    ════════════════════════════════════════════════════ */
 void wave_update(WaveManager *wm, EnemyPool *pool,
                  const PathSet *paths, const Map *map,
-                 const Theme *theme, float dt)
+                 const Theme *theme, float dt,
+                 int is_campaign, int max_stage)
 {
     switch (wm->state) {
 
@@ -184,7 +284,9 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
                     wm->total_spawned++;
                 } else {
                     float delay = wm->total_spawned * SPAWN_INTERVAL;
-                    EnemyType type = pick_enemy_type(wm->number, theme->id);
+                    EnemyType type = pick_enemy_type(wm->number, theme->id,
+                                                     is_campaign, max_stage,
+                                                     wm->arcade_bias);
                     enemy_spawn(pool, type, path_id, paths,
                                 delay, wm->scale, theme->enemy_speed_mult);
                     wm->total_spawned++;

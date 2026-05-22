@@ -12,7 +12,7 @@
 
 typedef struct GameState GameState;
 
-#define UI_HUD_HEIGHT    150
+#define UI_HUD_HEIGHT    190
 #define UI_LEFT_PANEL_W  160   // panneau gauche (barres HP)
 #define UI_PANEL_W       360   // panneau droit (stats / info)
 #define UI_BTN_W          68
@@ -48,6 +48,20 @@ typedef struct {
     int tower_idx;
 } TileSelection;
 
+// ── Fiche de découverte ──────────────────────────────────────────
+typedef enum {
+    DISC_ENEMY = 0,
+    DISC_TOWER,
+    DISC_UNIT,
+} DiscType;
+
+typedef struct {
+    DiscType type;
+    int      idx;
+} DiscEntry;
+
+#define DISC_QUEUE_CAP 8
+
 typedef struct {
     ToolID        selected_tool;
     TileSelection selection;
@@ -58,6 +72,16 @@ typedef struct {
     Rectangle     unit_sell_btn;
     Rectangle     apply_mat_btn;
     int           apply_mat_visible;
+    // Boutons amélioration tour sélectionnée
+    Rectangle     upg_dmg_btn;
+    Rectangle     upg_range_btn;
+    Rectangle     upg_rate_btn;
+    Rectangle     repair_tower_btn;
+    // Boutons achat slots (panneau droit vide)
+    Rectangle     buy_tower_slot_btn;
+    Rectangle     buy_unit_slot_btn;
+    // Boutons réparation bases (panneau gauche)
+    Rectangle     repair_base_btn[MAX_BASES];
     int           hovered_tool;
     int           hovered_tile_x;
     int           hovered_tile_y;
@@ -73,9 +97,13 @@ typedef struct {
     // Notifications flottantes
     FloatNotif    notifs[MAX_NOTIFS];
     int           notif_count;
+    // Fiches de découverte (campagne) — file d'attente, gèle le jeu tant que non vide
+    DiscEntry     disc_queue[DISC_QUEUE_CAP];
+    int           disc_count;
 } UIState;
 
 void       ui_init            (UIState *ui);
+void       ui_disc_push       (UIState *ui, DiscType type, int idx);
 void       ui_push_notif      (UIState *ui, const char *text, Color col);
 void       ui_set_mouse_offset(float ox, float oy, float sx, float sy);
 void       ui_update          (UIState *ui, GameState *gs);
