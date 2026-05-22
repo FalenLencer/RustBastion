@@ -419,6 +419,36 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                 continue;
             }
 
+            // ── Siège d'une base intermédiaire ────────────────────────
+            // Si la case où se trouve l'ennemi est une TILE_BASE qui
+            // n'est PAS la destination finale du chemin, il s'y arrête
+            // et l'attaque jusqu'à destruction avant de reprendre.
+            if (map) {
+                Point cur = path->steps[e->path_index];
+                if (map->tiles[cur.y][cur.x].type == TILE_BASE) {
+                    int alive = 0;
+                    for (int b = 0; b < map->base_count; b++) {
+                        if (map->bases[b].pos.x == cur.x &&
+                            map->bases[b].pos.y == cur.y &&
+                            map->bases[b].active && map->bases[b].hp > 0) {
+                            alive = 1;
+                            if (e->atk_timer <= 0.0f) {
+                                map->bases[b].hp -= e->damage;
+                                if (map->bases[b].hp <= 0) {
+                                    map->bases[b].hp     = 0;
+                                    map->bases[b].active = 0;
+                                }
+                                *lives -= e->damage;
+                                if (*lives < 0) *lives = 0;
+                                e->atk_timer = 1.0f;
+                            }
+                            break;
+                        }
+                    }
+                    if (alive) continue; // bloqué : attend la destruction
+                }
+            }
+
             float speed = e->speed;
             if (e->slow_timer > 0.0f && e->type != ENEMY_VEHICLE)
                 speed *= 0.5f;
