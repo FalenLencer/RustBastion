@@ -62,7 +62,7 @@ void assets_load(void) {
         const char *font_path = FileExists(font_main) ? font_main : font_fallback;
 
         if (FileExists(font_path))
-            g_font = LoadFontEx(font_path, 72, cps, n);  // 72 px → qualité optimale pour FONT_SCALE=1.4 (fs max ≈ 28*1.4≈39)
+            g_font = LoadFontEx(font_path, 96, cps, n);  // 96 px → qualité optimale pour FONT_SCALE=1.4, nette en plein écran
         else
             g_font = GetFontDefault();
         SetTextureFilter(g_font.texture, TEXTURE_FILTER_BILINEAR);

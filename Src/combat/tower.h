@@ -42,9 +42,14 @@ extern const TowerStats TOWER_BASE_STATS[TOWER_TYPE_COUNT];
 extern const char      *TOWER_LORE      [TOWER_TYPE_COUNT];  // description longue (bestiaire)
 
 // ── Améliorations par tour ───────────────────────────────────
-#define TOWER_UPG_MAX       5      /* paliers max par catégorie        */
-#define TOWER_REPAIR_COST   20     /* coût fixe de réparation (or)     */
-#define TOWER_MAX_HP       100.0f  /* HP maximum après réparation      */
+#define TOWER_UPG_MAX          5       /* paliers max par catégorie          */
+#define TOWER_REPAIR_COST      20      /* coût fixe de réparation (or)       */
+#define TOWER_MAX_HP          100.0f   /* HP maximum après réparation        */
+#define TOWER_UPG_DMG_MULT      0.10f  /* bonus dégâts par palier (+10%/pal) */
+#define TOWER_UPG_RANGE_MULT    0.10f  /* bonus portée par palier (+10%/pal) */
+#define TOWER_UPG_RATE_MULT     0.20f  /* bonus cadence par palier (+20%/pal)*/
+#define TOWER_HEALER_PRIORITY 10000.0f /* score de priorité pour cibler le Healer */
+#define TOWER_RUIN_COST_MULT    2      /* multiplicateur de coût sur TILE_RUIN    */
 
 // Coûts des 5 paliers (or) — déclarés ici, définis dans tower.c
 extern const int TOWER_UPG_COST_DMG  [TOWER_UPG_MAX]; // +10%/palier → +50%

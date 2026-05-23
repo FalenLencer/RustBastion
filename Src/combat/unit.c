@@ -250,7 +250,7 @@ static int find_enemy_target(const Unit *u, const EnemyPool *ep,
 }
 
 static int find_heal_target(const Unit *medic, const UnitPool *up) {
-    float heal_range = 3.0f * TILE_SIZE;
+    float heal_range = UNIT_MEDIC_HEAL_RANGE * TILE_SIZE;
     int   best       = -1;
     float worst_hp   = FLT_MAX;
 
@@ -308,10 +308,10 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 float dep_y = dep->tile_y * TILE_SIZE + TILE_SIZE / 2.0f;
                 float dist  = udist(u->x, u->y, dep_x, dep_y);
 
-                if (dist <= TILE_SIZE * 0.8f) {
+                if (dist <= TILE_SIZE * UNIT_DEPOSIT_ARRIVE_DIST) {
                     // Arrivé au dépôt — commence la collecte
                     u->state            = USTATE_COLLECT;
-                    u->collect_duration = 4.0f; // 4 secondes
+                    u->collect_duration = UNIT_WORKER_COLLECT_DURATION;
                     u->collect_timer    = u->collect_duration;
                 } else {
                     // Avance vers le dépôt
@@ -348,7 +348,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
 
             case USTATE_GOTO_BASE: {
                 float dist = udist(u->x, u->y, u->home_base_px, u->home_base_py);
-                if (dist <= TILE_SIZE * 1.0f) {
+                if (dist <= TILE_SIZE * UNIT_BASE_ARRIVE_DIST) {
                     // Arrivé à la base — dépose le matériau
                     if (u->has_material && inv_count &&
                         *inv_count < MAX_INVENTORY) {
@@ -372,15 +372,15 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             default:
                 // PATROL : reste près de la base
                 u->state = USTATE_PATROL;
-                u->patrol_angle += 0.3f * dt;
+                u->patrol_angle += UNIT_WORKER_PATROL_ANGLE_SPEED * dt;
                 {
-                    float tx   = u->home_base_px + cosf(u->patrol_angle) * (TILE_SIZE * 1.5f);
-                    float ty   = u->home_base_py + sinf(u->patrol_angle) * (TILE_SIZE * 1.5f);
+                    float tx   = u->home_base_px + cosf(u->patrol_angle) * (TILE_SIZE * UNIT_WORKER_PATROL_RADIUS);
+                    float ty   = u->home_base_py + sinf(u->patrol_angle) * (TILE_SIZE * UNIT_WORKER_PATROL_RADIUS);
                     float dist = udist(u->x, u->y, tx, ty);
-                    if (dist > 2.0f) {
+                    if (dist > UNIT_PATROL_SLACK) {
                         float dx   = tx - u->x;
                         float dy   = ty - u->y;
-                        float step = u->speed * TILE_SIZE * 0.5f * dt;
+                        float step = u->speed * TILE_SIZE * UNIT_WORKER_PATROL_SPEED_FRAC * dt;
                         u->x += (dx / dist) * step;
                         u->y += (dy / dist) * step;
                     }
@@ -405,10 +405,10 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
         if (u->type == UNIT_MEDIC && u->heal_timer <= 0.0f) {
             int heal_tgt = find_heal_target(u, up);
             if (heal_tgt != -1) {
-                up->units[heal_tgt].hp += 20.0f;
+                up->units[heal_tgt].hp += UNIT_MEDIC_HEAL_AMOUNT;
                 if (up->units[heal_tgt].hp > up->units[heal_tgt].max_hp)
                     up->units[heal_tgt].hp = up->units[heal_tgt].max_hp;
-                u->heal_timer = 1.5f;
+                u->heal_timer = UNIT_MEDIC_HEAL_TIMER;
                 u->state = USTATE_HEAL;
             }
         }
@@ -427,7 +427,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 if (u->atk_timer <= 0.0f) {
                     enemy_damage(e, u->damage);
                     u->atk_timer = 1.0f / u->atk_rate;
-                    unit_damage(u, (float)e->damage * 2.0f);
+                    unit_damage(u, (float)e->damage * UNIT_COUNTER_DMG_MULT);
                 }
             } else {
                 u->state = USTATE_CHASE;
@@ -439,14 +439,14 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             }
         } else {
             u->state = USTATE_PATROL;
-            u->patrol_angle += 0.5f * dt;
+            u->patrol_angle += UNIT_PATROL_ANGLE_SPEED * dt;
             float target_x = u->home_base_px + cosf(u->patrol_angle) * u->patrol_radius;
             float target_y = u->home_base_py + sinf(u->patrol_angle) * u->patrol_radius;
             float dist     = udist(u->x, u->y, target_x, target_y);
-            if (dist > 2.0f) {
+            if (dist > UNIT_PATROL_SLACK) {
                 float dx   = target_x - u->x;
                 float dy   = target_y - u->y;
-                float step = u->speed * TILE_SIZE * 0.6f * dt;
+                float step = u->speed * TILE_SIZE * UNIT_PATROL_SPEED_FRAC * dt;
                 u->x += (dx / dist) * step;
                 u->y += (dy / dist) * step;
             }

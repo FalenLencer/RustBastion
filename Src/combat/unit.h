@@ -16,6 +16,25 @@
 #define MAX_UNITS_UPGR   2   // unités bonus par niveau d'upgrade
 #define MAX_UNITS        MAX_UNITS_HARD  // garde la taille du pool
 
+// ── Médic ─────────────────────────────────────────────────────
+#define UNIT_MEDIC_HEAL_AMOUNT        20.0f  /* PV restaurés par soin               */
+#define UNIT_MEDIC_HEAL_TIMER          1.5f  /* cooldown entre soins (s)            */
+#define UNIT_MEDIC_HEAL_RANGE          3.0f  /* portée de soin (en tiles)           */
+
+// ── Ouvrier ───────────────────────────────────────────────────
+#define UNIT_WORKER_COLLECT_DURATION   4.0f  /* durée de collecte au dépôt (s)      */
+#define UNIT_DEPOSIT_ARRIVE_DIST       0.8f  /* seuil d'arrivée au dépôt (en tiles) */
+#define UNIT_BASE_ARRIVE_DIST          1.0f  /* seuil d'arrivée à la base (en tiles)*/
+#define UNIT_WORKER_PATROL_ANGLE_SPEED 0.3f  /* vitesse angulaire patrouille (rad/s)*/
+#define UNIT_WORKER_PATROL_RADIUS      1.5f  /* rayon de patrouille ouvrier (tiles) */
+#define UNIT_WORKER_PATROL_SPEED_FRAC  0.5f  /* fraction de vitesse en patrouille   */
+
+// ── Combat ────────────────────────────────────────────────────
+#define UNIT_COUNTER_DMG_MULT          2.0f  /* multiplicateur riposte ennemie      */
+#define UNIT_PATROL_ANGLE_SPEED        0.5f  /* vitesse angulaire patrouille (rad/s)*/
+#define UNIT_PATROL_SPEED_FRAC         0.6f  /* fraction de vitesse en patrouille   */
+#define UNIT_PATROL_SLACK              2.0f  /* seuil min déplacement patrouille (px)*/
+
 typedef enum {
     UNIT_SOLDIER = 0,
     UNIT_HEAVY,

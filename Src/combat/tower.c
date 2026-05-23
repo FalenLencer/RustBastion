@@ -27,7 +27,7 @@ const TowerStats TOWER_BASE_STATS[TOWER_TYPE_COUNT] = {
         .description="Polyvalente. Cible le premier ennemi en portee.",
     },
     [TOWER_SNIPER] = {
-        .name="Sniper", .cost=25, .damage=90.0f, .range=6.5f,
+        .name="Sniper", .cost=25, .damage=115.0f, .range=6.5f,
         .fire_rate=0.4f, .proj_speed=18.0f, .splash=0,
         .slow_factor=0.0f, .slow_duration=0.0f, .chain_count=0,
         .description="Longue portee. Cible l'ennemi le plus avance.",
@@ -143,7 +143,7 @@ int tower_cost_on_tile(TowerType type, const Map *map, int tile_x, int tile_y) {
     if (tile_x < 0 || tile_x >= MAP_W || tile_y < 0 || tile_y >= MAP_H)
         return base_cost;
     if (map->tiles[tile_y][tile_x].type == TILE_RUIN)
-        return base_cost * 2;
+        return base_cost * TOWER_RUIN_COST_MULT;
     return base_cost;
 }
 
@@ -176,7 +176,7 @@ int tower_place(TowerPool *tp, TowerType type,
     tw->level     = 0;
     tw->active    = 1;
     tw->angle     = 0.0f;
-    tw->hp        = 100.0f;   // HP de base pour Artillery
+    tw->hp        = TOWER_MAX_HP;
 
     tw->damage    = TOWER_BASE_STATS[type].damage    * (bonuses ? bonuses->tower_dmg_mult   : 1.0f);
     tw->range     = TOWER_BASE_STATS[type].range     * (bonuses ? bonuses->tower_range_mult : 1.0f);
@@ -193,7 +193,7 @@ int tower_place(TowerPool *tp, TowerType type,
     tw->dmg_type = DMG_PHYSICAL;
     tw->material = MAT_NONE;
     switch (type) {
-        case TOWER_FLAME: tw->dmg_type = DMG_POISON;   break;
+        case TOWER_FLAME: tw->dmg_type = DMG_FIRE;      break;
         case TOWER_TESLA: tw->dmg_type = DMG_ELECTRIC;  break;
         default:          tw->dmg_type = DMG_PHYSICAL;  break;
     }
@@ -224,17 +224,17 @@ int tower_upg_next_cost_rate(const Tower *t) {
 void tower_upgrade_dmg(Tower *t) {
     if (t->upg_dmg >= TOWER_UPG_MAX) return;
     t->upg_dmg++;
-    t->damage = t->base_damage * (1.0f + t->upg_dmg * 0.10f);
+    t->damage = t->base_damage * (1.0f + t->upg_dmg * TOWER_UPG_DMG_MULT);
 }
 void tower_upgrade_range(Tower *t) {
     if (t->upg_range >= TOWER_UPG_MAX) return;
     t->upg_range++;
-    t->range = t->base_range * (1.0f + t->upg_range * 0.10f);
+    t->range = t->base_range * (1.0f + t->upg_range * TOWER_UPG_RANGE_MULT);
 }
 void tower_upgrade_rate(Tower *t) {
     if (t->upg_rate >= TOWER_UPG_MAX) return;
     t->upg_rate++;
-    t->fire_rate = t->base_fire_rate * (1.0f + t->upg_rate * 0.20f);
+    t->fire_rate = t->base_fire_rate * (1.0f + t->upg_rate * TOWER_UPG_RATE_MULT);
 }
 
 void tower_do_repair(Tower *t) {
@@ -261,7 +261,7 @@ static int find_target(const Tower *tw, const EnemyPool *ep) {
 
         float score;
         if (e->type == ENEMY_HEALER)
-            score = 10000.0f;             // priorité absolue
+            score = TOWER_HEALER_PRIORITY; // priorité absolue
         else if (tw->type == TOWER_SNIPER)
             score = (float)e->path_index;
         else

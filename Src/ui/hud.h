@@ -72,6 +72,7 @@ typedef struct {
     Rectangle     unit_sell_btn;
     Rectangle     apply_mat_btn;
     int           apply_mat_visible;
+    int           sel_mat_idx;       /* index dans l'inventaire du matériau sélectionné */
     // Boutons amélioration tour sélectionnée
     Rectangle     upg_dmg_btn;
     Rectangle     upg_range_btn;

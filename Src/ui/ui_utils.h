@@ -16,7 +16,7 @@
 // FONT_SCALE : facteur d'agrandissement global de Rajdhani par rapport à
 // GROBOLD (même fontSize mais glyphes visuellement plus petits).
 // Changer cette valeur agrandit/réduit tout le texte du jeu d'un coup.
-#define FONT_SCALE 1.4f
+#define FONT_SCALE 1.6f
 
 static inline void dtxt(const char *text, int x, int y, int fontSize, Color color) {
     DrawTextEx(g_font, text,

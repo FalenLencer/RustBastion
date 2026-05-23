@@ -102,8 +102,8 @@ extern const EnemyStats ENEMY_BASE_STATS[ENEMY_TYPE_COUNT];
 
 // ── Résistances / faiblesses ─────────────────────────────────
 // [EnemyType][DamageType] → multiplicateur de dégâts
-// DMG_PHYSICAL=0, DMG_POISON=1, DMG_ELECTRIC=2, DMG_CRYO=3, DMG_NANO=4
-#define DAMAGE_TYPE_COUNT 5
+// DMG_PHYSICAL=0, DMG_POISON=1, DMG_ELECTRIC=2, DMG_CRYO=3, DMG_NANO=4, DMG_FIRE=5
+#define DAMAGE_TYPE_COUNT 6
 extern const float ENEMY_DMG_MULT[ENEMY_TYPE_COUNT][DAMAGE_TYPE_COUNT];
 
 // ── Descriptions bestiaire ───────────────────────────────────
@@ -112,6 +112,40 @@ extern const char *ENEMY_SPEC[ENEMY_TYPE_COUNT];
 
 // ── Paliers de brûlure (lance-flammes) ───────────────────────
 #define BURN_MAX_STACKS 10
+
+// ── Comportement général ──────────────────────────────────────
+#define ENEMY_SLOW_SPEED_MULT        0.5f  /* vitesse sous ralentissement              */
+#define ENEMY_SIEGE_ATK_TIMER        1.0f  /* cooldown attaque sur base intermédiaire (s) */
+#define ENEMY_MELEE_DMG_MULT         3.0f  /* multiplicateur dégâts mêlée sur unités  */
+#define ENEMY_MELEE_ENGAGE_TIMER     0.3f  /* délai de dégagement après mêlée (s)     */
+
+// ── Vitesses d'attaque mêlée par type (attaques/s) ───────────
+#define ENEMY_MELEE_RATE_DEFAULT     1.0f  /* Raider (valeur par défaut)   */
+#define ENEMY_MELEE_RATE_BRUTE       0.6f  /* Brute  — lent mais puissant  */
+#define ENEMY_MELEE_RATE_RUNNER      2.0f  /* Runner — rafale rapide       */
+#define ENEMY_MELEE_RATE_VEHICLE     0.4f  /* Véhicule — très lent         */
+#define ENEMY_MELEE_RATE_GHOST       1.5f  /* Spectre                      */
+#define ENEMY_MELEE_RATE_PATHBREAKER 1.2f  /* Pathbreaker                  */
+#define ENEMY_MELEE_RATE_HEALER      0.5f  /* Healer — combat secondaire   */
+
+// ── Pathbreaker ───────────────────────────────────────────────
+#define ENEMY_PATHBREAKER_SPEED_MULT 1.3f  /* bonus vitesse au spawn       */
+
+// ── Mutant ────────────────────────────────────────────────────
+#define ENEMY_MUTANT_REGEN_RATE      5.0f  /* PV régénérés par seconde     */
+
+// ── Healer ────────────────────────────────────────────────────
+#define ENEMY_HEALER_HEAL_RANGE      2.0f  /* portée de soin (en tiles)    */
+#define ENEMY_HEALER_HEAL_AMOUNT    15.0f  /* PV/s restaurés aux alliés    */
+
+// ── Hunter ────────────────────────────────────────────────────
+#define ENEMY_HUNTER_HUNT_RANGE      6.0f  /* portée de détection unités (en tiles) */
+#define ENEMY_HUNTER_ATK_TIMER       0.4f  /* cooldown d'attaque Hunter (s)         */
+
+// ── Artillerie ────────────────────────────────────────────────
+#define ENEMY_ARTY_RANGE             4.0f  /* portée de tir (en tiles)     */
+#define ENEMY_ARTY_DAMAGE           40.0f  /* dégâts par tir               */
+#define ENEMY_ARTY_FIRE_TIMER        3.0f  /* cooldown entre tirs (s)      */
 
 // Forward declarations
 typedef struct UnitPool  UnitPool;

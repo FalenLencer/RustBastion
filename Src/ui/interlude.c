@@ -93,7 +93,7 @@ void interlude_render_dialog_before(const ActData *act, int vw, int vh) {
                 clip_text(line, iw, 10, tbuf, sizeof(tbuf));
                 dtxt(tbuf, px, dy, 10, (Color){168,148,102,255});
             }
-            dy += 13;
+            dy += 16; // fh(10)=14 + 2px marge
         }
     }
 
@@ -170,7 +170,7 @@ void interlude_render_dialog_after(const ActData *act, int stars,
                 clip_text(line, iw, 10, tbuf, sizeof(tbuf));
                 dtxt(tbuf, px, dy, 10, (Color){168,148,102,255});
             }
-            dy += 13;
+            dy += 16; // fh(10)=14 + 2px marge
         }
     }
 

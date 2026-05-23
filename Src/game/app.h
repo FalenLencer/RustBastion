@@ -44,6 +44,9 @@ typedef struct {
     MenuScreen     prev_menu_screen;
     int            applied_fps;
     int            gameover_meta_done;   /* garde : meta_endless_end déjà appelé */
+
+    /* Bannière de carte : affichée 5 s au démarrage puis fondu */
+    float          banner_timer;         /* > 0 = visible, fondu sur la dernière 0.5 s */
 } AppContext;
 
 // ────────────────────────────────────────────────────────────────

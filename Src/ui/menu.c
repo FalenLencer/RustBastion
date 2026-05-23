@@ -243,7 +243,11 @@ int draw_btn(const char *label, int x, int y, int w, int h,
 int draw_volume_slider(const char *label, int x, int y, int w,
                        int value, int *out_value)
 {
+    char percent_text[16];
+    snprintf(percent_text, sizeof(percent_text), "%d%%", value);
     draw_text_boxed(label, x, y, 11, C_GOLD);
+    /* Pourcentage aligné à droite sur la même ligne que l'étiquette */
+    dtxt(percent_text, x + w - mtxt(percent_text, 11), y, 11, C_TEXT);
     y += 18;
     Rectangle track = {(float)x, (float)y, (float)w, 12.0f};
     Rectangle hit   = {track.x - 2, track.y - 8, track.width + 4, track.height + 16};
@@ -257,10 +261,6 @@ int draw_volume_slider(const char *label, int x, int y, int w,
     float knob_r = dragging ? 11.0f : 9.0f;
     DrawCircle((int)knob_center.x, (int)knob_center.y, knob_r, C_GOLD);
     DrawCircleLines((int)knob_center.x, (int)knob_center.y, knob_r, C_BORDER);
-    char percent_text[16];
-    snprintf(percent_text, sizeof(percent_text), "%d%%", value);
-    dtxt(percent_text, x + w - mtxt(percent_text, 11),
-             y + (int)track.height + 6, 11, C_TEXT);
     if (dragging) {
         Vector2 mv = vmouse();
         int new_value = (int)(((mv.x - track.x) / track.width) * 100.0f + 0.5f);

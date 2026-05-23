@@ -27,6 +27,7 @@ typedef enum {
     DMG_ELECTRIC,
     DMG_CRYO,
     DMG_NANO,
+    DMG_FIRE,         // flammes (lance-flammes)
 } DamageType;
 
 // ── Dépôt de matériau sur la carte ──────────────────────────
@@ -40,4 +41,4 @@ typedef struct {
 extern const char  *MATERIAL_NAMES [MAT_COUNT];
 extern const char  *MATERIAL_DESC  [MAT_COUNT];   // courte (HUD)
 extern const char  *MATERIAL_LORE  [MAT_COUNT];   // longue (bestiaire)
-extern const char  *DAMAGE_NAMES   [5];
+extern const char  *DAMAGE_NAMES   [6];

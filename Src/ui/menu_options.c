@@ -76,9 +76,11 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             int y = content_y;
             draw_text_boxed("Plein ecran", content_x, y, 11, C_GOLD);
             y += 16;
-            const char *fsl = m->opts.fullscreen ? "[*] Activé" : "[ ] Désactivé";
-            if (draw_btn(fsl, content_x, y, content_w, BTN_H, C_BLUE, m->opts.fullscreen)) {
-                m->opts.fullscreen ^= 1;
+            /* Utilise l'état réel de la fenêtre comme source de vérité */
+            int _is_fs = IsWindowFullscreen();
+            m->opts.fullscreen = _is_fs; /* sync systématique */
+            const char *fsl = _is_fs ? "[*] Active" : "[ ] Desactive";
+            if (draw_btn(fsl, content_x, y, content_w, BTN_H, C_BLUE, _is_fs)) {
                 act.toggle_fs = 1;
             }
             y += BTN_H + 20;

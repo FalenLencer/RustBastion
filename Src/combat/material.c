@@ -49,6 +49,6 @@ const char *MATERIAL_LORE[MAT_COUNT] = {
         "Indispensable pour maintenir vos ouvriers en vie.",
 };
 
-const char *DAMAGE_NAMES[5] = {
-    "Physique", "Poison", "Electrique", "Cryo", "Nano",
+const char *DAMAGE_NAMES[6] = {
+    "Physique", "Poison", "Electrique", "Cryo", "Nano", "Feu",
 };

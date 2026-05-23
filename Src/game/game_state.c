@@ -6,6 +6,63 @@
 
 #include "game_state.h"
 #include "../engine/audio.h"
+#include "../map/pathfinding.h"
+
+/* ═══════════════════════════════════════════════════════════════
+   HELPER INTERNE — redirige les chemins orphelins quand une base
+   est détruite. Tous les spawns qui ciblaient destroyed_base_id
+   sont redirigés vers la première base encore active.
+   Les ennemis déjà en route sur ces chemins sont recalés sur le
+   nouveau tracé (path_index clampé).
+   ═══════════════════════════════════════════════════════════════ */
+static void game_redirect_paths_for_base(GameState *gs, int destroyed_base_id) {
+    /* Cherche la première base encore vivante comme cible de repli */
+    int fallback_base = -1;
+    for (int b = 0; b < gs->map.base_count; b++) {
+        if (b != destroyed_base_id && gs->map.bases[b].active) {
+            fallback_base = b;
+            break;
+        }
+    }
+    if (fallback_base < 0) return; /* Plus aucune base → game over imminent */
+
+    Point new_base_pos = gs->map.bases[fallback_base].pos;
+
+    for (int p = 0; p < gs->enemy_paths.count; p++) {
+        Path *path = &gs->enemy_paths.paths[p];
+        if (!path->found || path->base_id != destroyed_base_id) continue;
+
+        /* Met à jour la PathDef correspondante dans la carte */
+        int pid = path->path_id; /* index dans map.paths[] */
+        if (pid >= 0 && pid < MAX_PATHS) {
+            gs->map.paths[pid].base_id = fallback_base;
+            gs->map.paths[pid].base    = new_base_pos;
+        }
+
+        /* Recalcule le chemin A* depuis le même spawn vers la nouvelle base */
+        Path rebuilt;
+        astar_single(&gs->map,
+                     path->steps[0],   /* spawn (premier pas) */
+                     new_base_pos,
+                     path->path_id,
+                     fallback_base,
+                     &rebuilt);
+
+        if (!rebuilt.found) continue; /* pas de chemin → on laisse tel quel */
+
+        /* Redirige les ennemis déjà actifs sur ce slot de chemin */
+        for (int e = 0; e < MAX_ENEMIES; e++) {
+            Enemy *en = &gs->enemies.enemies[e];
+            if (!en->active || en->path_id != p) continue;
+            /* Clamp path_index dans les limites du nouveau chemin */
+            if (en->path_index >= rebuilt.len)
+                en->path_index = rebuilt.len > 0 ? rebuilt.len - 1 : 0;
+        }
+
+        /* Écrase le chemin en place dans le PathSet */
+        *path = rebuilt;
+    }
+}
 
 /* ── Fonctions de gestion des bases ─────────────────────────── */
 int game_all_bases_fallen(const GameState *gs) {
@@ -22,6 +79,10 @@ void game_damage_base(GameState *gs, int base_id, int dmg) {
     if (b->hp <= 0) {
         b->hp     = 0;
         b->active = 0;
+        /* Redirige immédiatement tous les spawns qui ciblaient cette base
+           vers la première base encore vivante, et recale les ennemis
+           déjà en route sur les chemins reconstruits. */
+        game_redirect_paths_for_base(gs, base_id);
     }
     gs->lives -= dmg;
     if (gs->lives < 0) gs->lives = 0;

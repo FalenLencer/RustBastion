@@ -84,6 +84,44 @@ void ui_update(UIState *ui, GameState *gs) {
         }
     }
 
+    // ── Repositionnement dynamique des boutons centraux (tours/unités/vague) ──
+    // Centrés dans la zone entre le panneau gauche et le panneau droit
+    // pour s'adapter à toutes les largeurs de fenêtre.
+    {
+        const int M    = UI_MARGIN;
+        const int GAP  = 6;
+
+        int mid_left  = UI_LEFT_PANEL_W;
+        int mid_right = g_canvas_virt_w - UI_PANEL_W;
+        int mid_w     = mid_right - mid_left;
+
+        /* Empreinte totale : 5 boutons + M + bouton vague + M + pause */
+        const int BTNS_SPAN = 5*(UI_BTN_W + GAP) + M + 108 + M + 36;
+
+        int col0_x = mid_left + (mid_w - BTNS_SPAN) / 2;
+        if (col0_x < mid_left + M) col0_x = mid_left + M;
+
+        int row1_y = HUD_Y + 18;
+        int row2_y = row1_y + UI_BTN_H + GAP + 14;
+
+        for (int i = 0; i < 4; i++)
+            ui->tool_btns[TOOL_TOWER_GUN + i] = (Rectangle){
+                (float)(col0_x + i*(UI_BTN_W+GAP)),
+                (float)row1_y, UI_BTN_W, UI_BTN_H
+            };
+        for (int i = 0; i < 5; i++)
+            ui->tool_btns[TOOL_UNIT_SOLDIER + i] = (Rectangle){
+                (float)(col0_x + i*(UI_BTN_W+GAP)),
+                (float)row2_y, UI_BTN_W, UI_BTN_H
+            };
+
+        int wave_x = col0_x + 5*(UI_BTN_W + GAP) + M;
+        int wave_h  = UI_BTN_H * 2 + GAP + 14;
+        ui->wave_btn  = (Rectangle){(float)wave_x, (float)row1_y, 108.0f, (float)wave_h};
+        ui->pause_btn = (Rectangle){(float)(wave_x + 108 + M), (float)row1_y,
+                                    36.0f, (float)wave_h};
+    }
+
     // ── Repositionnement dynamique des boutons du panneau droit ──
     {
         const int M       = UI_MARGIN;
@@ -91,7 +129,7 @@ void ui_update(UIState *ui, GameState *gs) {
         const int right_x = g_canvas_virt_w - UI_PANEL_W + M;
         const int max_w   = UI_PANEL_W - M * 2;
         const int PSZ     = 82;   /* portrait */
-        const int ubh     = 22;   /* hauteur bouton upgrade */
+        const int ubh     = 38;   /* hauteur bouton upgrade (3 lignes visibles) */
         const int ubw     = (max_w - GAP * 2) / 3;
         const int rsh     = (max_w - GAP) / 2;
         const int btn_h   = 34;
@@ -120,16 +158,10 @@ void ui_update(UIState *ui, GameState *gs) {
                                                  (float)bsw, 22.0f};
         }
 
-        /* Vente unité + pause (positions classiques) */
+        /* Vente unité (panneau droit, bas) */
         ui->unit_sell_btn = (Rectangle){(float)right_x,
                                         (float)(HUD_Y + UI_HUD_HEIGHT - M - btn_h),
                                         (float)max_w, (float)btn_h};
-        ui->pause_btn = (Rectangle){
-            (float)(UI_LEFT_PANEL_W + M + 6 + 5*(UI_BTN_W+6) + M + 108 + M),
-            (float)(HUD_Y + 18),
-            36.0f,
-            (float)(UI_BTN_H * 2 + 6 + 14)
-        };
 
         (void)ubw; (void)uy;
     }
@@ -165,6 +197,10 @@ void ui_update(UIState *ui, GameState *gs) {
                 gs->towers.towers[_tidx].active)
                 _mat_ok = 1;
         }
+        if (!_mat_ok) ui->sel_mat_idx = 0; // réinitialise l'index si le bouton disparaît
+        /* Borne de sécurité */
+        if (ui->sel_mat_idx >= gs->inventory_count)
+            ui->sel_mat_idx = 0;
         ui->apply_mat_visible = _mat_ok;
     }
 
@@ -436,11 +472,28 @@ void ui_update(UIState *ui, GameState *gs) {
         else if (ui->selection.active &&
                  ui->apply_mat_visible &&
                  CheckCollisionPointRec(mouse, ui->apply_mat_btn)) {
+            /* Flèche gauche (<) = cycle vers l'arrière */
+            Rectangle _ab = ui->apply_mat_btn;
+            Rectangle _left_arrow  = {_ab.x, _ab.y, 20.0f, _ab.height};
+            Rectangle _right_arrow = {_ab.x + _ab.width - 20.0f, _ab.y, 20.0f, _ab.height};
+            if (gs->inventory_count > 1 && CheckCollisionPointRec(mouse, _left_arrow)) {
+                ui->sel_mat_idx = (ui->sel_mat_idx - 1 + gs->inventory_count) % gs->inventory_count;
+                audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+                goto end_click;
+            }
+            if (gs->inventory_count > 1 && CheckCollisionPointRec(mouse, _right_arrow)) {
+                ui->sel_mat_idx = (ui->sel_mat_idx + 1) % gs->inventory_count;
+                audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+                goto end_click;
+            }
             int _tidx = ui->selection.tower_idx;
             if (_tidx >= 0 && _tidx < MAX_TOWERS) {
                 Tower *tw = &gs->towers.towers[_tidx];
                 if (tw->active && gs->inventory_count > 0) {
-                    MaterialType mat = gs->inventory[0];
+                    /* Utilise le matériau sélectionné (pas toujours [0]) */
+                    int _midx = ui->sel_mat_idx;
+                    if (_midx < 0 || _midx >= gs->inventory_count) _midx = 0;
+                    MaterialType mat = gs->inventory[_midx];
                     switch (mat) {
                         case MAT_ACID:
                             tw->dmg_type = DMG_POISON;
@@ -468,11 +521,14 @@ void ui_update(UIState *ui, GameState *gs) {
                         default:
                             break;
                     }
-                    // Retire de l'inventaire
-                    for (int k = 0; k < gs->inventory_count - 1; k++)
+                    /* Retire le matériau sélectionné de l'inventaire */
+                    for (int k = _midx; k < gs->inventory_count - 1; k++)
                         gs->inventory[k] = gs->inventory[k + 1];
                     gs->inventory[gs->inventory_count - 1] = MAT_NONE;
                     gs->inventory_count--;
+                    /* Recentre l'index si nécessaire */
+                    if (ui->sel_mat_idx >= gs->inventory_count)
+                        ui->sel_mat_idx = (gs->inventory_count > 0) ? gs->inventory_count - 1 : 0;
                     audio_play_sfx(AUDIO_SFX_MATERIAL_APPLY);
                     ui_push_notif(ui, "Materiau applique !",
                                   (Color){62, 175, 200, 255});

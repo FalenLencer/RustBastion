@@ -10,9 +10,15 @@
 #include <math.h>
 #include <string.h>
 
-#define PREP_TIME      20.0f
-#define BASE_ENEMIES   6
-#define SPAWN_INTERVAL 0.5f
+#define PREP_TIME            20.0f
+#define BASE_ENEMIES          6
+#define SPAWN_INTERVAL        0.5f
+#define WAVE_ENEMIES_PER_WAVE 3      /* ennemis supplémentaires par vague (base linéaire) */
+#define WAVE_QUAD_DIV         3      /* diviseur terme quadratique (accélération)         */
+#define WAVE_SCALE_GROWTH     1.20f  /* facteur de croissance du scaling HP   */
+#define WAVE_SCALE_CAP        6.0f   /* plafond du scaling                    */
+#define WAVE_SMART_RATIO      6      /* sur 10 : prob. de ciblage intelligent */
+#define WAVE_RAIDER_RESERVE   0.95f  /* prob. cumulée max des non-raiders     */
 
 void wave_init(WaveManager *wm) {
     memset(wm, 0, sizeof(WaveManager));
@@ -130,8 +136,8 @@ static EnemyType pick_enemy_type(int wave_num, ThemeID theme,
         // Normalise pour que RAIDER garde ~5% de chance (fallback)
         float total = p_vehicle + p_brute + p_runner + p_mutant + p_ghost
                     + p_pathbreaker + p_healer + p_hunter + p_artillery;
-        if (total > 0.95f) {
-            float scale = 0.95f / total;
+        if (total > WAVE_RAIDER_RESERVE) {
+            float scale = WAVE_RAIDER_RESERVE / total;
             p_vehicle     *= scale; p_brute       *= scale;
             p_runner      *= scale; p_mutant       *= scale;
             p_ghost       *= scale; p_pathbreaker  *= scale;
@@ -209,7 +215,7 @@ static int pick_path(WaveManager *wm, const PathSet *paths, const Map *map) {
 
     // Mode intelligent : 60% du temps on cible la base la moins attaquée
     // Mode aléatoire  : 40% du temps on choisit n'importe quel chemin
-    int use_smart = (GetRandomValue(0, 9) < 6);
+    int use_smart = (GetRandomValue(0, 9) < WAVE_SMART_RATIO);
 
     if (use_smart && base_count > 1) {
         // Trouve la base avec le moins de pression
@@ -274,7 +280,10 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
                 break;
             }
 
-            int count = BASE_ENEMIES + (wm->number - 1) * 3;
+            int n = wm->number - 1; // vague 1 = n=0
+            int count = BASE_ENEMIES
+                      + n * WAVE_ENEMIES_PER_WAVE
+                      + n * n / WAVE_QUAD_DIV; // accélération quadratique
             if (count > MAX_ENEMIES) count = MAX_ENEMIES;
             if (wm->total_spawned < count) {
                 // Choix intelligent du chemin
@@ -307,8 +316,8 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
             wm->state         = WAVE_IDLE;
             wm->prep_timer    = PREP_TIME;
             wm->total_spawned = 0;
-            wm->scale        *= 1.20f;
-            if (wm->scale > 6.0f) wm->scale = 6.0f;   // cap — évite la falaise de difficulté
+            wm->scale        *= WAVE_SCALE_GROWTH;
+            if (wm->scale > WAVE_SCALE_CAP) wm->scale = WAVE_SCALE_CAP; // cap — évite la falaise de difficulté
             // Remet la pression à zéro pour la prochaine vague
             for (int i = 0; i < MAX_BASES; i++)
                 wm->base_pressure[i] = 0;

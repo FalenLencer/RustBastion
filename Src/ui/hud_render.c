@@ -158,7 +158,7 @@ static void draw_tool_btn(const Rectangle *r, ToolID id,
 
     // Coût
     char cost_buf[20];
-    snprintf(cost_buf, sizeof(cost_buf), "%dor", info->cost);
+    snprintf(cost_buf, sizeof(cost_buf), "%d or", info->cost);
     int cw = mtxt(cost_buf, name_fs);
     dtxt(cost_buf,
              (int)(r->x + r->width/2 - cw/2),
@@ -275,7 +275,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     DrawRectangleRounded(rb, 0.25f, 4, rbc);
                     DrawRectangleRoundedLinesEx(rb, 0.25f, 4, 1.0f, rbrd);
                     char rbuf[32];
-                    snprintf(rbuf, sizeof(rbuf), "Reparer +%dHP  %dor",
+                    snprintf(rbuf, sizeof(rbuf), "Reparer +%dHP  %d or",
                              BASE_REPAIR_RESTORE, rc);
                     int rtw = mtxt(rbuf, 8);
                     dtxt(rbuf,
@@ -342,7 +342,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     snprintf(slot_bufs[0], sizeof(slot_bufs[0]), "+1 Tour  [MAX]");
                 else
                     snprintf(slot_bufs[0], sizeof(slot_bufs[0]),
-                             "+1 Tour  %dor", SLOT_TOWER_COSTS[_b]);
+                             "+1 Tour  %d or", SLOT_TOWER_COSTS[_b]);
                 slot_labels[0] = slot_bufs[0];
                 slot_cols[0]   = _at_max
                     ? (Color){55, 42, 18, 200}
@@ -359,7 +359,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     snprintf(slot_bufs[1], sizeof(slot_bufs[1]), "+1 Unite  [MAX]");
                 else
                     snprintf(slot_bufs[1], sizeof(slot_bufs[1]),
-                             "+1 Unite  %dor", SLOT_UNIT_COSTS[_b]);
+                             "+1 Unite  %d or", SLOT_UNIT_COSTS[_b]);
                 slot_labels[1] = slot_bufs[1];
                 slot_cols[1]   = _at_max
                     ? (Color){55, 42, 18, 200}
@@ -391,7 +391,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
     // PANNEAU CENTRAL — boutons outils
     // ════════════════════════════════════════════════
     {
-        int lx    = UI_LEFT_PANEL_W + M + 6;
+        /* lx suit la position X dynamique du premier bouton (centré dans la zone) */
+        int lx    = (int)ui->tool_btns[TOOL_TOWER_GUN].x;
         int row1y = (int)ui->tool_btns[TOOL_TOWER_GUN].y;
         int row2y = (int)ui->tool_btns[TOOL_UNIT_SOLDIER].y;
 
@@ -449,7 +450,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
             dtxt(l1, wx - mtxt(l1,13)/2, (int)wb->y + M, 13, wlbl);
 
             char b2[14];
-            snprintf(b2, sizeof(b2), "+%dor", (int)(ratio*15.0f));
+            snprintf(b2, sizeof(b2), "+%d or", (int)(ratio*15.0f));
             dtxt(b2, wx - mtxt(b2,10)/2, (int)wb->y+27, 10,
                      (Color){225,145,28,255});
 
@@ -508,7 +509,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
             clip_text(st->name, text_w, 16, buf, sizeof(buf));
             dtxt(buf, rx, py, 16, col);
             py += fh(16) + 4;
-            DrawLine(rx, py, rx + max_w, py, (Color){44, 28, 8, 140});
+            /* Trait s'arrête avant le portrait (text_w = zone de texte sans le splash) */
+            DrawLine(rx, py, rx + text_w, py, (Color){44, 28, 8, 140});
             py += 7;
 
             // Stats — 2 colonnes (fs=13)
@@ -542,7 +544,6 @@ void ui_render(const UIState *ui, const GameState *gs) {
             {
                 const int PSZ2 = 82;
                 const int GAP2 = 6;
-                const int ubh  = 22;
                 const int ubw  = (max_w - GAP2 * 2) / 3;
                 int uy = HUD_Y + M + PSZ2 + GAP2;
 
@@ -551,9 +552,9 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 /* Données des 3 boutons */
                 typedef struct { const char *lbl; int cost; int lvl; Color col; } UB;
                 UB ubs[3] = {
-                    { "DMG",  tower_upg_next_cost_dmg  (tw), tw->upg_dmg,   {231, 100,  60, 255} },
-                    { "PORT", tower_upg_next_cost_range(tw), tw->upg_range,  { 82, 155, 200, 255} },
-                    { "CAD",  tower_upg_next_cost_rate (tw), tw->upg_rate,   {155,  89, 182, 255} },
+                    { "DEGATS", tower_upg_next_cost_dmg  (tw), tw->upg_dmg,   {231, 100,  60, 255} },
+                    { "PORTEE", tower_upg_next_cost_range(tw), tw->upg_range,  { 82, 155, 200, 255} },
+                    { "CADENCE",tower_upg_next_cost_rate (tw), tw->upg_rate,   {155,  89, 182, 255} },
                 };
                 const Rectangle *upg_rects[3] = {
                     &ui->upg_dmg_btn, &ui->upg_range_btn, &ui->upg_rate_btn
@@ -570,9 +571,10 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     Color _brd  = _is_max ? (Color){50, 40, 15, 120}
                                 : _afford ? ubs[_u].col
                                           : (Color){60, 45, 15, 140};
-                    DrawRectangleRounded(*ur, 0.20f, 4, _bg);
-                    DrawRectangleRoundedLinesEx(*ur, 0.20f, 4, 1.2f, _brd);
+                    DrawRectangleRounded(*ur, 0.15f, 4, _bg);
+                    DrawRectangleRoundedLinesEx(*ur, 0.15f, 4, 1.2f, _brd);
 
+                    /* Ligne 1 : étiquette type (y+2, fs=9) */
                     char _ltxt[12];
                     snprintf(_ltxt, sizeof(_ltxt), "%s", ubs[_u].lbl);
                     int _lw = mtxt(_ltxt, 9);
@@ -581,32 +583,33 @@ void ui_render(const UIState *ui, const GameState *gs) {
                          (int)(ur->x + ur->width/2 - _lw/2),
                          (int)(ur->y + 2), 9, _lc);
 
-                    /* Niveau niv/MAX */
-                    char _lvltxt[10];
-                    snprintf(_lvltxt, sizeof(_lvltxt), "%d/%d",
-                             ubs[_u].lvl, TOWER_UPG_MAX);
-                    int _nlw = mtxt(_lvltxt, 8);
-                    dtxt(_lvltxt,
-                         (int)(ur->x + ur->width/2 - _nlw/2),
-                         (int)(ur->y + ubh - 12), 8,
-                         _is_max ? (Color){100, 80, 25, 200} : (Color){148, 128, 95, 220});
-
-                    /* Coût */
-                    if (!_is_max) {
-                        char _ctxt[16];
-                        snprintf(_ctxt, sizeof(_ctxt), "%dor", ubs[_u].cost);
-                        int _cw = mtxt(_ctxt, 7);
-                        dtxt(_ctxt,
-                             (int)(ur->x + ur->width/2 - _cw/2),
-                             (int)(ur->y + 11), 7,
-                             _afford ? (Color){220, 145, 30, 255}
-                                     : (Color){100, 55, 25, 200});
-                    } else {
-                        int _mw = mtxt("MAX", 7);
+                    if (_is_max) {
+                        /* MAX sur 2 lignes fusionnées */
+                        int _mw = mtxt("MAX", 9);
                         dtxt("MAX",
                              (int)(ur->x + ur->width/2 - _mw/2),
-                             (int)(ur->y + 11), 7,
+                             (int)(ur->y + 18), 9,
                              (Color){100, 80, 25, 200});
+                    } else {
+                        /* Ligne 2 : niveau X/5 (y+16, fs=8) */
+                        char _lvltxt[10];
+                        snprintf(_lvltxt, sizeof(_lvltxt), "niv %d/%d",
+                                 ubs[_u].lvl, TOWER_UPG_MAX);
+                        int _nlw = mtxt(_lvltxt, 8);
+                        dtxt(_lvltxt,
+                             (int)(ur->x + ur->width/2 - _nlw/2),
+                             (int)(ur->y + 16), 8,
+                             (Color){148, 128, 95, 220});
+
+                        /* Ligne 3 : coût (y+27, fs=8) */
+                        char _ctxt[16];
+                        snprintf(_ctxt, sizeof(_ctxt), "%d or", ubs[_u].cost);
+                        int _cw = mtxt(_ctxt, 8);
+                        dtxt(_ctxt,
+                             (int)(ur->x + ur->width/2 - _cw/2),
+                             (int)(ur->y + 27), 8,
+                             _afford ? (Color){220, 145, 30, 255}
+                                     : (Color){100, 55, 25, 200});
                     }
                 }
                 (void)ubw; (void)uy;
@@ -628,7 +631,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 DrawRectangleRounded(rb, rrnd, 4, _rbg);
                 DrawRectangleRoundedLinesEx(rb, rrnd, 4, 1.2f, _rbd);
                 char _rptxt[24];
-                snprintf(_rptxt, sizeof(_rptxt), "Rep. %dor", TOWER_REPAIR_COST);
+                snprintf(_rptxt, sizeof(_rptxt), "Rep. %d or", TOWER_REPAIR_COST);
                 int _rpw = mtxt(_rptxt, 10);
                 Color _rpc = _can_rep   ? (Color){42, 185, 90, 255}
                            : _needs_rep ? (Color){55, 42, 22, 200}
@@ -666,21 +669,45 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
             // Bouton APPLIQUER MATÉRIAU
             if (ui->apply_mat_visible && gs->inventory_count > 0) {
+                /* Borne de sécurité sur l'index sélectionné */
+                int _sidx = ui->sel_mat_idx;
+                if (_sidx < 0 || _sidx >= gs->inventory_count) _sidx = 0;
+                MaterialType mat = gs->inventory[_sidx];
+
                 Rectangle ab   = ui->apply_mat_btn;
                 float     arnd = (float)UI_RADIUS / ab.height;
-                Vector2   m    = virt_mouse();
-                int hov = CheckCollisionPointRec(m, ab);
+                Vector2   mv   = virt_mouse();
+                int hov = CheckCollisionPointRec(mv, ab);
                 DrawRectangleRounded(ab, arnd, 6,
                     hov ? (Color){4,26,36,255} : (Color){3,14,20,255});
                 DrawRectangleRoundedLinesEx(ab, arnd, 6, 1.5f,
                     hov ? (Color){55,165,195,255} : (Color){24,82,100,255});
-                MaterialType mat = gs->inventory[0];
-                clip_text(TextFormat("+ Appliquer  %s", MATERIAL_NAMES[mat]),
-                          max_w - M, 13, buf, sizeof(buf));
-                int bw = mtxt(buf, 13);
-                dtxt(buf, (int)(ab.x + ab.width/2 - bw/2),
-                         (int)(ab.y + ab.height/2 - 7),
-                         13, (Color){62,175,200,255});
+
+                /* Label : matériau + index si plusieurs en inventaire */
+                if (gs->inventory_count > 1) {
+                    /* Flèches de cycle */
+                    dtxt("<", (int)(ab.x + 5),
+                         (int)(ab.y + ab.height/2 - 8), 14,
+                         (Color){62,175,200,200});
+                    dtxt(">", (int)(ab.x + ab.width - 12),
+                         (int)(ab.y + ab.height/2 - 8), 14,
+                         (Color){62,175,200,200});
+                    clip_text(TextFormat("[%d/%d] %s",
+                                        _sidx + 1, gs->inventory_count,
+                                        MATERIAL_NAMES[mat]),
+                              max_w - 40, 11, buf, sizeof(buf));
+                    int bw2 = mtxt(buf, 11);
+                    dtxt(buf, (int)(ab.x + ab.width/2 - bw2/2),
+                             (int)(ab.y + ab.height/2 - 7),
+                             11, (Color){62,175,200,255});
+                } else {
+                    clip_text(TextFormat("+ Appliquer  %s", MATERIAL_NAMES[mat]),
+                              max_w - M, 13, buf, sizeof(buf));
+                    int bw2 = mtxt(buf, 13);
+                    dtxt(buf, (int)(ab.x + ab.width/2 - bw2/2),
+                             (int)(ab.y + ab.height/2 - 7),
+                             13, (Color){62,175,200,255});
+                }
             }
 
         } else if (ui->sell_unit_idx >= 0) {
@@ -1018,6 +1045,33 @@ void ui_render(const UIState *ui, const GameState *gs) {
             }
         }
 
+        // Indicateurs d'amélioration : point pulsant sur les tours qu'on peut
+        // réellement améliorer MAINTENANT (axe non-max ET or suffisant).
+        {
+            float t_dot = (float)GetTime();
+            float pulse_dot = (sinf(t_dot * 4.0f) + 1.0f) * 0.5f;
+            unsigned char pa = (unsigned char)(140 + (int)(pulse_dot * 100.0f));
+            for (int i = 0; i < MAX_TOWERS; i++) {
+                const Tower *tw = &gs->towers.towers[i];
+                if (!tw->active) continue;
+                /* Vérifie qu'au moins un axe est abordable (coût > 0 = pas au max) */
+                int c_dmg   = tower_upg_next_cost_dmg  (tw);
+                int c_range = tower_upg_next_cost_range (tw);
+                int c_rate  = tower_upg_next_cost_rate  (tw);
+                int can_upg = (c_dmg   > 0 && gs->gold >= c_dmg)  ||
+                              (c_range > 0 && gs->gold >= c_range) ||
+                              (c_rate  > 0 && gs->gold >= c_rate);
+                if (!can_upg) continue;
+                /* Point pulsant en haut-droit de la tuile */
+                float dot_x = tw->tile_x * TILE_SIZE + TILE_SIZE - 5.0f;
+                float dot_y = tw->tile_y * TILE_SIZE + 5.0f;
+                DrawCircle((int)dot_x, (int)dot_y, 4,
+                           (Color){255, 220, 50, pa});
+                DrawCircleLines((int)dot_x, (int)dot_y, 4,
+                                (Color){200, 160, 20, 200});
+            }
+        }
+
         // Portée au survol d'une tour posée
         if (ui->hovered_tile_x >= 0 && ui->hovered_tile_y >= 0 &&
             ui->selected_tool == TOOL_NONE && !ui->selection.active) {
@@ -1123,7 +1177,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
             clip_text(TextFormat("Dmg:%.0f  Port:%.1ft", info->dmg, info->range),
                       TW-M*2, 10, dbuf, sizeof(dbuf));
             dtxt(dbuf, tx+M, ty+23, 10, (Color){145,125,92,255});
-            clip_text(TextFormat("Cad:%.1f/s  Cout:%dor", info->rate, info->cost),
+            clip_text(TextFormat("Cad:%.1f/s  Cout:%d or", info->rate, info->cost),
                       TW-M*2, 10, dbuf, sizeof(dbuf));
             dtxt(dbuf, tx+M, ty+35, 10, (Color){145,125,92,255});
             clip_text(info->desc, TW-M*2, 9, dbuf, sizeof(dbuf));

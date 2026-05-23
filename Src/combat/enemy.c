@@ -32,19 +32,19 @@ const EnemyStats ENEMY_BASE_STATS[ENEMY_TYPE_COUNT] = {
 /* ════════════════════════════════════════════════════
    RÉSISTANCES / FAIBLESSES
    [type][DamageType] : 1.0 = neutre, <1 = résistance, >1 = faiblesse
-   Ordre : DMG_PHYSICAL(0), DMG_POISON(1), DMG_ELECTRIC(2), DMG_CRYO(3), DMG_NANO(4)
+   Ordre : DMG_PHYSICAL(0), DMG_POISON(1), DMG_ELECTRIC(2), DMG_CRYO(3), DMG_NANO(4), DMG_FIRE(5)
    ════════════════════════════════════════════════════ */
 const float ENEMY_DMG_MULT[ENEMY_TYPE_COUNT][DAMAGE_TYPE_COUNT] = {
-    [ENEMY_RAIDER]      = { 1.0f, 1.5f, 1.0f, 1.0f, 1.0f }, // organique, très inflammable
-    [ENEMY_BRUTE]       = { 0.7f, 1.0f, 1.4f, 1.0f, 1.0f }, // armure lourde, conductive
-    [ENEMY_RUNNER]      = { 1.0f, 1.3f, 1.0f, 1.4f, 1.0f }, // léger, brûle vite, gelable
-    [ENEMY_VEHICLE]     = { 0.5f, 0.4f, 0.8f, 1.6f, 1.0f }, // blindé, froid grippe les engrenages
-    [ENEMY_MUTANT]      = { 1.0f, 0.4f, 1.3f, 1.0f, 1.0f }, // mutation résiste aux toxines
-    [ENEMY_GHOST]       = { 0.3f, 1.0f, 1.0f, 1.0f, 2.0f }, // semi-incorporel, nano le perturbe
-    [ENEMY_PATHBREAKER] = { 0.8f, 1.4f, 1.0f, 1.0f, 1.0f }, // muscle mais sans armure
-    [ENEMY_HEALER]      = { 1.0f, 1.0f, 1.5f, 1.0f, 1.0f }, // fragile au choc électrique
-    [ENEMY_HUNTER]      = { 1.3f, 1.0f, 1.0f, 1.0f, 1.0f }, // rapide mais peau fine, précision
-    [ENEMY_ARTILLERY]   = { 0.6f, 0.4f, 1.6f, 1.0f, 1.0f }, // machine, très sensible à l'élec
+    [ENEMY_RAIDER]      = { 1.0f, 1.5f, 1.0f, 1.0f, 1.0f, 1.5f }, // organique, très inflammable
+    [ENEMY_BRUTE]       = { 0.7f, 1.0f, 1.4f, 1.0f, 1.0f, 1.0f }, // armure lourde, conductive
+    [ENEMY_RUNNER]      = { 1.0f, 1.3f, 1.0f, 1.4f, 1.0f, 1.4f }, // léger, brûle vite, gelable
+    [ENEMY_VEHICLE]     = { 0.5f, 0.4f, 0.8f, 1.6f, 1.0f, 0.7f }, // blindé, métal résiste aux flammes
+    [ENEMY_MUTANT]      = { 1.0f, 0.4f, 1.3f, 1.0f, 1.0f, 0.8f }, // mutation atténue les brûlures
+    [ENEMY_GHOST]       = { 0.3f, 1.0f, 1.0f, 1.0f, 2.0f, 0.5f }, // semi-incorporel, le feu le traverse
+    [ENEMY_PATHBREAKER] = { 0.8f, 1.4f, 1.0f, 1.0f, 1.0f, 1.2f }, // muscle mais sans armure
+    [ENEMY_HEALER]      = { 1.0f, 1.0f, 1.5f, 1.0f, 1.0f, 1.0f }, // fragile au choc électrique
+    [ENEMY_HUNTER]      = { 1.3f, 1.0f, 1.0f, 1.0f, 1.0f, 1.2f }, // agile, brûle correctement
+    [ENEMY_ARTILLERY]   = { 0.6f, 0.4f, 1.6f, 1.0f, 1.0f, 0.8f }, // machine, partiellement ignifugée
 };
 
 /* ════════════════════════════════════════════════════
@@ -136,18 +136,18 @@ void enemy_spawn(EnemyPool *pool, EnemyType type,
 
     // Healer
     if (type == ENEMY_HEALER) {
-        e->heal_range  = 2.0f * TILE_SIZE;
-        e->heal_amount = 15.0f;
+        e->heal_range  = ENEMY_HEALER_HEAL_RANGE  * TILE_SIZE;
+        e->heal_amount = ENEMY_HEALER_HEAL_AMOUNT;
         e->heal_timer  = 0.0f;
     }
 
     // Hunter
     if (type == ENEMY_HUNTER)
-        e->hunt_range = 6.0f * TILE_SIZE;
+        e->hunt_range = ENEMY_HUNTER_HUNT_RANGE * TILE_SIZE;
 
     // Artillery
     if (type == ENEMY_ARTILLERY)
-        e->arty_range = 4.0f * TILE_SIZE;
+        e->arty_range = ENEMY_ARTY_RANGE * TILE_SIZE;
 
     // Pathbreaker
     if (type == ENEMY_PATHBREAKER) {
@@ -159,7 +159,7 @@ void enemy_spawn(EnemyPool *pool, EnemyType type,
         e->break_at = break_min + GetRandomValue(0, break_max - break_min);
         e->target_x = path->steps[path->len-1].x * TILE_SIZE + TILE_SIZE / 2.0f;
         e->target_y = path->steps[path->len-1].y * TILE_SIZE + TILE_SIZE / 2.0f;
-        e->speed   *= 1.3f;
+        e->speed   *= ENEMY_PATHBREAKER_SPEED_MULT;
     }
 
     pool->count++;
@@ -227,7 +227,7 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
 
         // ── Régénération Mutant ───────────────────────────────
         if (e->type == ENEMY_MUTANT && e->hp < e->max_hp) {
-            e->hp += 5.0f * dt;
+            e->hp += ENEMY_MUTANT_REGEN_RATE * dt;
             if (e->hp > e->max_hp) e->hp = e->max_hp;
         }
 
@@ -296,10 +296,10 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                 float dist = edist(e->x, e->y, u->x, u->y);
 
                 if (dist <= e->melee_range) {
-                    // Attaque l'unité — dégâts ×3
+                    // Attaque l'unité
                     if (e->atk_timer <= 0.0f) {
-                        unit_damage((Unit*)u, (float)e->damage * 3.0f);
-                        e->atk_timer = 0.4f;
+                        unit_damage((Unit*)u, (float)e->damage * ENEMY_MELEE_DMG_MULT);
+                        e->atk_timer = ENEMY_HUNTER_ATK_TIMER;
                     }
                     continue;
                 } else {
@@ -333,10 +333,9 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
             if (best_t != -1) {
                 Tower *tw = &towers->towers[best_t];
                 if (e->arty_timer <= 0.0f) {
-                    // Dégâts fixes : 3 tirs de 40 pour détruire (hp=100)
-                    tw->hp -= 40.0f;
+                    tw->hp -= ENEMY_ARTY_DAMAGE;
                     if (tw->hp <= 0.0f) tw->hp = 0.0f;
-                    e->arty_timer = 3.0f;
+                    e->arty_timer = ENEMY_ARTY_FIRE_TIMER;
                 }
                 // S'arrête pendant qu'il tire
                 continue;
@@ -363,21 +362,21 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
             }
 
             if (engaged_unit != -1) {
-                e->engage_timer = 0.3f;
+                e->engage_timer = ENEMY_MELEE_ENGAGE_TIMER;
                 if (e->atk_timer <= 0.0f) {
                     float atk_rate;
                     switch (e->type) {
-                        case ENEMY_BRUTE:       atk_rate = 0.6f; break;
-                        case ENEMY_RUNNER:      atk_rate = 2.0f; break;
-                        case ENEMY_VEHICLE:     atk_rate = 0.4f; break;
-                        case ENEMY_GHOST:       atk_rate = 1.5f; break;
-                        case ENEMY_PATHBREAKER: atk_rate = 1.2f; break;
-                        case ENEMY_HEALER:      atk_rate = 0.5f; break;
-                        default:                atk_rate = 1.0f; break;
+                        case ENEMY_BRUTE:       atk_rate = ENEMY_MELEE_RATE_BRUTE;       break;
+                        case ENEMY_RUNNER:      atk_rate = ENEMY_MELEE_RATE_RUNNER;      break;
+                        case ENEMY_VEHICLE:     atk_rate = ENEMY_MELEE_RATE_VEHICLE;     break;
+                        case ENEMY_GHOST:       atk_rate = ENEMY_MELEE_RATE_GHOST;       break;
+                        case ENEMY_PATHBREAKER: atk_rate = ENEMY_MELEE_RATE_PATHBREAKER; break;
+                        case ENEMY_HEALER:      atk_rate = ENEMY_MELEE_RATE_HEALER;      break;
+                        default:                atk_rate = ENEMY_MELEE_RATE_DEFAULT;     break;
                     }
                     e->atk_timer = 1.0f / atk_rate;
                     unit_damage((Unit*)&units->units[engaged_unit],
-                                (float)e->damage * 3.0f);
+                                (float)e->damage * ENEMY_MELEE_DMG_MULT);
                 }
                 continue;
             } else if (e->engage_timer > 0.0f) {
@@ -440,7 +439,7 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                                 }
                                 *lives -= e->damage;
                                 if (*lives < 0) *lives = 0;
-                                e->atk_timer = 1.0f;
+                                e->atk_timer = ENEMY_SIEGE_ATK_TIMER;
                             }
                             break;
                         }
@@ -451,7 +450,7 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
 
             float speed = e->speed;
             if (e->slow_timer > 0.0f && e->type != ENEMY_VEHICLE)
-                speed *= 0.5f;
+                speed *= ENEMY_SLOW_SPEED_MULT;
 
             Point next = path->steps[e->path_index + 1];
             float tx   = next.x * TILE_SIZE + TILE_SIZE / 2.0f;

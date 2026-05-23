@@ -96,7 +96,10 @@ static int handle_menu(AppContext *ctx) {
 
     if (act.quit_app) return 0;
 
-    if (act.toggle_fs == 1) ToggleFullscreen();
+    if (act.toggle_fs == 1) {
+        ToggleFullscreen();
+        ctx->menu.opts.fullscreen = IsWindowFullscreen();
+    }
     if (act.toggle_fs == 2 && !IsWindowFullscreen())
         window_apply_size(ctx->menu.opts.win_width,
                           ctx->menu.opts.win_height);
@@ -105,8 +108,9 @@ static int handle_menu(AppContext *ctx) {
         ctx->active_slot = act.new_slot;
         game_init_arcade(&ctx->gs, act.new_theme, ctx->active_slot);
         save_write(&ctx->gs, ctx->active_slot);
-        ctx->menu.screen = MENU_TITLE;
-        ctx->screen      = SCREEN_GAME;
+        ctx->menu.screen  = MENU_TITLE;
+        ctx->screen       = SCREEN_GAME;
+        ctx->banner_timer = 5.0f;
         ctx->gs.ui.show_fps = ctx->menu.opts.show_fps;
         audio_play_theme_music(ctx->gs.map.theme);
     }
@@ -119,9 +123,10 @@ static int handle_menu(AppContext *ctx) {
         /* Sauvegarde initiale avec état interlude = DIALOG_BEFORE */
         campaign_save_write(&ctx->gs, ctx->active_slot,
                             INTER_DIALOG_BEFORE, 0, 0, 0);
-        ctx->menu.screen = MENU_TITLE;
-        ctx->screen      = SCREEN_GAME;
-        ctx->interlude   = INTER_DIALOG_BEFORE;
+        ctx->menu.screen  = MENU_TITLE;
+        ctx->screen       = SCREEN_GAME;
+        ctx->interlude    = INTER_DIALOG_BEFORE;
+        ctx->banner_timer = 5.0f;
         ctx->gs.ui.show_fps = ctx->menu.opts.show_fps;
         audio_play_theme_music(ctx->gs.map.theme);
     }
@@ -138,25 +143,29 @@ static int handle_menu(AppContext *ctx) {
                 ctx->interlude_last  = last;
                 ctx->menu.screen     = MENU_TITLE;
                 ctx->screen          = SCREEN_GAME;
+                ctx->banner_timer    = 5.0f;
             } else {
                 /* Fichier campagne illisible — repart de l'acte 0 */
-                ctx->active_slot = slot;
+                ctx->active_slot  = slot;
                 game_init_campaign(&ctx->gs, ctx->gs.meta.campaigns_completed,
                                    slot, 0);
                 campaign_save_write(&ctx->gs, slot, INTER_DIALOG_BEFORE, 0, 0, 0);
-                ctx->interlude   = INTER_DIALOG_BEFORE;
-                ctx->screen      = SCREEN_GAME;
+                ctx->interlude    = INTER_DIALOG_BEFORE;
+                ctx->screen       = SCREEN_GAME;
+                ctx->banner_timer = 5.0f;
             }
         } else {
             if (save_read(&ctx->gs, slot)) {
-                ctx->active_slot = slot;
-                ctx->menu.screen = MENU_TITLE;
-                ctx->screen      = SCREEN_GAME;
+                ctx->active_slot  = slot;
+                ctx->menu.screen  = MENU_TITLE;
+                ctx->screen       = SCREEN_GAME;
+                ctx->banner_timer = 5.0f;
             } else {
-                ctx->active_slot = slot;
+                ctx->active_slot  = slot;
                 game_init_arcade(&ctx->gs, THEME_COUNT, slot);
                 save_write(&ctx->gs, ctx->active_slot);
-                ctx->screen = SCREEN_GAME;
+                ctx->screen       = SCREEN_GAME;
+                ctx->banner_timer = 5.0f;
             }
         }
         ctx->gs.ui.show_fps = ctx->menu.opts.show_fps;
@@ -190,6 +199,12 @@ static void game_do_input(AppContext *ctx) {
 
 static void game_do_update(AppContext *ctx, float dt) {
     if (ctx->menu.paused || ctx->interlude != INTER_NONE) return;
+
+    /* Décompte du minuteur de bannière */
+    if (ctx->banner_timer > 0.0f) {
+        ctx->banner_timer -= dt;
+        if (ctx->banner_timer < 0.0f) ctx->banner_timer = 0.0f;
+    }
 
     ui_update(&ctx->gs.ui, &ctx->gs);
     // Fiche de découverte visible → jeu gelé (ui_update gère la fermeture)
@@ -240,9 +255,16 @@ static void game_handle_campaign_end(AppContext *ctx) {
     if (!ctx->gs.is_campaign            ||
         ctx->gs.phase   != PHASE_PREP   ||
         ctx->gs.wave_manager.number < 1 ||
-        ctx->interlude  != INTER_NONE   ||
-        !IsKeyPressed(KEY_TAB))
+        ctx->interlude  != INTER_NONE)
         return;
+
+    const ActData *_ad_check = campaign_act_get(ctx->gs.campaign_stage);
+    int _wave_done = (ctx->gs.wave_manager.number >= _ad_check->min_waves);
+
+    /* Déclenche automatiquement quand le quota est atteint,
+       ou sur TAB si le quota est déjà atteint (sortie manuelle). */
+    if (!_wave_done && !IsKeyPressed(KEY_TAB)) return;
+    if (!_wave_done) return; /* TAB avant le quota : ignoré */
 
     int stage_idx       = ctx->gs.campaign_stage;
     const ActData *ad   = campaign_act_get(stage_idx);
@@ -287,7 +309,8 @@ static void game_handle_dialog_after(AppContext *ctx) {
         campaign_save_write(&ctx->gs, ctx->active_slot,
                             INTER_DIALOG_BEFORE, 0, 0, 0);
         audio_play_theme_music(ctx->gs.map.theme);
-        ctx->interlude = INTER_DIALOG_BEFORE;
+        ctx->interlude    = INTER_DIALOG_BEFORE;
+        ctx->banner_timer = 5.0f;
     }
 }
 
@@ -373,6 +396,8 @@ static int game_do_render(AppContext *ctx) {
     ui_render(&gs->ui, gs);
 
     /* ── Bannière centrale (mode + nom de la carte) ──────────── */
+    /* Visible pendant banner_timer secondes au démarrage, fondu sur 0.5 s.
+       Quand le jeu est en pause : affichage complet (opaque) en haut de carte. */
     {
         char line1[80] = {0};
         char line2[80] = {0};
@@ -381,11 +406,13 @@ static int game_do_render(AppContext *ctx) {
 
         if (gs->is_campaign && ctx->interlude == INTER_NONE) {
             const ActData *ad = campaign_act_get(gs->campaign_stage);
-            snprintf(line1, sizeof(line1), "Campagne  —  CH.%d  —  %s",
-                     ad->chapter + 1, ad->title);
-            if (gs->phase == PHASE_PREP && gs->wave_manager.number >= 1)
-                snprintf(line2, sizeof(line2), "TAB : Terminer l'acte   |   %s",
-                         ad->objective.description);
+            snprintf(line1, sizeof(line1), "Campagne  —  CH.%d  Acte %d  —  %s",
+                     ad->chapter + 1, ad->act + 1, ad->title);
+            if (gs->phase == PHASE_PREP && gs->wave_manager.number >= 1) {
+                const ActData *_ad2 = campaign_act_get(gs->campaign_stage);
+                snprintf(line2, sizeof(line2), "Objectif : %d vague(s)  |  %s",
+                         _ad2->min_waves, _ad2->objective.description);
+            }
         } else if (gs->is_endless) {
             int score = (int)((float)gs->wave_manager.number
                               * gs->endless_multiplier * 10.0f);
@@ -406,31 +433,59 @@ static int game_do_render(AppContext *ctx) {
             col1 = (Color){225, 200, 100, 255};
         }
 
-        if (line1[0]) {
-            int fs1 = 14;
+        /* Calcul de l'alpha selon le timer ou l'état pause */
+        unsigned char banner_alpha;
+        if (ctx->menu.paused) {
+            banner_alpha = 255; /* pause : opaque */
+        } else {
+            float t = ctx->banner_timer;
+            if (t <= 0.0f) {
+                /* Bannière expirée : ligne 2 toujours visible en campagne */
+                banner_alpha = 0;
+            } else {
+                /* Fondu sur la dernière 0.5 s */
+                float fade = t < 0.5f ? (t / 0.5f) : 1.0f;
+                banner_alpha = (unsigned char)(fade * 255.0f);
+            }
+        }
+
+        if (line1[0] && (banner_alpha > 0 || ctx->menu.paused)) {
+            int fs1 = ctx->menu.paused ? 17 : 14;
             int tw1 = mtxt(line1, fs1);
             int bx  = g_map_x_off + MAP_W * TILE_SIZE / 2 - tw1 / 2;
-            int by  = 6;
+            int by  = ctx->menu.paused ? 22 : 6;
+            int bh  = ctx->menu.paused ? 28 : 23;
             DrawRectangleRounded(
-                (Rectangle){bx - 12, by - 4, tw1 + 24, 23},
-                0.35f, 4, (Color){6, 4, 1, 230});
+                (Rectangle){bx - 14, by - 5, tw1 + 28, bh},
+                0.35f, 4, (Color){6, 4, 1, (unsigned char)((int)banner_alpha * 230 / 255)});
             DrawRectangleRoundedLinesEx(
-                (Rectangle){bx - 12, by - 4, tw1 + 24, 23},
-                0.35f, 4, 1.0f, (Color){80, 60, 18, 200});
-            dtxt(line1, bx, by, fs1, col1);
+                (Rectangle){bx - 14, by - 5, tw1 + 28, bh},
+                0.35f, 4, 1.2f,
+                (Color){80, 60, 18, (unsigned char)((int)banner_alpha * 200 / 255)});
+            dtxt(line1, bx, by, fs1,
+                 (Color){col1.r, col1.g, col1.b, banner_alpha});
         }
+
+        /* Ligne 2 : en campagne, toujours visible quand pertinente (après 1ère vague) */
         if (line2[0]) {
-            int fs2 = 11;
-            int tw2 = mtxt(line2, fs2);
-            int bx  = g_map_x_off + MAP_W * TILE_SIZE / 2 - tw2 / 2;
-            int by  = 33;
-            DrawRectangleRounded(
-                (Rectangle){bx - 8, by - 3, tw2 + 16, 18},
-                0.35f, 4, (Color){6, 4, 1, 215});
-            DrawRectangleRoundedLinesEx(
-                (Rectangle){bx - 8, by - 3, tw2 + 16, 18},
-                0.35f, 4, 1.0f, (Color){60, 45, 12, 160});
-            dtxt(line2, bx, by, fs2, col2);
+            unsigned char a2 = ctx->menu.paused ? 255 : banner_alpha;
+            /* En jeu normal sans pause, ligne 2 visible tant que la bannière est active */
+            if (a2 > 0) {
+                int fs2 = 11;
+                int tw2 = mtxt(line2, fs2);
+                int bx  = g_map_x_off + MAP_W * TILE_SIZE / 2 - tw2 / 2;
+                int by  = ctx->menu.paused ? 55 : 33;
+                DrawRectangleRounded(
+                    (Rectangle){bx - 8, by - 3, tw2 + 16, 18},
+                    0.35f, 4,
+                    (Color){6, 4, 1, (unsigned char)((int)a2 * 215 / 255)});
+                DrawRectangleRoundedLinesEx(
+                    (Rectangle){bx - 8, by - 3, tw2 + 16, 18},
+                    0.35f, 4, 1.0f,
+                    (Color){60, 45, 12, (unsigned char)((int)a2 * 160 / 255)});
+                dtxt(line2, bx, by, fs2,
+                     (Color){col2.r, col2.g, col2.b, a2});
+            }
         }
     }
 
@@ -507,7 +562,10 @@ static int game_do_render(AppContext *ctx) {
             }
             return 0;   /* quitter l'application */
         }
-        if (pact.toggle_fs == 1) ToggleFullscreen();
+        if (pact.toggle_fs == 1) {
+            ToggleFullscreen();
+            ctx->menu.opts.fullscreen = IsWindowFullscreen();
+        }
         if (pact.toggle_fs == 2 && !IsWindowFullscreen())
             window_apply_size(ctx->menu.opts.win_width,
                               ctx->menu.opts.win_height);
