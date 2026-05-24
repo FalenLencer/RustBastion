@@ -19,11 +19,11 @@
 // ════════════════════════════════════════════════════
 void ui_update(UIState *ui, GameState *gs) {
     Vector2   mouse = virt_mouse();
-    const int HUD_Y = MAP_H * TILE_SIZE;
+    const int HUD_Y = g_canvas_virt_h - UI_HUD_HEIGHT;
 
     // ── Fiche de découverte — fermeture prioritaire ──────────────
     if (ui->disc_count > 0) {
-        int cx = g_canvas_virt_w / 2, cy = (MAP_H * TILE_SIZE + UI_HUD_HEIGHT) / 2;
+        int cx = g_canvas_virt_w / 2, cy = g_canvas_virt_h / 2;
         int cw = 540, ch = 400;
         int card_x = cx - cw/2, card_y = cy - ch/2;
         // Bouton [✕]
@@ -70,14 +70,15 @@ void ui_update(UIState *ui, GameState *gs) {
         }
     }
 
-    // Hover tuile (tient compte du décalage horizontal de la carte)
+    // Hover tuile (tient compte du décalage horizontal et du zoom de carte)
     {
         int map_left  = g_map_x_off;
-        int map_right = g_map_x_off + MAP_W * TILE_SIZE;
+        int map_right = g_map_x_off + g_canvas_virt_w_base;
         if (mouse.y >= 0 && mouse.y < HUD_Y &&
             mouse.x >= map_left && mouse.x < map_right) {
-            ui->hovered_tile_x = (int)((mouse.x - map_left) / TILE_SIZE);
-            ui->hovered_tile_y = (int)(mouse.y / TILE_SIZE);
+            float eff_tile = TILE_SIZE * g_map_render_scale;
+            ui->hovered_tile_x = (int)((mouse.x - map_left) / eff_tile);
+            ui->hovered_tile_y = (int)(mouse.y / eff_tile);
         } else {
             ui->hovered_tile_x = -1;
             ui->hovered_tile_y = -1;
@@ -166,26 +167,31 @@ void ui_update(UIState *ui, GameState *gs) {
         (void)ubw; (void)uy;
     }
 
-    /* ── Boutons réparation bases (panneau gauche) ─────────────── */
+    /* ── Boutons réparation bases (overlay bas-gauche) ─────────── */
     {
-        const int M  = UI_MARGIN;
-        const int px = M + 2;
-        int py = HUD_Y + M;
-        for (int b = 0; b < gs->map.base_count && b < MAX_BASES; b++) {
-            const BaseInfo *base = &gs->map.bases[b];
-            py += 18;  /* label(8) + gap(2) + barre(6) + gap(2) */
-            if (base->active && base->hp > 0 && base->hp < base->max_hp) {
-                ui->repair_base_btn[b] = (Rectangle){
-                    (float)(px), (float)(py + 1),
-                    (float)(UI_LEFT_PANEL_W - M * 2 - 4), 14.0f
-                };
-                py += 16;
-            } else {
-                ui->repair_base_btn[b] = (Rectangle){0.0f, 0.0f, 0.0f, 0.0f};
+        if (ui->overlay_bl_pos.x >= 0.0f) {
+            const int OV_P = OVERLAY_OV_P;
+            int bx = (int)ui->overlay_bl_pos.x + OV_P;
+            int by = (int)ui->overlay_bl_pos.y + OV_P + 4;  /* top + grip */
+            const int bw = OVERLAY_BL_W - OV_P * 2;
+            for (int b = 0; b < gs->map.base_count && b < MAX_BASES; b++) {
+                const BaseInfo *base = &gs->map.bases[b];
+                by += 18;   /* label(8) + gap(2) + barre(6) + gap(2) */
+                if (base->active && base->hp > 0 && base->hp < base->max_hp) {
+                    ui->repair_base_btn[b] = (Rectangle){
+                        (float)bx, (float)(by + 1),
+                        (float)bw, 14.0f
+                    };
+                    by += 16;   /* bouton (14) + gap (2) */
+                } else {
+                    ui->repair_base_btn[b] = (Rectangle){0.0f, 0.0f, 0.0f, 0.0f};
+                }
+                if (b < gs->map.base_count - 1) by += 4;   /* gap inter-bases */
             }
-            py += 4;  /* gap entre bases */
+        } else {
+            for (int b = 0; b < MAX_BASES; b++)
+                ui->repair_base_btn[b] = (Rectangle){0.0f, 0.0f, 0.0f, 0.0f};
         }
-        (void)px;
     }
 
     // Visibilité bouton matériau (+ vérif que la tour est encore active)
@@ -213,8 +219,15 @@ void ui_update(UIState *ui, GameState *gs) {
                 8.0f
             };
             ui->overlay_tr_pos = (Vector2){
-                (float)(g_map_x_off + MAP_W * TILE_SIZE - 8 - OVERLAY_W),
+                (float)(g_map_x_off + g_canvas_virt_w_base - 8 - OVERLAY_W),
                 8.0f
+            };
+        }
+        if (ui->overlay_bl_pos.x < 0.0f) {
+            int _bh = overlay_bl_h(gs);
+            ui->overlay_bl_pos = (Vector2){
+                (float)(g_map_x_off + 8),
+                (float)(HUD_Y - _bh - 8)
             };
         }
 
@@ -223,17 +236,24 @@ void ui_update(UIState *ui, GameState *gs) {
             ui->dragging_overlay = -1;
 
         if (ui->dragging_overlay >= 0) {
-            Vector2 *pos = (ui->dragging_overlay == 0)
-                         ? &ui->overlay_tl_pos : &ui->overlay_tr_pos;
-            float oh = (ui->dragging_overlay == 0) ? OVERLAY_TL_H : OVERLAY_TR_H;
+            Vector2 *pos;
+            float oh, ow;
+            if (ui->dragging_overlay == 0) {
+                pos = &ui->overlay_tl_pos; oh = OVERLAY_TL_H; ow = OVERLAY_W;
+            } else if (ui->dragging_overlay == 1) {
+                pos = &ui->overlay_tr_pos; oh = OVERLAY_TR_H; ow = OVERLAY_W;
+            } else {
+                pos = &ui->overlay_bl_pos;
+                oh  = (float)overlay_bl_h(gs); ow = OVERLAY_BL_W;
+            }
             pos->x = mouse.x - ui->drag_grab.x;
             pos->y = mouse.y - ui->drag_grab.y;
             // Clamp dans le canvas
-            int canvas_h = MAP_H * TILE_SIZE + UI_HUD_HEIGHT;
-            if (pos->x < 0) pos->x = 0;
-            if (pos->y < 0) pos->y = 0;
-            if (pos->x + OVERLAY_W > g_canvas_virt_w) pos->x = g_canvas_virt_w - OVERLAY_W;
-            if (pos->y + oh > canvas_h)                pos->y = canvas_h - oh;
+            int canvas_h = g_canvas_virt_h;
+            if (pos->x < 0)                    pos->x = 0;
+            if (pos->y < 0)                    pos->y = 0;
+            if (pos->x + ow > g_canvas_virt_w) pos->x = g_canvas_virt_w - ow;
+            if (pos->y + oh > canvas_h)         pos->y = canvas_h - oh;
         }
     }
 
@@ -272,32 +292,43 @@ void ui_update(UIState *ui, GameState *gs) {
                 ui->drag_grab = (Vector2){mouse.x - tr_r.x, mouse.y - tr_r.y};
                 goto end_click;
             }
-        }
-
-        /* ── Réparation des bases ──────────────────────────────── */
-        for (int _b = 0; _b < gs->map.base_count && _b < MAX_BASES; _b++) {
-            if (ui->repair_base_btn[_b].width <= 0.0f) continue;
-            if (!CheckCollisionPointRec(mouse, ui->repair_base_btn[_b])) continue;
-            BaseInfo *_base = &gs->map.bases[_b];
-            if (_base->active && _base->hp > 0 && _base->hp < _base->max_hp) {
-                int _cost = base_repair_cost(_base->repair_count);
-                if (gs->gold >= _cost) {
-                    gs->gold -= _cost;
-                    int _restore = BASE_REPAIR_RESTORE;
-                    if (_base->hp + _restore > _base->max_hp)
-                        _restore = _base->max_hp - _base->hp;
-                    _base->hp += _restore;
-                    gs->lives += _restore;
-                    _base->repair_count++;
-                    audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
-                    char _nbuf[48];
-                    snprintf(_nbuf, sizeof(_nbuf), "+%d HP (base reparee)", _restore);
-                    ui_push_notif(ui, _nbuf, (Color){46, 204, 113, 255});
-                } else {
-                    ui_push_notif(ui, "Or insuffisant !", (Color){243, 156, 18, 255});
+            /* ── Overlay BL : bases HP + réparation ─────────────── */
+            if (ui->overlay_bl_pos.x >= 0.0f) {
+                int _bh_bl = overlay_bl_h(gs);
+                Rectangle bl_r = {ui->overlay_bl_pos.x, ui->overlay_bl_pos.y,
+                                  OVERLAY_BL_W, (float)_bh_bl};
+                if (CheckCollisionPointRec(mouse, bl_r)) {
+                    /* Vérifie d'abord les boutons de réparation à l'intérieur */
+                    for (int _b = 0; _b < gs->map.base_count && _b < MAX_BASES; _b++) {
+                        if (ui->repair_base_btn[_b].width <= 0.0f) continue;
+                        if (!CheckCollisionPointRec(mouse, ui->repair_base_btn[_b])) continue;
+                        BaseInfo *_base = &gs->map.bases[_b];
+                        if (_base->active && _base->hp > 0 && _base->hp < _base->max_hp) {
+                            int _cost = base_repair_cost(_base->repair_count);
+                            if (gs->gold >= _cost) {
+                                gs->gold -= _cost;
+                                int _restore = BASE_REPAIR_RESTORE;
+                                if (_base->hp + _restore > _base->max_hp)
+                                    _restore = _base->max_hp - _base->hp;
+                                _base->hp += _restore;
+                                gs->lives += _restore;
+                                _base->repair_count++;
+                                audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
+                                char _nbuf[48];
+                                snprintf(_nbuf, sizeof(_nbuf), "+%d HP (base reparee)", _restore);
+                                ui_push_notif(ui, _nbuf, (Color){46, 204, 113, 255});
+                            } else {
+                                ui_push_notif(ui, "Or insuffisant !", (Color){243, 156, 18, 255});
+                            }
+                        }
+                        goto end_click;
+                    }
+                    /* Clic hors bouton → déplacement du panneau */
+                    ui->dragging_overlay = 2;
+                    ui->drag_grab = (Vector2){mouse.x - bl_r.x, mouse.y - bl_r.y};
+                    goto end_click;
                 }
             }
-            goto end_click;
         }
 
         /* ── Amélioration et réparation de la tour sélectionnée ── */
@@ -612,8 +643,11 @@ void ui_update(UIState *ui, GameState *gs) {
                                         + TILE_SIZE / 2.0f;
                             float bpy = gs->map.bases[b].pos.y * TILE_SIZE
                                         + TILE_SIZE / 2.0f;
-                            float dx = (mouse.x - g_map_x_off) - bpx;
-                            float dy = mouse.y - bpy;
+                            /* Convertit la souris en espace monde (zoom carte) */
+                            float wx = (mouse.x - g_map_x_off) / g_map_render_scale;
+                            float wy = mouse.y / g_map_render_scale;
+                            float dx = wx - bpx;
+                            float dy = wy - bpy;
                             float dist = sqrtf(dx*dx + dy*dy);
                             if (dist <= 5.0f * TILE_SIZE && dist < best_dist) {
                                 best_dist     = dist;
@@ -648,8 +682,10 @@ void ui_update(UIState *ui, GameState *gs) {
                 for (int j = 0; j < MAX_UNITS; j++) {
                     Unit *u = &gs->units.units[j];
                     if (!u->active) continue;
-                    float dx = (mouse.x - g_map_x_off) - u->x;
-                    float dy = mouse.y - u->y;
+                    float wx = (mouse.x - g_map_x_off) / g_map_render_scale;
+                    float wy = mouse.y / g_map_render_scale;
+                    float dx = wx - u->x;
+                    float dy = wy - u->y;
                     if (sqrtf(dx*dx + dy*dy) <= u->size + 6.0f) {
                         gs->units.selected_unit  = j;
                         ui->sell_unit_idx        = j;

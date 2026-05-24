@@ -10,7 +10,7 @@
    gestion des écrans, interludes, transitions, rendu de la scène.
    ════════════════════════════════════════════════════════════════ */
 #include "app.h"
-#include "game_init.h"
+#include "game_init.h"   // inclut menu.h pour CustomConfig
 #include "save.h"
 #include "meta.h"
 #include "../engine/audio.h"
@@ -89,10 +89,12 @@ void app_cleanup(AppContext *ctx) {
 // ÉCRAN MENU
 // ════════════════════════════════════════════════════════════════
 static int handle_menu(AppContext *ctx) {
+    /* Réinitialise le zoom de carte au retour au menu */
+    g_map_render_scale = 1.0f;
     menu_update(&ctx->menu, &ctx->gs.meta);
     ClearBackground((Color){8,5,3,255});
     MenuAction act = menu_render_and_act(&ctx->menu, &ctx->gs.meta,
-                                         g_canvas_virt_w, VIRT_H);
+                                         g_canvas_virt_w, g_canvas_virt_h);
 
     if (act.quit_app) return 0;
 
@@ -115,11 +117,22 @@ static int handle_menu(AppContext *ctx) {
         audio_play_theme_music(ctx->gs.map.theme);
     }
 
+    if (act.start_custom) {
+        ctx->active_slot = -1;   // pas de sauvegarde pour le mode custom
+        game_init_custom(&ctx->gs, &act.custom_cfg);
+        ctx->menu.screen  = MENU_TITLE;
+        ctx->screen       = SCREEN_GAME;
+        ctx->banner_timer = 5.0f;
+        ctx->gs.ui.show_fps = ctx->menu.opts.show_fps;
+        audio_play_theme_music(ctx->gs.map.theme);
+    }
+
     if (act.start_campaign) {
         ctx->active_slot = act.new_slot;
         ctx->gs.campaign_order_seed = act.campaign_order_seed;
         game_init_campaign(&ctx->gs, ctx->gs.meta.campaigns_completed,
-                           ctx->active_slot, act.campaign_order_seed);
+                           ctx->active_slot, act.campaign_order_seed,
+                           act.start_campaign_act);
         /* Sauvegarde initiale avec état interlude = DIALOG_BEFORE */
         campaign_save_write(&ctx->gs, ctx->active_slot,
                             INTER_DIALOG_BEFORE, 0, 0, 0);
@@ -148,7 +161,7 @@ static int handle_menu(AppContext *ctx) {
                 /* Fichier campagne illisible — repart de l'acte 0 */
                 ctx->active_slot  = slot;
                 game_init_campaign(&ctx->gs, ctx->gs.meta.campaigns_completed,
-                                   slot, 0);
+                                   slot, 0, 0);
                 campaign_save_write(&ctx->gs, slot, INTER_DIALOG_BEFORE, 0, 0, 0);
                 ctx->interlude    = INTER_DIALOG_BEFORE;
                 ctx->screen       = SCREEN_GAME;
@@ -186,7 +199,7 @@ static void game_do_input(AppContext *ctx) {
     /* Bouton pause cliqué dans le HUD */
     if (!ctx->menu.paused && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         int sh = GetScreenHeight();
-        float scale = (float)sh / VIRT_H;
+        float scale = (float)sh / g_canvas_virt_h;
         if (scale < 0.05f) scale = 0.05f;
         Vector2 mp = GetMousePosition();
         Vector2 vm = { mp.x / scale, mp.y / scale };
@@ -245,7 +258,9 @@ static void game_handle_gameover(AppContext *ctx) {
         ctx->gameover_meta_done = 0;  /* reset pour la prochaine partie */
         menu_refresh_slots(&ctx->menu);
         ctx->menu.paused  = 0;
-        ctx->menu.screen  = ctx->gs.is_campaign ? MENU_WORLD_MAP : MENU_ARCADE;
+        ctx->menu.screen  = ctx->gs.is_campaign ? MENU_WORLD_MAP
+                          : ctx->gs.is_custom    ? MENU_CUSTOM
+                          : MENU_ARCADE;
         ctx->screen       = SCREEN_MENU;
         audio_play_menu_music();
     }
@@ -319,14 +334,14 @@ static void game_handle_extract(AppContext *ctx) {
 
     /* Souris virtuelle (même calcul que dans game_do_render) */
     int sh = GetScreenHeight();
-    float scale = (float)sh / VIRT_H;
+    float scale = (float)sh / g_canvas_virt_h;
     if (scale < 0.05f) scale = 0.05f;
     Vector2 mp = GetMousePosition();
     Vector2 vm = { mp.x / scale, mp.y / scale };
 
     /* Rectangles des boutons — doivent correspondre à interlude_render_extract */
     {
-        int vw = g_canvas_virt_w, vh = VIRT_H;
+        int vw = g_canvas_virt_w, vh = g_canvas_virt_h;
         int cx = vw / 2, cy = vh / 2;
         int ph = 260, bw = 160, bh = 32, ms = 8;
         int by2 = cy + ph / 2 - ms - bh;
@@ -380,7 +395,7 @@ static int game_do_render(AppContext *ctx) {
     /* Décale la carte horizontalement pour centrer dans le canvas large */
     Camera2D map_cam = {0};
     map_cam.offset = (Vector2){(float)g_map_x_off, 0.0f};
-    map_cam.zoom   = 1.0f;
+    map_cam.zoom   = g_map_render_scale;
     BeginMode2D(map_cam);
         render_map(&gs->map);
         render_spawn_exclusion_zones(&gs->map);
@@ -395,129 +410,204 @@ static int game_do_render(AppContext *ctx) {
 
     ui_render(&gs->ui, gs);
 
-    /* ── Bannière centrale (mode + nom de la carte) ──────────── */
-    /* Visible pendant banner_timer secondes au démarrage, fondu sur 0.5 s.
-       Quand le jeu est en pause : affichage complet (opaque) en haut de carte. */
+    /* ── Bannière (mode de jeu + infos de carte) ─────────────── */
+    /* • Démarrage : grand overlay centré sur la carte, fade-in 0.3 s,
+         plein 4.2 s, fade-out 0.5 s  (banner_timer compte de 5 → 0).
+       • Pause      : bandeau compact fixe en haut de la carte.      */
     {
-        char line1[80] = {0};
-        char line2[80] = {0};
-        Color col1 = {255, 220, 100, 255};
-        Color col2 = {150, 215, 110, 255};
+        char big_title[80]  = {0};   /* titre principal (gros, centré)  */
+        char line1    [120] = {0};   /* sous-titre / détails            */
+        char line2    [80]  = {0};   /* info secondaire                 */
+        Color ctitle = {255, 210,  80, 255};
+        Color c1     = {200, 170,  60, 255};
+        Color c2     = {150, 215, 110, 255};
 
         if (gs->is_campaign && ctx->interlude == INTER_NONE) {
             const ActData *ad = campaign_act_get(gs->campaign_stage);
-            snprintf(line1, sizeof(line1), "Campagne  —  CH.%d  Acte %d  —  %s",
-                     ad->chapter + 1, ad->act + 1, ad->title);
-            if (gs->phase == PHASE_PREP && gs->wave_manager.number >= 1) {
-                const ActData *_ad2 = campaign_act_get(gs->campaign_stage);
+            snprintf(big_title, sizeof(big_title), "%s", ad->title);
+            snprintf(line1, sizeof(line1), "Campagne  —  Ch.%d  Acte %d",
+                     ad->chapter + 1, ad->act + 1);
+            if (gs->wave_manager.number >= 1)
                 snprintf(line2, sizeof(line2), "Objectif : %d vague(s)  |  %s",
-                         _ad2->min_waves, _ad2->objective.description);
-            }
+                         ad->min_waves, ad->objective.description);
+            ctitle = (Color){255, 220, 100, 255};
+            c1     = (Color){180, 160,  80, 255};
         } else if (gs->is_endless) {
             int score = (int)((float)gs->wave_manager.number
                               * gs->endless_multiplier * 10.0f);
-            snprintf(line1, sizeof(line1),
-                     "Endless  —  Serie %d  —  x%.1f  —  Score %d",
+            snprintf(big_title, sizeof(big_title), "ENDLESS");
+            snprintf(line1, sizeof(line1), "Serie %d  ·  x%.1f  ·  Score %d",
                      gs->endless_series + 1, gs->endless_multiplier, score);
             int next_extr = 10 - (gs->wave_manager.number % 10);
             if (next_extr == 10 && gs->wave_manager.number > 0) next_extr = 0;
             if (next_extr > 0)
                 snprintf(line2, sizeof(line2),
                          "Extraction dans %d vague(s)", next_extr);
-            col1 = (Color){160, 225, 255, 255};
-            col2 = (Color){120, 185, 225, 255};
-        } else {
-            // Arcade classique
+            ctitle = (Color){160, 225, 255, 255};
+            c1     = (Color){120, 185, 225, 255};
+            c2     = (Color){ 90, 155, 200, 255};
+        } else if (gs->is_custom) {
             const Theme *th = theme_get(gs->map.theme);
-            snprintf(line1, sizeof(line1), "Arcade  —  %s", th->name);
-            col1 = (Color){225, 200, 100, 255};
+            snprintf(big_title, sizeof(big_title), "PERSONNALISE");
+            snprintf(line1, sizeof(line1), "%s  ·  %d spawn(s)  ·  %d base(s)",
+                     th->name, gs->enemy_paths.count, gs->map.base_count);
+            ctitle = (Color){200, 130, 255, 255};
+            c1     = (Color){165, 100, 220, 255};
+        } else {
+            const Theme *th = theme_get(gs->map.theme);
+            snprintf(big_title, sizeof(big_title), "ARCADE");
+            snprintf(line1, sizeof(line1), "%s", th->name);
         }
 
-        /* Calcul de l'alpha selon le timer ou l'état pause */
-        unsigned char banner_alpha;
-        if (ctx->menu.paused) {
-            banner_alpha = 255; /* pause : opaque */
-        } else {
-            float t = ctx->banner_timer;
-            if (t <= 0.0f) {
-                /* Bannière expirée : ligne 2 toujours visible en campagne */
-                banner_alpha = 0;
-            } else {
-                /* Fondu sur la dernière 0.5 s */
-                float fade = t < 0.5f ? (t / 0.5f) : 1.0f;
-                banner_alpha = (unsigned char)(fade * 255.0f);
+        /* ── A) Overlay centré — intro au démarrage ───────────── */
+        if (!ctx->menu.paused && ctx->banner_timer > 0.0f) {
+            float t  = ctx->banner_timer;   /* 5.0 → 0.0 */
+            float af;
+            if      (t > 4.7f) af = (5.0f - t) / 0.3f;  /* fade-in  0.3 s */
+            else if (t < 0.5f) af = t / 0.5f;             /* fade-out 0.5 s */
+            else               af = 1.0f;
+            if (af < 0.0f) af = 0.0f;
+            if (af > 1.0f) af = 1.0f;
+            unsigned char a = (unsigned char)(af * 255.0f);
+
+            if (a > 0 && big_title[0]) {
+                const int FS_T = 26, FS_1 = 13, FS_2 = 10;
+                const int PAD_H = 26, PAD_V = 18, GAP = 9;
+
+                int cx = g_map_x_off + g_canvas_virt_w_base / 2;
+                int cy = (g_canvas_virt_h - UI_HUD_HEIGHT) / 2;
+
+                int twt = mtxt(big_title, FS_T);
+                int tw1 = line1[0] ? mtxt(line1, FS_1) : 0;
+                int tw2 = line2[0] ? mtxt(line2, FS_2) : 0;
+                int mxw = twt > tw1 ? twt : tw1;
+                if (tw2 > mxw) mxw = tw2;
+
+                int ch = fh(FS_T);
+                if (line1[0]) ch += GAP + 1 + GAP + fh(FS_1); /* +1 = séparateur */
+                if (line2[0]) ch += GAP + fh(FS_2);
+
+                int pw = mxw + PAD_H * 2;
+                int ph = ch  + PAD_V * 2;
+                float px = (float)(cx - pw / 2);
+                float py = (float)(cy - ph / 2);
+
+                /* Fond */
+                DrawRectangleRounded(
+                    (Rectangle){px, py, (float)pw, (float)ph},
+                    0.16f, 6,
+                    (Color){3, 2, 0, (unsigned char)((int)a * 220 / 255)});
+                DrawRectangleRoundedLinesEx(
+                    (Rectangle){px, py, (float)pw, (float)ph},
+                    0.16f, 6, 2.2f,
+                    (Color){ctitle.r/2, ctitle.g/2, ctitle.b/2,
+                            (unsigned char)((int)a * 180 / 255)});
+
+                int ly = (int)py + PAD_V;
+
+                /* Titre principal */
+                dtxt(big_title, cx - twt / 2, ly, FS_T,
+                     (Color){ctitle.r, ctitle.g, ctitle.b, a});
+                ly += fh(FS_T);
+
+                /* Séparateur fin + line1 */
+                if (line1[0]) {
+                    ly += GAP;
+                    DrawLineEx(
+                        (Vector2){px + 12.0f, (float)ly},
+                        (Vector2){px + (float)pw - 12.0f, (float)ly},
+                        1.0f,
+                        (Color){ctitle.r / 3, ctitle.g / 3, ctitle.b / 3,
+                                (unsigned char)((int)a * 150 / 255)});
+                    ly += 1 + GAP;
+                    dtxt(line1, cx - tw1 / 2, ly, FS_1,
+                         (Color){c1.r, c1.g, c1.b, a});
+                    ly += fh(FS_1);
+                }
+
+                /* line2 */
+                if (line2[0]) {
+                    ly += GAP;
+                    dtxt(line2, cx - tw2 / 2, ly, FS_2,
+                         (Color){c2.r, c2.g, c2.b,
+                                 (unsigned char)((int)a * 200 / 255)});
+                }
             }
         }
 
-        if (line1[0] && (banner_alpha > 0 || ctx->menu.paused)) {
-            int fs1 = ctx->menu.paused ? 17 : 14;
-            int tw1 = mtxt(line1, fs1);
-            int bx  = g_map_x_off + MAP_W * TILE_SIZE / 2 - tw1 / 2;
-            int by  = ctx->menu.paused ? 22 : 6;
-            int bh  = ctx->menu.paused ? 28 : 23;
-            DrawRectangleRounded(
-                (Rectangle){bx - 14, by - 5, tw1 + 28, bh},
-                0.35f, 4, (Color){6, 4, 1, (unsigned char)((int)banner_alpha * 230 / 255)});
-            DrawRectangleRoundedLinesEx(
-                (Rectangle){bx - 14, by - 5, tw1 + 28, bh},
-                0.35f, 4, 1.2f,
-                (Color){80, 60, 18, (unsigned char)((int)banner_alpha * 200 / 255)});
-            dtxt(line1, bx, by, fs1,
-                 (Color){col1.r, col1.g, col1.b, banner_alpha});
-        }
+        /* ── B) Bandeau compact en haut — pendant la pause ────── */
+        else if (ctx->menu.paused && big_title[0]) {
+            /* Combine big_title + line1 en une seule ligne compacte */
+            char compact[200];
+            if (line1[0])
+                snprintf(compact, sizeof(compact),
+                         "%s  —  %s", big_title, line1);
+            else
+                snprintf(compact, sizeof(compact), "%s", big_title);
 
-        /* Ligne 2 : en campagne, toujours visible quand pertinente (après 1ère vague) */
-        if (line2[0]) {
-            unsigned char a2 = ctx->menu.paused ? 255 : banner_alpha;
-            /* En jeu normal sans pause, ligne 2 visible tant que la bannière est active */
-            if (a2 > 0) {
-                int fs2 = 11;
+            int fs  = 11;
+            int cx  = g_map_x_off + g_canvas_virt_w_base / 2;
+            int tw  = mtxt(compact, fs);
+            int bx  = cx - tw / 2;
+            int by  = 8;
+            int bh  = fh(fs) + 10;
+
+            DrawRectangleRounded(
+                (Rectangle){(float)(bx - 12), (float)(by - 4),
+                            (float)(tw + 24),  (float)bh},
+                0.4f, 4, (Color){4, 3, 1, 215});
+            DrawRectangleRoundedLinesEx(
+                (Rectangle){(float)(bx - 12), (float)(by - 4),
+                            (float)(tw + 24),  (float)bh},
+                0.4f, 4, 1.2f,
+                (Color){ctitle.r / 2, ctitle.g / 2, ctitle.b / 2, 180});
+            dtxt(compact, bx, by, fs,
+                 (Color){ctitle.r, ctitle.g, ctitle.b, 255});
+
+            /* line2 sous le bandeau (ex : objectif campagne) */
+            if (line2[0]) {
+                int fs2 = 10;
                 int tw2 = mtxt(line2, fs2);
-                int bx  = g_map_x_off + MAP_W * TILE_SIZE / 2 - tw2 / 2;
-                int by  = ctx->menu.paused ? 55 : 33;
+                int by2 = by + bh + 4;
                 DrawRectangleRounded(
-                    (Rectangle){bx - 8, by - 3, tw2 + 16, 18},
-                    0.35f, 4,
-                    (Color){6, 4, 1, (unsigned char)((int)a2 * 215 / 255)});
-                DrawRectangleRoundedLinesEx(
-                    (Rectangle){bx - 8, by - 3, tw2 + 16, 18},
-                    0.35f, 4, 1.0f,
-                    (Color){60, 45, 12, (unsigned char)((int)a2 * 160 / 255)});
-                dtxt(line2, bx, by, fs2,
-                     (Color){col2.r, col2.g, col2.b, a2});
+                    (Rectangle){(float)(cx - tw2 / 2 - 8), (float)(by2 - 3),
+                                (float)(tw2 + 16), (float)(fh(fs2) + 8)},
+                    0.4f, 4, (Color){4, 3, 1, 195});
+                dtxt(line2, cx - tw2 / 2, by2, fs2,
+                     (Color){c2.r, c2.g, c2.b, 220});
             }
         }
     }
 
     /* ── Interludes ───────────────────────────────────────────── */
     if (gs->phase == PHASE_GAMEOVER)
-        interlude_render_gameover(gs, g_canvas_virt_w, VIRT_H);
+        interlude_render_gameover(gs, g_canvas_virt_w, g_canvas_virt_h);
 
     if (ctx->interlude == INTER_DIALOG_BEFORE) {
         interlude_render_dialog_before(campaign_act_get(gs->campaign_stage),
-                                       g_canvas_virt_w, VIRT_H);
+                                       g_canvas_virt_w, g_canvas_virt_h);
         if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
             ctx->interlude = INTER_NONE;
     }
     if (ctx->interlude == INTER_DIALOG_AFTER) {
         interlude_render_dialog_after(campaign_act_get(gs->campaign_stage),
                                       ctx->interlude_stars,
-                                      ctx->interlude_scrap, g_canvas_virt_w, VIRT_H);
+                                      ctx->interlude_scrap, g_canvas_virt_w, g_canvas_virt_h);
     }
     if (ctx->interlude == INTER_EXTRACT) {
         /* Convertit la souris en coordonnées virtuelles */
         int sh = GetScreenHeight();
-        float scale = (float)sh / VIRT_H;
+        float scale = (float)sh / g_canvas_virt_h;
         if (scale < 0.05f) scale = 0.05f;
         Vector2 mp = GetMousePosition();
         Vector2 vm = { mp.x / scale, mp.y / scale };
-        interlude_render_extract(gs, g_canvas_virt_w, VIRT_H, vm);
+        interlude_render_extract(gs, g_canvas_virt_w, g_canvas_virt_h, vm);
     }
 
     /* ── Menu pause superposé ─────────────────────────────────── */
     if (ctx->menu.paused) {
         MenuAction pact = menu_render_and_act(&ctx->menu, &ctx->gs.meta,
-                                              g_canvas_virt_w, VIRT_H);
+                                              g_canvas_virt_w, g_canvas_virt_h);
         /* Sauvegarde rapide (sans quitter) */
         if (pact.save_and_quit == 2 && ctx->active_slot >= 0) {
             if (ctx->gs.is_campaign)

@@ -26,6 +26,8 @@ void wave_init(WaveManager *wm) {
     wm->number     = 0;
     wm->prep_timer = PREP_TIME;
     wm->scale      = 1.0f;
+    wm->scale_cap  = WAVE_SCALE_CAP;
+    wm->count_mult = 1.0f;
     for (int i = 0; i < ENEMY_TYPE_COUNT; i++)
         wm->arcade_bias[i] = 1.0f;   // neutre par défaut (campagne)
 }
@@ -281,9 +283,11 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
             }
 
             int n = wm->number - 1; // vague 1 = n=0
-            int count = BASE_ENEMIES
+            int count = (int)((BASE_ENEMIES
                       + n * WAVE_ENEMIES_PER_WAVE
-                      + n * n / WAVE_QUAD_DIV; // accélération quadratique
+                      + n * n / WAVE_QUAD_DIV)  // accélération quadratique
+                      * wm->count_mult + 0.5f);
+            if (count < 1)          count = 1;
             if (count > MAX_ENEMIES) count = MAX_ENEMIES;
             if (wm->total_spawned < count) {
                 // Choix intelligent du chemin
@@ -317,7 +321,7 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
             wm->prep_timer    = PREP_TIME;
             wm->total_spawned = 0;
             wm->scale        *= WAVE_SCALE_GROWTH;
-            if (wm->scale > WAVE_SCALE_CAP) wm->scale = WAVE_SCALE_CAP; // cap — évite la falaise de difficulté
+            if (wm->scale > wm->scale_cap) wm->scale = wm->scale_cap; // cap — évite la falaise de difficulté
             // Remet la pression à zéro pour la prochaine vague
             for (int i = 0; i < MAX_BASES; i++)
                 wm->base_pressure[i] = 0;

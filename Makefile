@@ -16,6 +16,7 @@ SRC = Src/main.c                                                              \
       Src/ui/hud.c             Src/ui/hud_input.c     Src/ui/hud_render.c   \
       Src/ui/menu.c            Src/ui/menu_screens.c  Src/ui/menu_campaign.c \
       Src/ui/menu_options.c    Src/ui/menu_upgrades.c Src/ui/menu_bestiary.c \
+      Src/ui/menu_custom_config.c                                             \
       Src/ui/interlude.c       Src/ui/campaign_data.c                        \
 
 # ── Dossiers ────────────────────────────────────────────────────

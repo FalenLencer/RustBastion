@@ -430,6 +430,7 @@ MenuAction menu_render_and_act(MenuState *m, const MetaProgress *meta,
         case MENU_ARCADE:       act = draw_slot_list(m, vw, vh, 0);       break;
         case MENU_NEW_CAMPAIGN: act = draw_new_campaign(m, meta, vw, vh); break;
         case MENU_WORLD_MAP:    act = draw_world_map(m, meta, vw, vh);    break;
+        case MENU_CUSTOM:       act = draw_custom_config(m, vw, vh);      break;
         case MENU_NEW_ARCADE:
             m->new_theme = (m->new_theme == (ThemeID)-1) ? THEME_COUNT : m->new_theme;
             act = draw_new_arcade(m, vw, vh);

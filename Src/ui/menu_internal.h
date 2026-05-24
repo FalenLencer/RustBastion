@@ -25,6 +25,7 @@
 #include "../engine/assets.h"
 #include "../game/meta.h"
 #include "../game/save.h"
+#include "../game/game_init.h"
 #include "../combat/enemy.h"
 #include "../combat/material.h"
 #include "../combat/tower.h"
@@ -97,14 +98,15 @@ void    set_msg(MenuState *m, const char *s);
 // FONCTIONS D'ÉCRAN — déclarées ici pour le dispatch (menu.c)
 // Définies dans les fichiers menu_*.c correspondants.
 // ════════════════════════════════════════════════════
-MenuAction draw_title       (MenuState *m, int vw, int vh);
-MenuAction draw_play_hub    (MenuState *m, const MetaProgress *meta, int vw, int vh);
-MenuAction draw_slot_list   (MenuState *m, int vw, int vh, int is_campaign);
-MenuAction draw_new_campaign(MenuState *m, const MetaProgress *meta, int vw, int vh);
-MenuAction draw_new_arcade  (MenuState *m, int vw, int vh);
-MenuAction draw_confirm_del (MenuState *m, int vw, int vh);
-MenuAction draw_pause       (MenuState *m, int vw, int vh);
-MenuAction draw_world_map   (MenuState *m, const MetaProgress *meta, int vw, int vh);
-MenuAction draw_options     (MenuState *m, int vw, int vh);
-MenuAction draw_upgrades    (MenuState *m, const MetaProgress *meta, int vw, int vh);
-MenuAction draw_bestiary    (MenuState *m, const MetaProgress *meta, int vw, int vh);
+MenuAction draw_title         (MenuState *m, int vw, int vh);
+MenuAction draw_play_hub      (MenuState *m, const MetaProgress *meta, int vw, int vh);
+MenuAction draw_slot_list     (MenuState *m, int vw, int vh, int is_campaign);
+MenuAction draw_new_campaign  (MenuState *m, const MetaProgress *meta, int vw, int vh);
+MenuAction draw_new_arcade    (MenuState *m, int vw, int vh);
+MenuAction draw_confirm_del   (MenuState *m, int vw, int vh);
+MenuAction draw_pause         (MenuState *m, int vw, int vh);
+MenuAction draw_world_map     (MenuState *m, const MetaProgress *meta, int vw, int vh);
+MenuAction draw_options       (MenuState *m, int vw, int vh);
+MenuAction draw_upgrades      (MenuState *m, const MetaProgress *meta, int vw, int vh);
+MenuAction draw_bestiary      (MenuState *m, const MetaProgress *meta, int vw, int vh);
+MenuAction draw_custom_config (MenuState *m, int vw, int vh);

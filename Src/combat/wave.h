@@ -23,6 +23,13 @@ typedef struct {
     float      prep_timer;
     float      scale;
 
+    // Plafond de scaling HP/dégâts (défaut WAVE_SCALE_CAP = 6.0).
+    // Mode custom : configurable entre 2.0 et 12.0.
+    float      scale_cap;
+    // Multiplicateur du nombre d'ennemis par vague (défaut 1.0).
+    // Mode custom : 0.5 (lente) à 3.0 (extreme).
+    float      count_mult;
+
     int        total_spawned;
     int        total_to_spawn;
 

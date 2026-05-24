@@ -36,9 +36,12 @@
 // DIMENSIONS DES OVERLAYS DÉPLAÇABLES
 // ════════════════════════════════════════════════════
 #define OVERLAY_W      164
+#define OVERLAY_BL_W   180   /* overlay bas-gauche (bases HP + réparation) */
 #define OVERLAY_OV_P     6
 #define OVERLAY_TL_H   (OVERLAY_OV_P + 17+3 + 14+3 + 14 + OVERLAY_OV_P)
 #define OVERLAY_TR_H   (OVERLAY_OV_P + 17+3 + 14+3 + 14+3 + 9+5 + 14 + OVERLAY_OV_P)
+/* Hauteur dynamique de l'overlay BL — dépend de l'état des bases en jeu */
+int overlay_bl_h(const GameState *gs);
 
 // ════════════════════════════════════════════════════
 // COÛTS DES ACHATS EN JEU

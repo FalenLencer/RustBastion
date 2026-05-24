@@ -86,6 +86,15 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     }
     by += bh + gap;
 
+    if (draw_nav_btn("X", "PERSONNALISE",
+                     "Carte, spawns, bases, terrain et difficulte sur mesure.",
+                     C_ORANGE, bx, by, bw, bh)) {
+        push_back_screen(m);
+        m->screen = MENU_CUSTOM;
+        m->back_screen = MENU_PLAY_HUB;
+    }
+    by += bh + gap;
+
     char upg_desc[80];
     snprintf(upg_desc, sizeof(upg_desc),
              "Depensez vos %d ferrailles pour ameliorer vos defenses.",
@@ -130,7 +139,7 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
     draw_header(is_campaign ? "CAMPAGNE" : "ARCADE", vw);
 
     const char *sub = is_campaign
-        ? "5 environnements en sequence — la ferraille se gagne ici"
+        ? "15 actes en sequence — 5 chapitres — la ferraille se gagne ici"
         : "Mode libre — choisissez votre terrain";
     txt_c_boxed(sub, cx, M_PAD + 86, 10, C_TEXT);
 
@@ -152,6 +161,14 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
         int tx = sx + M_IN + 4;
         int ty = y  + M_IN;
 
+        /* ── Boutons communs (calculés ici pour aligner le clip du titre) ── */
+        const int bh2  = 26;
+        const int bw_rep = 88, bw_del = 58, btn_gap = 4;
+        const int bx_del = sx + sw - M_IN - bw_del;
+        const int bx_rep = bx_del - btn_gap - bw_rep;
+        const int by2    = y + sh/2 - bh2/2;
+        const int txt_clip_w = bx_rep - tx - M_IN;   /* largeur dispo pour le titre */
+
         if (si->exists) {
             if (is_campaign) {
                 const ActData *ad = campaign_act_get(si->campaign_stage);
@@ -163,11 +180,13 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
                          CAMPAIGN_TOTAL,
                          ad ? ad->title : "?");
                 char cbuf[96];
-                clip_text(raw, sw - 120 - M_IN*2, 12, cbuf, sizeof(cbuf));
+                clip_text(raw, txt_clip_w, 12, cbuf, sizeof(cbuf));
                 draw_text_boxed(cbuf, tx, ty, 12, C_GOLD);
             } else {
-                dtxt(TextFormat("ARCADE  —  %s", si->theme_name),
-                         tx, ty, 12, C_BLUE);
+                char arcbuf[64];
+                clip_text(TextFormat("ARCADE  —  %s", si->theme_name),
+                          txt_clip_w, 12, arcbuf, sizeof(arcbuf));
+                dtxt(arcbuf, tx, ty, 12, C_BLUE);
             }
             ty += 16;
             dtxt(TextFormat("Vague %d  |  %d vies  |  %d or",
@@ -176,41 +195,50 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
             ty += M_LINE;
             dtxt(TextFormat("Emplacement %d", i+1), tx, ty, 9, C_DIM);
 
-            int bw2 = 88, bh2 = 26;
-            int bx2 = sx + sw - bw2 - M_IN - 22;
-            int by2 = y  + sh/2 - bh2/2;
-            if (draw_btn("REPRENDRE", bx2, by2, bw2, bh2, C_GREEN, 0)) {
+            /* REPRENDRE + EFFACER côte à côte */
+            if (draw_btn("REPRENDRE", bx_rep, by2, bw_rep, bh2, C_GREEN, 0)) {
                 act.resume_slot        = i;
                 act.resume_is_campaign = is_campaign;
                 act.go_game            = 1;
             }
-
-            Rectangle xr = {(float)(sx+sw-M_IN-18), (float)(y+M_IN/2), 18, 18};
-            int xhov = vhov_r(xr);
-            DrawRectangleRounded(xr, 0.3f, 4,
-                xhov ? (Color){48,6,6,255} : (Color){28,4,4,255});
-            DrawRectangleRoundedLinesEx(xr, 0.3f, 4, 1.2f,
-                xhov ? C_RED : (Color){90,16,16,255});
-            int xw = mtxt("x", 10);
-            dtxt("x", (int)(xr.x + xr.width/2 - xw/2),
-                     (int)(xr.y + xr.height/2 - 5), 10, C_RED);
-            if (vclick_r(xr)) {
+            if (draw_btn("EFFACER", bx_del, by2, bw_del, bh2, C_RED, 0)) {
                 m->confirm_del_slot = i;
                 m->screen = MENU_CONFIRM_DEL;
             }
 
         } else {
-            dtxt(TextFormat("Emplacement %d — vide", i+1),
-                     tx, y + sh/2 - 8, 11, C_DIM);
-            int bw2 = 180, bh2 = 26;
-            int bx2 = sx + sw - bw2 - M_IN;
-            int by2 = y  + sh/2 - bh2/2;
-            const char *lbl = is_campaign ? "NOUVELLE CAMPAGNE" : "NOUVELLE ARCADE";
-            Color lc = is_campaign ? C_GOLD : C_BLUE;
-            if (draw_btn(lbl, bx2, by2, bw2, bh2, lc, 0)) {
-                m->new_slot            = i;
-                m->campaign_order_seed = 0;
-                m->screen = is_campaign ? MENU_NEW_CAMPAIGN : MENU_NEW_ARCADE;
+            if (is_campaign) {
+                /* Slot vide campagne : affiche l'acte de départ sélectionné */
+                const ActData *sel_ad =
+                    campaign_act_get(m->selected_campaign_act);
+                dtxt(TextFormat("Emplacement %d — vide", i+1),
+                     tx, y + M_IN, 9, C_DIM);
+                if (sel_ad) {
+                    char albl[72];
+                    snprintf(albl, sizeof(albl), "Acte %d — %s",
+                             m->selected_campaign_act + 1, sel_ad->title);
+                    char aclip[72];
+                    clip_text(albl, txt_clip_w, 11, aclip, sizeof(aclip));
+                    dtxt(aclip, tx, y + M_IN + 14, 11, C_GOLD);
+                    char sclip[64];
+                    clip_text(sel_ad->subtitle, txt_clip_w, 9, sclip, sizeof(sclip));
+                    dtxt(sclip, tx, y + M_IN + 28, 9, C_DIM);
+                }
+                if (draw_btn("LANCER", bx_rep, by2, bw_rep, bh2, C_GOLD, 0)) {
+                    act.start_campaign     = 1;
+                    act.new_slot           = i;
+                    act.campaign_order_seed = 0;
+                    act.start_campaign_act = m->selected_campaign_act;
+                }
+            } else {
+                dtxt(TextFormat("Emplacement %d — vide", i+1),
+                         tx, y + sh/2 - 8, 11, C_DIM);
+                if (draw_btn("NOUVELLE ARCADE",
+                             sx + sw - M_IN - 154, by2, 154, bh2, C_BLUE, 0)) {
+                    m->new_slot            = i;
+                    m->campaign_order_seed = 0;
+                    m->screen = MENU_NEW_ARCADE;
+                }
             }
         }
 
@@ -235,11 +263,21 @@ MenuAction draw_new_campaign(MenuState *m, const MetaProgress *meta,
     draw_bg(m, vw, vh);
     draw_header("NOUVELLE CAMPAGNE", vw);
 
-    if (m->campaign_order_seed == 0)
-        m->campaign_order_seed = GetRandomValue(1, 999999);
-
-    int themes[CAMPAIGN_STAGES];
-    meta_campaign_theme_order(m->campaign_order_seed, themes);
+    // Ordre fixe des chapitres — identique à campaign_data.c
+    static const Color CHAPTER_COLS[CAMPAIGN_CHAPTERS] = {
+        {200,150, 80,255},  // Ch.1 — Terres Brulees  (ocre)
+        { 60,180, 80,255},  // Ch.2 — Marais Toxique  (vert)
+        {220,180, 80,255},  // Ch.3 — Desert Irradie  (jaune)
+        {100,140,200,255},  // Ch.4 — Ville en Ruine  (bleu)
+        {180, 80, 80,255},  // Ch.5 — Usine Abandonnee (rouge)
+    };
+    static const char *CHAPTER_NAMES[CAMPAIGN_CHAPTERS] = {
+        "Les Terres Brulees",
+        "Le Marais Toxique",
+        "Le Desert Irradie",
+        "La Ville en Ruine",
+        "L'Usine Abandonnee",
+    };
 
     int pw = 480, ph = 310;
     draw_panel(cx, cy, pw, ph, C_GOLD);
@@ -253,28 +291,33 @@ MenuAction draw_new_campaign(MenuState *m, const MetaProgress *meta,
     py += fh(17) + 4;
     draw_sep(px, py, pw - M_PAD*2, C_BORDER);
     py += M_IN + 2;
-    dtxt("Ordre des environnements :", px, py, 10, C_DIM);
+    /* Acte de départ sélectionné */
+    {
+        const ActData *sel_ad = campaign_act_get(m->selected_campaign_act);
+        if (sel_ad && m->selected_campaign_act > 0) {
+            char dbuf[80];
+            snprintf(dbuf, sizeof(dbuf), "Depart : Acte %d — %s",
+                     m->selected_campaign_act + 1, sel_ad->title);
+            char dclip[80];
+            clip_text(dbuf, pw - M_PAD*2, 11, dclip, sizeof(dclip));
+            dtxt(dclip, px, py, 11, C_GREEN);
+            py += M_LINE + 2;
+        } else {
+            dtxt("Depart : Acte 1 — Premier contact", px, py, 11, C_GREEN);
+            py += M_LINE + 2;
+        }
+    }
+    dtxt("15 actes — 5 chapitres, ordre fixe :", px, py, 10, C_DIM);
     py += M_LINE + 2;
 
-    static const Color stage_cols[CAMPAIGN_STAGES] = {
-        {232,152, 32,255},{42,190,105,255},{48,140,205,255},
-        {142, 80,168,255},{215,118, 28,255},
-    };
-
-    for (int i = 0; i < CAMPAIGN_STAGES; i++) {
-        const Theme *th = theme_get((ThemeID)themes[i]);
+    for (int i = 0; i < CAMPAIGN_CHAPTERS; i++) {
+        Color col = CHAPTER_COLS[i];
         Rectangle row = {(float)px,(float)py,(float)(pw - M_PAD*2), 28};
         DrawRectangleRounded(row, (float)PANEL_R/28, 5, (Color){18,10,3,210});
         DrawRectangleRoundedLinesEx(row, (float)PANEL_R/28, 5, 1.0f,
-            (Color){stage_cols[i].r/3,stage_cols[i].g/3,stage_cols[i].b/3, 180});
-        dtxt(TextFormat("%d.", i+1), px + M_IN, py + 8, 11, C_DIM);
-        dtxt(th->name, px + M_IN + 22, py + 8, 11, stage_cols[i]);
-        int avail = pw - M_PAD*2 - M_IN - 22 - mtxt(th->name, 11) - M_IN*2;
-        if (avail > 40) {
-            char dbuf[48];
-            clip_text(th->description, avail, 9, dbuf, sizeof(dbuf));
-            dtxt(dbuf, px + M_IN + 22 + mtxt(th->name,11) + M_IN, py + 10, 9, C_DIM);
-        }
+            (Color){col.r/3, col.g/3, col.b/3, 180});
+        dtxt(TextFormat("Ch.%d", i+1), px + M_IN, py + 8, 11, C_DIM);
+        dtxt(CHAPTER_NAMES[i], px + M_IN + 34, py + 8, 11, col);
         py += 28 + 4;
     }
 
@@ -284,11 +327,11 @@ MenuAction draw_new_campaign(MenuState *m, const MetaProgress *meta,
     if (draw_btn("LANCER", px, py, half, BTN_H, C_GREEN, 0)) {
         act.start_campaign      = 1;
         act.new_slot            = m->new_slot;
-        act.campaign_order_seed = m->campaign_order_seed;
+        act.campaign_order_seed = 0;
+        act.start_campaign_act  = m->selected_campaign_act;
     }
     if (draw_btn("ANNULER", px + half + M_IN, py,
                  pw - M_PAD*2 - M_IN - half, BTN_H, C_DIM, 0)) {
-        m->campaign_order_seed = 0;
         m->screen = MENU_CAMPAIGN;
     }
     return act;

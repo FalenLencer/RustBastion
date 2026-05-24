@@ -12,9 +12,13 @@
 #define MAP_H       16
 #define TILE_SIZE   40
 
+// Taille maximale pour les tableaux statiques (carte personnalisée)
+#define MAX_MAP_W   56
+#define MAX_MAP_H   32
+
 // Spawns et bases sont indépendants et en quantités libres
-#define MAX_PATHS    3   // spawners max
-#define MAX_BASES    2   // bases défendables max (1 principale + 1 secondaire)
+#define MAX_PATHS   20   // spawners max (valeurs >20 clampées à la génération)
+#define MAX_BASES   10   // bases défendables max (valeurs >10 clampées à la génération)
 
 // Zone autour de chaque spawn interdite à la construction
 #define SPAWN_EXCLUSION_RADIUS  3
@@ -60,7 +64,8 @@ typedef struct {
 } PathDef;
 
 typedef struct {
-    Tile     tiles[MAP_H][MAP_W];
+    Tile     tiles[MAX_MAP_H][MAX_MAP_W];
+    int      w, h;          // dimensions réelles (tuiles), au plus MAX_MAP_W × MAX_MAP_H
     PathDef  paths[MAX_PATHS];
     int      path_count;
     int      seed;
@@ -73,7 +78,10 @@ typedef struct {
     int             deposit_count;
 } Map;
 
-// forced_bases : 0 = aléatoire (60% 1 base, 40% 2 bases),
-//                1 ou 2 = nombre de bases garanti (clampé à MAX_BASES)
+// forced_bases    : 0 = aléatoire, >0 = nombre exact (clampé à MAX_BASES=10)
+// forced_spawns   : 0 = aléatoire, >0 = nombre exact (clampé à MAX_PATHS=20)
+// forced_deposits : 0 = aléatoire (1-4), >0 = nombre exact (clampé à MAX_MATERIAL_DEPOSITS=20)
+// map_w / map_h   : 0 = MAP_W / MAP_H (défaut), sinon taille en tuiles
 void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
-                  int forced_bases);
+                  int forced_bases, int forced_spawns,
+                  int forced_deposits, int map_w, int map_h);

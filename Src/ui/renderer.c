@@ -44,8 +44,11 @@ Color PROJ_COLOR[TOWER_TYPE_COUNT] = {
 };
 
 
-int g_map_x_off     = 0;
-int g_canvas_virt_w = MAP_W * TILE_SIZE;
+int   g_map_x_off          = 0;
+int   g_canvas_virt_w      = MAP_W * TILE_SIZE;
+int   g_canvas_virt_w_base = MAP_W * TILE_SIZE;
+int   g_canvas_virt_h      = MAP_H * TILE_SIZE + UI_HUD_HEIGHT;
+float g_map_render_scale   = 1.0f;   // zoom de la carte (1 = standard, <1 = grande carte)
 
 Color renderer_tower_color(TowerType type) { return TOWER_FILL[type]; }
 Color renderer_unit_color (UnitType  type) { return UNIT_FILL[type];  }
@@ -104,8 +107,8 @@ void render_map(const Map *map) {
     // On affiche tout car la vue est fixe, mais on peut optimiser
     // en ne dessinant que les tuiles nécessaires
     
-    for (int y = 0; y < MAP_H; y++) {
-        for (int x = 0; x < MAP_W; x++) {
+    for (int y = 0; y < map->h; y++) {
+        for (int x = 0; x < map->w; x++) {
             TileType t  = map->tiles[y][x].type;
             int      px = x * TILE_SIZE;
             int      py = y * TILE_SIZE;
@@ -131,8 +134,8 @@ void render_map(const Map *map) {
     float t = (float)GetTime();
     float pulse = (sinf(t * 3.0f) + 1.0f) * 0.5f;  // 0..1, 3 Hz
 
-    for (int y = 0; y < MAP_H; y++) {
-        for (int x = 0; x < MAP_W; x++) {
+    for (int y = 0; y < map->h; y++) {
+        for (int x = 0; x < map->w; x++) {
             TileType type = map->tiles[y][x].type;
             int px2 = x * TILE_SIZE, py2 = y * TILE_SIZE;
 
@@ -514,7 +517,7 @@ void render_tower_preview(const Map *map, const TowerPool *tp,
 
     // S'assure que le label reste dans la zone de jeu
     if (lx < 2) lx = 2;
-    if (lx + lw > MAP_W * TILE_SIZE - 2) lx = MAP_W * TILE_SIZE - lw - 2;
+    if (lx + lw > g_canvas_virt_w_base - 2) lx = g_canvas_virt_w_base - lw - 2;
     if (ly < 2) ly = py + TILE_SIZE + 2;
 
     // Fond du label pour lisibilité

@@ -68,8 +68,8 @@ static float perlin2d(float x, float y) {
 // TERRAIN
 // ════════════════════════════════════════════════════
 static void gen_terrain(Map *map, const Theme *th) {
-    for (int y = 0; y < MAP_H; y++) {
-        for (int x = 0; x < MAP_W; x++) {
+    for (int y = 0; y < map->h; y++) {
+        for (int x = 0; x < map->w; x++) {
             float n  = perlin2d(x*0.18f, y*0.18f);
             n       += perlin2d(x*0.36f, y*0.36f) * 0.5f;
             n       += perlin2d(x*0.72f, y*0.72f) * 0.25f;
@@ -118,28 +118,28 @@ static Point point_on_edge(Edge edge, const Map *map) {
     while (tries-- > 0) {
         Point p;
         switch (edge) {
-            case EDGE_LEFT:   p = (Point){0,       1+rng_int(MAP_H-2)}; break;
-            case EDGE_RIGHT:  p = (Point){MAP_W-1, 1+rng_int(MAP_H-2)}; break;
-            case EDGE_TOP:    p = (Point){1+rng_int(MAP_W-2), 0};        break;
-            case EDGE_BOTTOM: p = (Point){1+rng_int(MAP_W-2), MAP_H-1};  break;
-            default:          p = (Point){0, MAP_H/2};
+            case EDGE_LEFT:   p = (Point){0,         1+rng_int(map->h-2)}; break;
+            case EDGE_RIGHT:  p = (Point){map->w-1,  1+rng_int(map->h-2)}; break;
+            case EDGE_TOP:    p = (Point){1+rng_int(map->w-2), 0};          break;
+            case EDGE_BOTTOM: p = (Point){1+rng_int(map->w-2), map->h-1};   break;
+            default:          p = (Point){0, map->h/2};
         }
         if (map->tiles[p.y][p.x].type != TILE_WATER)
             return p;
     }
     // Fallback milieu du bord
     switch (edge) {
-        case EDGE_LEFT:   return (Point){0,       MAP_H/2};
-        case EDGE_RIGHT:  return (Point){MAP_W-1, MAP_H/2};
-        case EDGE_TOP:    return (Point){MAP_W/2, 0};
-        case EDGE_BOTTOM: return (Point){MAP_W/2, MAP_H-1};
+        case EDGE_LEFT:   return (Point){0,        map->h/2};
+        case EDGE_RIGHT:  return (Point){map->w-1, map->h/2};
+        case EDGE_TOP:    return (Point){map->w/2, 0};
+        case EDGE_BOTTOM: return (Point){map->w/2, map->h-1};
     }
-    return (Point){0, MAP_H/2};
+    return (Point){0, map->h/2};
 }
 
 // Force une tuile et ses voisins à être passables
 static void force_passable(Map *map, Point p) {
-    if (p.x < 0 || p.x >= MAP_W || p.y < 0 || p.y >= MAP_H) return;
+    if (p.x < 0 || p.x >= map->w || p.y < 0 || p.y >= map->h) return;
     if (map->tiles[p.y][p.x].type == TILE_WATER ||
         map->tiles[p.y][p.x].type == TILE_RUIN) {
         map->tiles[p.y][p.x].type     = TILE_GROUND;
@@ -149,7 +149,7 @@ static void force_passable(Map *map, Point p) {
     const int dy4[4] = { 0, 0, 1,-1};
     for (int d = 0; d < 4; d++) {
         int nx = p.x+dx4[d], ny = p.y+dy4[d];
-        if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+        if (nx < 0 || nx >= map->w || ny < 0 || ny >= map->h) continue;
         if (map->tiles[ny][nx].type == TILE_WATER) {
             map->tiles[ny][nx].type      = TILE_GROUND;
             map->tiles[ny][nx].passable  = 1;
@@ -163,9 +163,9 @@ static void force_passable(Map *map, Point p) {
 // ════════════════════════════════════════════════════
 static void walk_to(Map *map, int *cx, int *cy,
                     int tx, int ty, int *ldx, int *ldy,
-                    uint8_t visited[MAP_H][MAP_W], int path_id)
+                    uint8_t visited[MAX_MAP_H][MAX_MAP_W], int path_id)
 {
-    int max_steps = MAP_W * MAP_H * 3;
+    int max_steps = map->w * map->h * 3;
     typedef struct { int dx, dy; } Dir;
 
     while ((*cx != tx || *cy != ty) && max_steps-- > 0) {
@@ -200,7 +200,7 @@ static void walk_to(Map *map, int *cx, int *cy,
         for (int attempt = 0; attempt < 20; attempt++) {
             Dir d = pool[rng_int(pn)];
             int nx = *cx+d.dx, ny = *cy+d.dy;
-            if (nx<0||nx>=MAP_W||ny<0||ny>=MAP_H) continue;
+            if (nx<0||nx>=map->w||ny<0||ny>=map->h) continue;
             *ldx=d.dx; *ldy=d.dy; *cx=nx; *cy=ny; moved=1; break;
         }
         if (!moved) break;
@@ -300,14 +300,14 @@ static int carve_path(Map *map, int path_id, int base_id,
         float t = (float)i / (float)(num_wp+1);
         int bx = (int)((1.0f-t)*spawn.x + t*base.x);
         int by = (int)((1.0f-t)*spawn.y + t*base.y);
-        int rx = (int)((rng_float()-0.5f)*MAP_W*0.4f);
-        int ry = (int)((rng_float()-0.5f)*MAP_H*0.4f);
-        wp[i].x = (int)fmaxf(1, fminf(MAP_W-2, bx+rx));
-        wp[i].y = (int)fmaxf(1, fminf(MAP_H-2, by+ry));
+        int rx = (int)((rng_float()-0.5f)*map->w*0.4f);
+        int ry = (int)((rng_float()-0.5f)*map->h*0.4f);
+        wp[i].x = (int)fmaxf(1, fminf(map->w-2, bx+rx));
+        wp[i].y = (int)fmaxf(1, fminf(map->h-2, by+ry));
     }
     wp[num_wp+1] = base;
 
-    uint8_t visited[MAP_H][MAP_W];
+    uint8_t visited[MAX_MAP_H][MAX_MAP_W];
     memset(visited, 0, sizeof(visited));
     int cx=spawn.x, cy=spawn.y, ldx=0, ldy=0;
     for (int seg=0; seg<num_wp+1; seg++)
@@ -331,16 +331,16 @@ static int place_base(Map *map, int base_id, Edge base_edge,
         } else {
             int offset = rng_int(2*max_spread+1) - max_spread;
             switch (base_edge) {
-                case EDGE_LEFT:   pos=(Point){0,       anchor.y+offset}; break;
-                case EDGE_RIGHT:  pos=(Point){MAP_W-1, anchor.y+offset}; break;
-                case EDGE_TOP:    pos=(Point){anchor.x+offset, 0};        break;
-                case EDGE_BOTTOM: pos=(Point){anchor.x+offset, MAP_H-1};  break;
+                case EDGE_LEFT:   pos=(Point){0,          anchor.y+offset}; break;
+                case EDGE_RIGHT:  pos=(Point){map->w-1,   anchor.y+offset}; break;
+                case EDGE_TOP:    pos=(Point){anchor.x+offset, 0};           break;
+                case EDGE_BOTTOM: pos=(Point){anchor.x+offset, map->h-1};    break;
                 default:          pos=anchor;
             }
-            if (pos.x<0)     pos.x=0;
-            if (pos.x>=MAP_W) pos.x=MAP_W-1;
-            if (pos.y<1)     pos.y=1;
-            if (pos.y>=MAP_H-1) pos.y=MAP_H-2;
+            if (pos.x<0)          pos.x=0;
+            if (pos.x>=map->w)    pos.x=map->w-1;
+            if (pos.y<1)          pos.y=1;
+            if (pos.y>=map->h-1)  pos.y=map->h-2;
         }
 
         if (map->tiles[pos.y][pos.x].type == TILE_WATER) continue;
@@ -374,30 +374,28 @@ static int place_base(Map *map, int base_id, Edge base_edge,
 // ════════════════════════════════════════════════════
 // ASSIGNATION SPAWN → BASE
 //
-// Logique :
-//   - Chaque base doit être couverte par au moins 1 spawn
-//   - Les spawns supplémentaires sont assignés aléatoirement
-//   - Résultat : incertitude tactique — on ne sait pas toujours
-//     vers quelle base va aller un spawn donné
+// num_spawns peut être < num_bases (arcade) : dans ce cas certaines bases
+// ne reçoivent aucun spawn et ne seront pas attaquées ("vies bonus").
+// num_spawns peut être > num_bases : les spawns excédentaires visent une
+// base aléatoire parmi celles existantes (incertitude tactique).
 // ════════════════════════════════════════════════════
 static void assign_spawns_to_bases(int num_spawns, int num_bases,
                                    int out_base_ids[MAX_PATHS])
 {
-    // Passe 1 : garantit que chaque base a au moins 1 spawn
-    // On assigne les bases en round-robin sur les premiers spawns
-    for (int i = 0; i < num_spawns; i++)
-        out_base_ids[i] = -1;
+    int covered = num_spawns < num_bases ? num_spawns : num_bases;
 
-    for (int b = 0; b < num_bases && b < num_spawns; b++)
-        out_base_ids[b] = b;
+    // Passe 1 : 1:1 pour les premières bases (jusqu'à min(spawns,bases))
+    for (int i = 0; i < covered; i++)
+        out_base_ids[i] = i;
 
-    // Passe 2 : spawns restants assignés aléatoirement
-    for (int i = num_bases; i < num_spawns; i++)
+    // Passe 2 : spawns supplémentaires (si num_spawns > num_bases)
+    //           → base aléatoire parmi celles existantes
+    for (int i = covered; i < num_spawns; i++)
         out_base_ids[i] = rng_int(num_bases);
 
-    // Passe 3 : mélange (Fisher-Yates) pour rendre l'ordre imprévisible
-    for (int i = num_spawns-1; i > 0; i--) {
-        int j = rng_int(i+1);
+    // Passe 3 : mélange (Fisher-Yates) — incertitude tactique
+    for (int i = num_spawns - 1; i > 0; i--) {
+        int j = rng_int(i + 1);
         int tmp = out_base_ids[i];
         out_base_ids[i] = out_base_ids[j];
         out_base_ids[j] = tmp;
@@ -408,8 +406,11 @@ static void assign_spawns_to_bases(int num_spawns, int num_bases,
 // POINT D'ENTRÉE PUBLIC
 // ════════════════════════════════════════════════════
 void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
-                  int forced_bases) {
+                  int forced_bases, int forced_spawns,
+                  int forced_deposits, int map_w, int map_h) {
     memset(map, 0, sizeof(Map));
+    map->w     = (map_w > 0 && map_w <= MAX_MAP_W) ? map_w : MAP_W;
+    map->h     = (map_h > 0 && map_h <= MAX_MAP_H) ? map_h : MAP_H;
     map->seed  = seed;
     map->theme = (theme_id == THEME_COUNT) ? theme_random(seed) : theme_id;
     const Theme *th = theme_get(map->theme);
@@ -422,14 +423,15 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
     Edge base_edge = (Edge)rng_int(4);
 
     // ── Nombre de bases (1 à MAX_BASES) ──────────────────────
-    // forced_bases > 0 : imposé par le scénario (cohérence texte/carte)
-    // sinon : 60% chance 1 base, 40% chance 2 bases
+    // forced_bases > 0 : imposé par le scénario / mode custom.
+    // sinon (arcade) : 1-3 bases (50 % → 1, 33 % → 2, 17 % → 3)
     int num_bases;
     if (forced_bases > 0) {
         num_bases = forced_bases;
         if (num_bases > MAX_BASES) num_bases = MAX_BASES;
     } else {
-        num_bases = (rng_int(10) < 6) ? 1 : 2;
+        int rb = rng_int(6);
+        num_bases = (rb < 3) ? 1 : (rb < 5) ? 2 : 3;
     }
     map->base_count = 0;
 
@@ -444,11 +446,11 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
             // Fallback absolu
             Point fb;
             switch(base_edge) {
-                case EDGE_LEFT:   fb=(Point){0,      MAP_H/2}; break;
-                case EDGE_RIGHT:  fb=(Point){MAP_W-1,MAP_H/2}; break;
-                case EDGE_TOP:    fb=(Point){MAP_W/2,0};        break;
-                case EDGE_BOTTOM: fb=(Point){MAP_W/2,MAP_H-1};  break;
-                default:          fb=(Point){0,MAP_H/2};
+                case EDGE_LEFT:   fb=(Point){0,         map->h/2}; break;
+                case EDGE_RIGHT:  fb=(Point){map->w-1,  map->h/2}; break;
+                case EDGE_TOP:    fb=(Point){map->w/2,  0};        break;
+                case EDGE_BOTTOM: fb=(Point){map->w/2,  map->h-1}; break;
+                default:          fb=(Point){0,         map->h/2};
             }
             force_passable(map, fb);
             map->bases[0]=(BaseInfo){fb,20,20,1,1,2,0};
@@ -458,21 +460,64 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
 
     Point anchor = map->bases[0].pos;
 
-    // Base secondaire éventuelle — groupée près de l'ancre (±5 tuiles)
+    /* ── Bases supplémentaires (1 .. num_bases-1) ────────────────
+       On divise le bord en num_bases segments et on essaie de
+       placer une base au centre de chaque segment.
+       next_slot n'avance que si le placement réussit, ce qui
+       garantit un tableau sans trous (bases 0..base_count-1 actives). */
     if (num_bases > 1) {
-        rng_init((uint32_t)(seed + 1337));
-        int ok=0, atts=40;
-        while (!ok && atts-- > 0)
-            ok = place_base(map, 1, base_edge, anchor, 5);
-        if (ok) map->base_count = 2;
-        // Si on n'arrive pas à placer la secondaire, on reste à 1
+        int edge_len = (base_edge == EDGE_LEFT || base_edge == EDGE_RIGHT)
+                       ? map->h : map->w;
+        int seg = edge_len / num_bases;
+        if (seg < 1) seg = 1;
+
+        int spread = seg / 2 + 2;
+        if (spread > 12) spread = 12;
+        if (spread <  2) spread = 2;
+
+        int next_slot = 1;   /* prochain slot disponible dans map->bases[] */
+
+        for (int seg_b = 1; seg_b < num_bases && next_slot < MAX_BASES; seg_b++) {
+            rng_init((uint32_t)(seed + 1337u + (uint32_t)seg_b * 997u));
+
+            /* Centre du seg_b-ième segment */
+            int tgt = seg_b * seg + seg / 2;
+            if (tgt >= edge_len) tgt = edge_len - 1;
+
+            Point tgt_pt;
+            switch (base_edge) {
+                case EDGE_LEFT:   tgt_pt = (Point){0,         tgt}; break;
+                case EDGE_RIGHT:  tgt_pt = (Point){map->w-1,  tgt}; break;
+                case EDGE_TOP:    tgt_pt = (Point){tgt,       0};   break;
+                case EDGE_BOTTOM: tgt_pt = (Point){tgt, map->h-1};  break;
+                default:          tgt_pt = anchor;                   break;
+            }
+
+            int ok = 0, atts = 100;
+            while (!ok && atts-- > 0)
+                ok = place_base(map, next_slot, base_edge, tgt_pt, spread);
+            if (ok) {
+                map->base_count = next_slot + 1;
+                next_slot++;
+            }
+            /* Si le segment est trop dense, on tente quand même les
+               segments suivants (next_slot reste inchangé). */
+        }
     }
 
     // ── Nombre de spawns indépendant du nombre de bases ──────
-    // 1 à MAX_PATHS spawns, tiré aléatoirement
-    // Contrainte : au moins autant de spawns que de bases
+    // forced_spawns > 0 : imposé (mode custom).
+    // En arcade (forced_spawns = 0) : tirage libre entre 1 et 3,
+    //   indépendamment du nombre de bases. Si num_spawns < base_count,
+    //   les bases non couvertes ne seront simplement pas attaquées
+    //   (comportement valide : elles servent de "vies bonus").
     rng_init((uint32_t)(seed + 4242));
-    int num_spawns = map->base_count + rng_int(MAX_PATHS - map->base_count + 1);
+    int num_spawns;
+    if (forced_spawns > 0) {
+        num_spawns = forced_spawns;
+    } else {
+        num_spawns = 1 + rng_int(3);   /* 1, 2 ou 3 — indépendant des bases */
+    }
     if (num_spawns < 1)         num_spawns = 1;
     if (num_spawns > MAX_PATHS) num_spawns = MAX_PATHS;
 
@@ -537,7 +582,7 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
             for (int ex = -SPAWN_EXCLUSION_RADIUS; ex <= SPAWN_EXCLUSION_RADIUS; ex++) {
                 if (abs(ex) + abs(ey) > SPAWN_EXCLUSION_RADIUS) continue;
                 int nx = sp.x + ex, ny = sp.y + ey;
-                if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+                if (nx < 0 || nx >= map->w || ny < 0 || ny >= map->h) continue;
                 TileType tt = map->tiles[ny][nx].type;
                 if (tt == TILE_BASE || tt == TILE_PATH || tt == TILE_SPAWN) continue;
                 map->tiles[ny][nx].buildable = 0;
@@ -548,14 +593,21 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
     // ── Dépôts de matériaux ───────────────────────────────────
     {
         rng_init((uint32_t)(seed + 8888));
-        int dep_count = 1 + rng_int(3);
+        int dep_count;
+        if (forced_deposits > 0) {
+            dep_count = forced_deposits;
+            if (dep_count > MAX_MATERIAL_DEPOSITS) dep_count = MAX_MATERIAL_DEPOSITS;
+        } else {
+            dep_count = 1 + rng_int(4);   // 1..4 aléatoire
+            if (dep_count > MAX_MATERIAL_DEPOSITS) dep_count = MAX_MATERIAL_DEPOSITS;
+        }
         int placed=0, tries=0;
         map->deposit_count = 0;
 
         while (placed < dep_count && tries < 500) {
             tries++;
-            int dx = 1 + rng_int(MAP_W-2);
-            int dy = 1 + rng_int(MAP_H-2);
+            int dx = 1 + rng_int(map->w-2);
+            int dy = 1 + rng_int(map->h-2);
 
             if (map->tiles[dy][dx].type != TILE_GROUND &&
                 map->tiles[dy][dx].type != TILE_RUIN) continue;

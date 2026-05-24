@@ -121,15 +121,17 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
             if (!unlocked)
                 dtxt("---", ax + act_w/2 - 8, ay + ah/2 - 5, 10, C_DIM);
 
-            // Clic sur un acte débloqué → liste des sauvegardes campagne
+            // Clic sur un acte débloqué → slot list avec cet acte présélectionné
             if (unlocked && vclick_r(ar)) {
+                m->selected_campaign_act = stage_idx;
                 m->screen      = MENU_CAMPAIGN;
                 m->back_screen = MENU_WORLD_MAP;
             }
         }
 
-        // Clic sur le bandeau chapitre (hors actes) → même destination
+        // Clic sur le bandeau chapitre → premier acte du chapitre présélectionné
         if (ch_unlocked && vclick_r(cr)) {
+            m->selected_campaign_act = ch * CAMPAIGN_ACTS;
             m->screen      = MENU_CAMPAIGN;
             m->back_screen = MENU_WORLD_MAP;
         }

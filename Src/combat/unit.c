@@ -390,10 +390,10 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
 
             // Clamp position
             float margin = u->size + 2.0f;
-            if (u->x < margin)                     u->x = margin;
-            if (u->x > MAP_W * TILE_SIZE - margin) u->x = MAP_W * TILE_SIZE - margin;
-            if (u->y < margin)                     u->y = margin;
-            if (u->y > MAP_H * TILE_SIZE - margin) u->y = MAP_H * TILE_SIZE - margin;
+            if (u->x < margin)                          u->x = margin;
+            if (u->x > map->w * TILE_SIZE - margin)     u->x = map->w * TILE_SIZE - margin;
+            if (u->y < margin)                          u->y = margin;
+            if (u->y > map->h * TILE_SIZE - margin)     u->y = map->h * TILE_SIZE - margin;
             continue; // ne pas passer dans la logique combat
         }
 
@@ -466,9 +466,9 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
 
         // Clamp position
         float margin = u->size + 2.0f;
-        if (u->x < margin)                     u->x = margin;
-        if (u->x > MAP_W * TILE_SIZE - margin) u->x = MAP_W * TILE_SIZE - margin;
-        if (u->y < margin)                     u->y = margin;
-        if (u->y > MAP_H * TILE_SIZE - margin) u->y = MAP_H * TILE_SIZE - margin;
+        if (u->x < margin)                          u->x = margin;
+        if (u->x > map->w * TILE_SIZE - margin)     u->x = map->w * TILE_SIZE - margin;
+        if (u->y < margin)                          u->y = margin;
+        if (u->y > map->h * TILE_SIZE - margin)     u->y = map->h * TILE_SIZE - margin;
     }
 }

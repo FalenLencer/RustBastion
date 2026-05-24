@@ -113,7 +113,7 @@ void tower_pool_init(TowerPool *tp) {
    VÉRIFICATION PLACEMENT — inclut zone anti-spawn
    ════════════════════════════════════════════════════ */
 int tower_can_place(const TowerPool *tp, const Map *map, int tx, int ty) {
-    if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return 0;
+    if (tx < 0 || tx >= map->w || ty < 0 || ty >= map->h) return 0;
 
     const Tile *t = &map->tiles[ty][tx];
     if (!t->buildable) return 0;
@@ -140,7 +140,7 @@ int tower_can_place(const TowerPool *tp, const Map *map, int tx, int ty) {
    ════════════════════════════════════════════════════ */
 int tower_cost_on_tile(TowerType type, const Map *map, int tile_x, int tile_y) {
     int base_cost = TOWER_BASE_STATS[type].cost;
-    if (tile_x < 0 || tile_x >= MAP_W || tile_y < 0 || tile_y >= MAP_H)
+    if (tile_x < 0 || tile_x >= map->w || tile_y < 0 || tile_y >= map->h)
         return base_cost;
     if (map->tiles[tile_y][tile_x].type == TILE_RUIN)
         return base_cost * TOWER_RUIN_COST_MULT;

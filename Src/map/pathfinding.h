@@ -8,7 +8,7 @@
 #include "map_gen.h"
 
 typedef struct {
-    Point steps[MAP_W * MAP_H];
+    Point steps[MAX_MAP_W * MAX_MAP_H];
     int   len;
     int   found;
     int   path_id;   // index du chemin dans Map.paths[]

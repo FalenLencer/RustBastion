@@ -178,7 +178,7 @@ static void draw_tool_btn(const Rectangle *r, ToolID id,
 // ════════════════════════════════════════════════════
 void ui_render(const UIState *ui, const GameState *gs) {
     const int VIRT_W = g_canvas_virt_w;
-    const int HUD_Y  = MAP_H * TILE_SIZE;
+    const int HUD_Y  = g_canvas_virt_h - UI_HUD_HEIGHT;
     const int HUD_H  = UI_HUD_HEIGHT;
     const int M      = UI_MARGIN;
     const int GAP    = 6;
@@ -205,87 +205,6 @@ void ui_render(const UIState *ui, const GameState *gs) {
         const int bar_w = UI_LEFT_PANEL_W - 32 - 30 - M;
         const int val_x = UI_LEFT_PANEL_W - 30;
         int py = HUD_Y + M;
-
-        // BASES — une barre HP par base, pulsante si critique
-        {
-            float t = (float)GetTime();
-            float pulse = (sinf(t * 6.0f) + 1.0f) * 0.5f;
-
-            for (int b = 0; b < gs->map.base_count; b++) {
-                const BaseInfo *base = &gs->map.bases[b];
-                float ratio = (base->max_hp > 0)
-                    ? (float)base->hp / (float)base->max_hp : 0.0f;
-
-                // Code couleur explicite : vert > jaune > rouge selon HP restant
-                Color bc;
-                if (!base->active || base->hp <= 0) {
-                    bc = (Color){100, 35, 35, 255};
-                } else if (ratio > 0.60f) {
-                    bc = (Color){46, 204, 113, 255};   // vert = sain
-                } else if (ratio > 0.30f) {
-                    bc = (Color){243, 156,  18, 255};  // orange = endommagé
-                } else {
-                    bc = (Color){231,  76,  60, 255};  // rouge = critique
-                }
-
-                // Pulsation si critique
-                if (ratio > 0.0f && ratio <= 0.30f && base->active) {
-                    unsigned char r = (unsigned char)(140 + (int)(91.0f * pulse));
-                    unsigned char g = (unsigned char)(20  + (int)(56.0f * pulse));
-                    bc = (Color){r, g, 40, 255};
-                }
-
-                // Étiquette base + HP fraction explicites
-                const char *bname = base->is_primary ? "BASE PRINC." : TextFormat("BASE SEC.%d", b + 1);
-                char hp_str[16];
-                snprintf(hp_str, sizeof(hp_str), "%d/%d",
-                         base->hp > 0 ? base->hp : 0, base->max_hp);
-
-                int bw2 = UI_LEFT_PANEL_W - M * 2;
-
-                // Fond de ligne coloré pour renforcer le code couleur
-                Color bg_line = {bc.r/5, bc.g/5, bc.b/5, 80};
-                DrawRectangle(px - 2, py - 1, bw2 + 4, 9, bg_line);
-
-                dtxt(bname,  px,    py, 8, bc);
-
-                // HP fraction alignée à droite
-                int hw = mtxt(hp_str, 8);
-                dtxt(hp_str, px + bw2 - hw, py, 8, bc);
-
-                draw_bar(px, py + 10, bw2, 6, fmaxf(ratio, 0.0f), bc,
-                         (Color){18, 10, 4, 200});
-
-                if (!base->active || base->hp <= 0)
-                    dtxt("DETRUITE", px + bw2/2 - 22, py + 10, 7,
-                             (Color){180, 60, 60, 255});
-                py += 18;  /* label(8) + gap(2) + barre(6) + gap(2) */
-
-                /* Bouton réparation base (visible si active et endommagée) */
-                if (base->active && base->hp > 0 && base->hp < base->max_hp) {
-                    int   rc     = base_repair_cost(base->repair_count);
-                    int   afford = (gs->gold >= rc);
-                    Color rbc    = afford ? (Color){5, 22, 10, 235}
-                                         : (Color){10, 8,  5, 200};
-                    Color rbrd   = afford ? (Color){28, 130, 55, 200}
-                                         : (Color){55,  40, 15, 140};
-                    Color rtc    = afford ? (Color){42, 185,  90, 255}
-                                         : (Color){55,  42,  22, 255};
-                    Rectangle rb = ui->repair_base_btn[b];
-                    DrawRectangleRounded(rb, 0.25f, 4, rbc);
-                    DrawRectangleRoundedLinesEx(rb, 0.25f, 4, 1.0f, rbrd);
-                    char rbuf[32];
-                    snprintf(rbuf, sizeof(rbuf), "Reparer +%dHP  %d or",
-                             BASE_REPAIR_RESTORE, rc);
-                    int rtw = mtxt(rbuf, 8);
-                    dtxt(rbuf,
-                         (int)(rb.x + rb.width / 2 - rtw / 2),
-                         (int)(rb.y + 3), 8, rtc);
-                    py += 16;
-                }
-                py += 4;  /* gap entre bases */
-            }
-        }
 
         // FERRAILLE — uniquement en campagne
         if (gs->is_campaign) {
@@ -912,7 +831,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
             const int oh = OVERLAY_TR_H;
             const int ox = (ui->overlay_tr_pos.x >= 0.0f)
                          ? (int)ui->overlay_tr_pos.x
-                         : g_map_x_off + MAP_W * TILE_SIZE - 8 - ow;
+                         : g_map_x_off + g_canvas_virt_w_base - 8 - ow;
             const int oy = (ui->overlay_tr_pos.y >= 0.0f)
                          ? (int)ui->overlay_tr_pos.y : 8;
 
@@ -933,9 +852,20 @@ void ui_render(const UIState *ui, const GameState *gs) {
             int tx = ox + OV_P, ty = oy + OV_P + 4;
             int inner_w = ow - OV_P * 2;
 
-            // Vague
-            dtxt(TextFormat("Vague %d", gs->wave_manager.number),
-                     tx, ty, 12, (Color){185, 145, 60, 255});
+            // Vague (X/min en campagne pour indiquer la progression)
+            {
+                char _wbuf[28];
+                if (gs->is_campaign) {
+                    const ActData *_cad = campaign_act_get(gs->campaign_stage);
+                    int _mw = _cad ? _cad->min_waves : 0;
+                    snprintf(_wbuf, sizeof(_wbuf), "Vague  %d / %d",
+                             gs->wave_manager.number, _mw);
+                } else {
+                    snprintf(_wbuf, sizeof(_wbuf), "Vague  %d",
+                             gs->wave_manager.number);
+                }
+                dtxt(_wbuf, tx, ty, 12, (Color){185, 145, 60, 255});
+            }
             ty += 17 + 3;
 
             // Kills
@@ -1001,13 +931,116 @@ void ui_render(const UIState *ui, const GameState *gs) {
         }
     }
 
+        // ── Bas-gauche : HP des bases + réparation ─────────────
+        if (ui->overlay_bl_pos.x >= 0.0f) {
+            int  _bh = overlay_bl_h(gs);
+            const int _ow = OVERLAY_BL_W;
+            const int _ox = (int)ui->overlay_bl_pos.x;
+            const int _oy = (int)ui->overlay_bl_pos.y;
+
+            int dragging_bl = (ui->dragging_overlay == 2);
+            Color border_bl = dragging_bl ? (Color){140, 100, 30, 255}
+                                          : (Color){65, 46, 14, 200};
+            DrawRectangleRounded(
+                (Rectangle){(float)_ox, (float)_oy, (float)_ow, (float)_bh},
+                0.2f, 4, (Color){4, 3, 1, 235});
+            DrawRectangleRoundedLinesEx(
+                (Rectangle){(float)_ox, (float)_oy, (float)_ow, (float)_bh},
+                0.2f, 4, dragging_bl ? 1.8f : 1.2f, border_bl);
+            /* Poignée de déplacement */
+            for (int _d = 0; _d < 3; _d++)
+                DrawRectangle(_ox + _ow/2 - 9 + _d*9, _oy + 3, 5, 2,
+                              (Color){80, 58, 20, 160});
+
+            const int OV_P = OVERLAY_OV_P;   /* alias local (hors portée du bloc parent) */
+            const int _px  = _ox + OV_P;
+            int       _py  = _oy + OV_P + 4;
+            const int _iw  = _ow - OV_P * 2;
+
+            float _t  = (float)GetTime();
+            float _pu = (sinf(_t * 6.0f) + 1.0f) * 0.5f;
+
+            for (int b = 0; b < gs->map.base_count; b++) {
+                const BaseInfo *base = &gs->map.bases[b];
+                float ratio = (base->max_hp > 0)
+                    ? (float)base->hp / (float)base->max_hp : 0.0f;
+
+                /* Code couleur */
+                Color bc;
+                if (!base->active || base->hp <= 0) {
+                    bc = (Color){100, 35, 35, 255};
+                } else if (ratio > 0.60f) {
+                    bc = (Color){46, 204, 113, 255};
+                } else if (ratio > 0.30f) {
+                    bc = (Color){243, 156,  18, 255};
+                } else {
+                    bc = (Color){231,  76,  60, 255};
+                }
+                if (ratio > 0.0f && ratio <= 0.30f && base->active) {
+                    unsigned char _cr = (unsigned char)(140 + (int)(91.0f * _pu));
+                    unsigned char _cg = (unsigned char)(20  + (int)(56.0f * _pu));
+                    bc = (Color){_cr, _cg, 40, 255};
+                }
+
+                /* Étiquette base + HP fraction */
+                const char *bname = base->is_primary
+                    ? "BASE PRINC." : TextFormat("BASE SEC.%d", b + 1);
+                char hp_str[16];
+                snprintf(hp_str, sizeof(hp_str), "%d/%d",
+                         base->hp > 0 ? base->hp : 0, base->max_hp);
+
+                /* Fond de ligne */
+                Color _bg_line = {
+                    (unsigned char)(bc.r / 5),
+                    (unsigned char)(bc.g / 5),
+                    (unsigned char)(bc.b / 5), 80
+                };
+                DrawRectangle(_px - 2, _py - 1, _iw + 4, 9, _bg_line);
+
+                dtxt(bname, _px, _py, 8, bc);
+                int _hw = mtxt(hp_str, 8);
+                dtxt(hp_str, _px + _iw - _hw, _py, 8, bc);
+
+                draw_bar(_px, _py + 10, _iw, 6, fmaxf(ratio, 0.0f), bc,
+                         (Color){18, 10, 4, 200});
+
+                if (!base->active || base->hp <= 0)
+                    dtxt("DETRUITE", _px + _iw/2 - 22, _py + 10, 7,
+                             (Color){180, 60, 60, 255});
+
+                _py += 18;   /* label(8) + gap(2) + barre(6) + gap(2) */
+
+                /* Bouton réparation */
+                if (base->active && base->hp > 0 && base->hp < base->max_hp) {
+                    int   rc    = base_repair_cost(base->repair_count);
+                    int   aff   = (gs->gold >= rc);
+                    Color rbc2  = aff ? (Color){5, 22, 10, 235}  : (Color){10, 8, 5, 200};
+                    Color rbrd2 = aff ? (Color){28, 130, 55, 200} : (Color){55, 40, 15, 140};
+                    Color rtc2  = aff ? (Color){42, 185, 90, 255} : (Color){55, 42, 22, 255};
+                    Rectangle rb2 = ui->repair_base_btn[b];
+                    DrawRectangleRounded(rb2, 0.25f, 4, rbc2);
+                    DrawRectangleRoundedLinesEx(rb2, 0.25f, 4, 1.0f, rbrd2);
+                    char rbuf2[32];
+                    snprintf(rbuf2, sizeof(rbuf2), "Rep. +%dHP  %d or",
+                             BASE_REPAIR_RESTORE, rc);
+                    int rtw2 = mtxt(rbuf2, 8);
+                    dtxt(rbuf2,
+                         (int)(rb2.x + rb2.width/2 - rtw2/2),
+                         (int)(rb2.y + 3), 8, rtc2);
+                    _py += 16;   /* bouton (14) + gap (2) */
+                }
+
+                if (b < gs->map.base_count - 1) _py += 4;   /* gap inter-bases */
+            }
+        }
+
     // ════════════════════════════════════════════════
     // OVERLAYS DANS L'ESPACE DE LA CARTE
     // ════════════════════════════════════════════════
     {
         Camera2D map_cam = {0};
         map_cam.offset = (Vector2){(float)g_map_x_off, 0.0f};
-        map_cam.zoom   = 1.0f;
+        map_cam.zoom   = g_map_render_scale;
         BeginMode2D(map_cam);
 
         // Prévisualisation placement
@@ -1116,7 +1149,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
     // NOTIFICATIONS FLOTTANTES
     // ════════════════════════════════════════════════
     {
-        int nx = g_map_x_off + MAP_W * TILE_SIZE / 2;
+        int nx = g_map_x_off + g_canvas_virt_w_base / 2;
         int base_y = HUD_Y - 12;
         for (int i = 0; i < ui->notif_count; i++) {
             const FloatNotif *n = &ui->notifs[i];
@@ -1215,7 +1248,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
     // ════════════════════════════════════════════════
     if (ui->disc_count > 0) {
         const DiscEntry *de = &ui->disc_queue[0];
-        int cx = g_canvas_virt_w / 2, cy = (MAP_H * TILE_SIZE + UI_HUD_HEIGHT) / 2;
+        int cx = g_canvas_virt_w / 2, cy = g_canvas_virt_h / 2;
         int cw = 540, ch = 400;
         int card_x = cx - cw/2, card_y = cy - ch/2;
 
@@ -1227,7 +1260,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
         Color cat_dim = (Color){cat_col.r/4, cat_col.g/4, cat_col.b/4, 255};
 
         // Fond noir semi-transparent plein écran
-        DrawRectangle(0, 0, g_canvas_virt_w, MAP_H * TILE_SIZE + UI_HUD_HEIGHT, (Color){0,0,0,180});
+        DrawRectangle(0, 0, g_canvas_virt_w, g_canvas_virt_h, (Color){0,0,0,180});
 
         // Panneau principal
         DrawRectangleRounded(
@@ -1369,16 +1402,27 @@ void ui_render(const UIState *ui, const GameState *gs) {
                    1.0f, (Color){cat_col.r/4,cat_col.g/4,cat_col.b/4,180});
         txt_y += 6;
 
-        // Description
+        // Description (rendu multiligne pour éviter tout chevauchement)
         const char *desc = NULL;
         if      (de->type == DISC_ENEMY) desc = ENEMY_DESC[de->idx];
         else if (de->type == DISC_TOWER) desc = TOWER_BASE_STATS[de->idx].description;
         else                              desc = UNIT_BASE_STATS [de->idx].description;
         if (desc && txt_y < body_y + body_h) {
-            char clip[80];
-            ui_clip_text(desc, txt_w, 10, clip, sizeof(clip));
-            dtxt(clip, txt_x, txt_y, 10, (Color){190,170,120,255});
-            txt_y += fh(10) + 6;
+            char _dl[128]; int _dlen = 0;
+            for (const char *_dp = desc; txt_y < body_y + body_h; _dp++) {
+                if (*_dp == '\n' || *_dp == '\0') {
+                    _dl[_dlen] = '\0';
+                    if (_dlen > 0) {
+                        char _dc[128];
+                        ui_clip_text(_dl, txt_w, 10, _dc, sizeof(_dc));
+                        dtxt(_dc, txt_x, txt_y, 10, (Color){190,170,120,255});
+                        txt_y += fh(10) + 4;
+                    }
+                    _dlen = 0;
+                    if (*_dp == '\0') break;
+                } else if (_dlen < 127) _dl[_dlen++] = *_dp;
+            }
+            txt_y += 2;
         }
 
         // Lore (multiline, séparées par \n)

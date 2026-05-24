@@ -6,7 +6,7 @@
 
 #pragma once
 
-#define MAX_MATERIAL_DEPOSITS  6   // dépôts max sur une carte
+#define MAX_MATERIAL_DEPOSITS 20   // dépôts max sur une carte (valeurs >20 clampées)
 #define MAX_INVENTORY          8   // matériaux max en inventaire
 
 // ── Types de matériaux collectables ─────────────────────────

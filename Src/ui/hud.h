@@ -93,7 +93,8 @@ typedef struct {
     // Overlays déplaçables (positions en coordonnées virtuelles)
     Vector2       overlay_tl_pos;     // panneau haut-gauche (or / tours / unités)
     Vector2       overlay_tr_pos;     // panneau haut-droit  (vague / kills / ennemis)
-    int           dragging_overlay;   // -1=aucun, 0=TL, 1=TR
+    Vector2       overlay_bl_pos;     // panneau bas-gauche  (bases HP / réparation)
+    int           dragging_overlay;   // -1=aucun, 0=TL, 1=TR, 2=BL
     Vector2       drag_grab;          // décalage souris → coin overlay au début du drag
     // Notifications flottantes
     FloatNotif    notifs[MAX_NOTIFS];

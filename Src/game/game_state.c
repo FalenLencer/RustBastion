@@ -28,6 +28,7 @@ static void game_redirect_paths_for_base(GameState *gs, int destroyed_base_id) {
 
     Point new_base_pos = gs->map.bases[fallback_base].pos;
 
+    /* ── Redirection des chemins ennemis ─────────────────────── */
     for (int p = 0; p < gs->enemy_paths.count; p++) {
         Path *path = &gs->enemy_paths.paths[p];
         if (!path->found || path->base_id != destroyed_base_id) continue;
@@ -61,6 +62,35 @@ static void game_redirect_paths_for_base(GameState *gs, int destroyed_base_id) {
 
         /* Écrase le chemin en place dans le PathSet */
         *path = rebuilt;
+    }
+
+    /* ── Redirection des unités alliées ──────────────────────── */
+    /* Les unités ancrées sur la base détruite sont redirigées vers
+       la base de repli : elles patrouillent et déposent les matériaux
+       au bon endroit dès le frame suivant.                         */
+    {
+        float dead_px = (float)gs->map.bases[destroyed_base_id].pos.x * TILE_SIZE
+                        + TILE_SIZE * 0.5f;
+        float dead_py = (float)gs->map.bases[destroyed_base_id].pos.y * TILE_SIZE
+                        + TILE_SIZE * 0.5f;
+        float new_px  = (float)new_base_pos.x * TILE_SIZE + TILE_SIZE * 0.5f;
+        float new_py  = (float)new_base_pos.y * TILE_SIZE + TILE_SIZE * 0.5f;
+
+        /* Pool entier */
+        if (gs->units.base_px == dead_px && gs->units.base_py == dead_py) {
+            gs->units.base_px = new_px;
+            gs->units.base_py = new_py;
+        }
+
+        /* Chaque unité active */
+        for (int u = 0; u < MAX_UNITS; u++) {
+            Unit *un = &gs->units.units[u];
+            if (!un->active) continue;
+            if (un->home_base_px == dead_px && un->home_base_py == dead_py) {
+                un->home_base_px = new_px;
+                un->home_base_py = new_py;
+            }
+        }
     }
 }
 

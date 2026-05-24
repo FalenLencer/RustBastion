@@ -81,6 +81,24 @@ Color TOOL_COLORS[TOOL_COUNT] = {
 const int SLOT_TOWER_COSTS[SLOT_MAX_BUYS] = {  80, 160, 300,  550, 1000, 1800 };
 const int SLOT_UNIT_COSTS [SLOT_MAX_BUYS] = {  60, 120, 220,  400,  720, 1300 };
 
+/* Hauteur dynamique de l'overlay bas-gauche (bases HP + boutons réparation).
+   Recomputed each frame : varie selon le nombre de bases et celles qui ont
+   un bouton réparation visible. */
+int overlay_bl_h(const GameState *gs) {
+    const int OV_P = OVERLAY_OV_P;
+    int h = OV_P + 4 + OV_P;   /* top padding + espace poignée + bottom padding */
+    for (int b = 0; b < gs->map.base_count && b < MAX_BASES; b++) {
+        h += 18;   /* label(8) + gap(2) + barre(6) + gap(2) */
+        const BaseInfo *base = &gs->map.bases[b];
+        if (base->active && base->hp > 0 && base->hp < base->max_hp)
+            h += 16;   /* bouton réparation (14) + gap (2) */
+        if (b < gs->map.base_count - 1)
+            h += 4;    /* gap inter-bases */
+    }
+    if (h < OV_P * 2 + 20) h = OV_P * 2 + 20;
+    return h;
+}
+
 /* Coût exponentiel de réparation d'une base (indexed par repair_count) */
 int base_repair_cost(int n) {
     static const int tbl[] = { 40, 65, 105, 165, 265, 415 };
@@ -174,9 +192,10 @@ void ui_init(UIState *ui) {
     ui->sell_unit_idx       = -1;
     ui->overlay_tl_pos      = (Vector2){-1.0f, -1.0f};  // sentinel : init au 1er frame
     ui->overlay_tr_pos      = (Vector2){-1.0f, -1.0f};
+    ui->overlay_bl_pos      = (Vector2){-1.0f, -1.0f};  // sentinel : init au 1er frame
     ui->dragging_overlay    = -1;
 
-    const int HUD_Y  = MAP_H * TILE_SIZE;
+    const int HUD_Y  = g_canvas_virt_h - UI_HUD_HEIGHT;
     const int M      = UI_MARGIN;
     const int GAP    = 6;
 
@@ -211,7 +230,7 @@ void ui_init(UIState *ui) {
     };
 
     // ── Boutons panneau droit (positions initiales, recalculées dans ui_update) ─
-    int right_x = (MAP_W * TILE_SIZE) - UI_PANEL_W + M;
+    int right_x = g_canvas_virt_w_base - UI_PANEL_W + M;
     int right_w = UI_PANEL_W - M * 2;
     int btn_h   = 34;
 

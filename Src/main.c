@@ -43,14 +43,17 @@ int main(void) {
     UnloadImage(icon);
 
     /* ── Canvas virtuel (largeur initiale = MAP_W×TILE, sera redimensionné) */
+    g_canvas_virt_w_base = VIRT_W;
+    g_canvas_virt_h      = VIRT_H;
+    g_canvas_virt_w      = VIRT_W;
+    g_map_x_off          = 0;
     RenderTexture2D canvas = LoadRenderTexture(VIRT_W, VIRT_H);
     SetTextureFilter(canvas.texture, TEXTURE_FILTER_BILINEAR);
-    g_canvas_virt_w = VIRT_W;
-    g_map_x_off     = 0;
 
     /* ── Contexte applicatif ────────────────────────────────────── */
     static AppContext ctx;
     app_init(&ctx);
+    SetWindowTitle("RUST BASTION");   // réinitialise le titre après tout le chargement
 
     /* ════════════════════════════════════════════════════════════
        BOUCLE PRINCIPALE
@@ -59,20 +62,21 @@ int main(void) {
         float dt = GetFrameTime();
         audio_update();
 
-        /* Canvas dynamique : hauteur fixe VIRT_H, largeur adaptée au ratio fenêtre */
+        /* Canvas dynamique : hauteur = g_canvas_virt_h, largeur adaptée au ratio fenêtre */
         int sw = GetScreenWidth(), sh = GetScreenHeight();
         if (sh < 1) sh = 1;
-        float scale  = (float)sh / VIRT_H;
+        float scale  = (float)sh / g_canvas_virt_h;
         int   virt_w = (int)ceilf((float)sw / scale);
-        if (virt_w < VIRT_W) virt_w = VIRT_W;
+        if (virt_w < g_canvas_virt_w_base) virt_w = g_canvas_virt_w_base;
 
-        g_map_x_off     = (virt_w - VIRT_W) / 2;
+        g_map_x_off     = (virt_w - g_canvas_virt_w_base) / 2;
         g_canvas_virt_w = virt_w;
 
-        /* Redimensionne le canvas si le ratio a changé */
-        if (virt_w != (int)canvas.texture.width) {
+        /* Redimensionne le canvas si le ratio ou la hauteur ont changé */
+        if (virt_w != (int)canvas.texture.width ||
+            g_canvas_virt_h != (int)canvas.texture.height) {
             UnloadRenderTexture(canvas);
-            canvas = LoadRenderTexture(virt_w, VIRT_H);
+            canvas = LoadRenderTexture(virt_w, g_canvas_virt_h);
             SetTextureFilter(canvas.texture, TEXTURE_FILTER_BILINEAR);
         }
 

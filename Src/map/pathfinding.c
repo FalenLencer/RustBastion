@@ -14,7 +14,7 @@
    STRUCTURES INTERNES A*
    ════════════════════════════════════════════════════ */
 
-#define MAX_NODES (MAP_W * MAP_H)
+#define MAX_NODES (MAX_MAP_W * MAX_MAP_H)
 
 typedef struct {
     int x, y;
@@ -30,9 +30,9 @@ typedef struct {
 
 static Node    nodes[MAX_NODES];
 static int     node_count;
-static int     node_index[MAP_H][MAP_W];
-static uint8_t in_open  [MAP_H][MAP_W];
-static uint8_t in_closed[MAP_H][MAP_W];
+static int     node_index[MAX_MAP_H][MAX_MAP_W];
+static uint8_t in_open  [MAX_MAP_H][MAX_MAP_W];
+static uint8_t in_closed[MAX_MAP_H][MAX_MAP_W];
 static MinHeap heap;
 
 /* ── Tas min ──────────────────────────────────────────────── */
@@ -149,7 +149,7 @@ void astar_single(const Map *map, Point spawn, Point base,
             int nx = cur->x + DX[d];
             int ny = cur->y + DY[d];
 
-            if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+            if (nx < 0 || nx >= map->w || ny < 0 || ny >= map->h) continue;
             if (!map->tiles[ny][nx].passable)  continue;
             if (in_closed[ny][nx])             continue;
 
@@ -217,8 +217,8 @@ void pathset_apply(Map *map, const PathSet *ps) {
     const Theme *th = theme_get(map->theme);
 
     /* Passe 1 : remet toutes les tuiles PATH en terrain */
-    for (int y = 0; y < MAP_H; y++) {
-        for (int x = 0; x < MAP_W; x++) {
+    for (int y = 0; y < map->h; y++) {
+        for (int x = 0; x < map->w; x++) {
             if (map->tiles[y][x].type == TILE_PATH) {
                 float n = map->tiles[y][x].noise_val;
                 if (n < th->noise.ruin_thresh) {

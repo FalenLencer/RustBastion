@@ -36,6 +36,7 @@ struct GameState {
     int campaign_num;
     int campaign_stage;
     int campaign_order_seed;
+    int is_custom;  // 1 = partie personnalisée (pas de save)
 
     // ── Inventaire matériaux ──────────────────────────────────
     MaterialType inventory[MAX_INVENTORY];

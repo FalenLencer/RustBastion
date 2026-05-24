@@ -21,12 +21,25 @@ typedef enum {
     MENU_ARCADE,
     MENU_NEW_CAMPAIGN,
     MENU_NEW_ARCADE,
+    MENU_CUSTOM,         // écran de configuration partie personnalisée
     MENU_UPGRADES,
     MENU_OPTIONS,
     MENU_CONFIRM_DEL,
     MENU_PAUSE,
     MENU_BESTIARY,
 } MenuScreen;
+
+// ── Configuration d'une partie personnalisée ──────────────────
+typedef struct {
+    int   theme;             // ThemeID (THEME_COUNT = aléatoire)
+    int   min_dist;          // distance min spawn→base (4/6/10/14/18/22)
+    int   forced_bases;      // bases alliées (1, 2 ou 3)
+    int   forced_spawns;     // spawns ennemis (1, 2 ou 3)
+    float scale_cap;         // plafond scaling HP ennemis (2.0→12.0)
+    float count_mult;        // multiplicateur nombre d'ennemis (0.5→3.0)
+    int   forced_deposits;   // dépôts de minerais (0=aléatoire, 2/4/6=exact)
+    int   map_w, map_h;      // taille de la carte en tuiles (0 = MAP_W × MAP_H)
+} CustomConfig;
 
 typedef struct {
     int fullscreen;
@@ -52,6 +65,9 @@ typedef struct {
     ThemeID     new_theme;
     int         new_slot;
     int         campaign_order_seed;
+    int         selected_campaign_act;  // acte cliqué sur la carte du monde (0 = début)
+
+    CustomConfig custom_cfg;  // configuration partie personnalisée
 
     int         sel_upg;
 
@@ -73,17 +89,20 @@ typedef struct {
 } MenuState;
 
 typedef struct {
-    int     start_arcade;
-    int     start_campaign;
-    int     resume_slot;
-    int     resume_is_campaign;   // 1 = le slot à reprendre est une save campagne
-    int     go_game;
-    int     quit_app;
-    int     save_and_quit;
-    int     toggle_fs;
-    ThemeID new_theme;
-    int     new_slot;
-    int     campaign_order_seed;
+    int          start_arcade;
+    int          start_campaign;
+    int          start_custom;        // 1 = lancer une partie personnalisée
+    int          resume_slot;
+    int          resume_is_campaign;  // 1 = le slot à reprendre est une save campagne
+    int          go_game;
+    int          quit_app;
+    int          save_and_quit;
+    int          toggle_fs;
+    ThemeID      new_theme;
+    int          new_slot;
+    int          campaign_order_seed;
+    int          start_campaign_act;  // acte de départ (0 = premier acte)
+    CustomConfig custom_cfg;          // paramètres de la partie custom à lancer
 } MenuAction;
 
 // Persistance des options (config/settings.bin)

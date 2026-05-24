@@ -24,6 +24,13 @@ extern Color PROJ_COLOR[TOWER_TYPE_COUNT];
 extern int g_map_x_off;
 // Largeur réelle du canvas virtuel (adapté au ratio de la fenêtre)
 extern int g_canvas_virt_w;
+// Largeur de base de la carte (MAP_W * TILE_SIZE), sans le padding latéral
+extern int g_canvas_virt_w_base;
+// Hauteur du canvas virtuel (MAP_H * TILE_SIZE + UI_HUD_HEIGHT)
+extern int g_canvas_virt_h;
+// Facteur de zoom de la carte pour les grandes cartes (1.0 = taille standard)
+// La carte est rendue dans un Camera2D avec ce zoom pour tenir dans le canvas fixe.
+extern float g_map_render_scale;
 
 Color renderer_tower_color(TowerType type);
 Color renderer_unit_color (UnitType  type);
