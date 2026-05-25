@@ -21,9 +21,9 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
         .theme    = THEME_WASTELAND,
         .objective = {
             .type        = OBJ_SURVIVE_WAVES,
-            .target      = 5,
+            .target      = 8,
             .before_wave = 0,
-            .description = "Survivre 5 vagues",
+            .description = "Survivre 8 vagues",
         },
         .dialog_before =
             "COMMANDANT VOSS :\n"
@@ -35,7 +35,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "\"On tient encore. Mais ce n'etait que l'avant-garde.\n"
             "Les survivants du convoi nord rejoignent le bastion.\n"
             "Nous allons avoir besoin de chaque paire de mains.\"\n",
-        .min_waves  = 5,
+        .min_waves  = 8,
         .unlock_msg = NULL,
     },
 
@@ -60,7 +60,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "\"La route est ouverte. Le convoi peut passer.\n"
             "Des ingenieurs rejoignent nos rangs — ils ont trouve\n"
             "des plans de construction avances dans les ruines.\"\n",
-        .min_waves  = 6,
+        .min_waves  = 9,
         .unlock_msg = "DEBLOQUE : Tourelle Sniper",
         .forced_base_count = 2,  // texte impose 2 bases
     },
@@ -86,7 +86,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "\"Le vehicule est neutralise. Dans les decombres,\n"
             "nous avons trouve des plans de tourelle electrique.\n"
             "L'ingenieur dit qu'il peut la construire. La Tesla est en ligne.\"\n",
-        .min_waves  = 7,
+        .min_waves  = 10,
         .unlock_msg = "DEBLOQUE : Tourelle Tesla",
     },
 
@@ -114,7 +114,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "Mais nos eclaireurs ont appris a les pister.\n"
             "Certains ennemis sont invisibles aux tours — vos hommes\n"
             "devront faire le travail.\"\n",
-        .min_waves  = 5,
+        .min_waves  = 8,
         .unlock_msg = NULL,
     },
 
@@ -139,7 +139,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "\"Excellent travail. Les ouvriers ont ramene les composants.\n"
             "L'alchimiste du bastion peut maintenant modifier nos munitions.\n"
             "Les tours peuvent desormais appliquer des types de degats specifiques.\"\n",
-        .min_waves  = 5,
+        .min_waves  = 9,
         .unlock_msg = "DEBLOQUE : Systeme de materiaux",
     },
 
@@ -150,9 +150,9 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
         .theme    = THEME_SWAMP,
         .objective = {
             .type        = OBJ_SURVIVE_WAVES,
-            .target      = 8,
+            .target      = 10,
             .before_wave = 0,
-            .description = "Survivre 8 vagues et eliminer le boss",
+            .description = "Survivre 10 vagues et eliminer le boss",
         },
         .dialog_before =
             "VOSS :\n"
@@ -164,7 +164,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "\"La creature est tombee. Mais avant de mourir...\n"
             "elle a emis un signal. Quelqu'un d'autre les controle.\n"
             "Et ce quelqu'un vient du desert.\"\n",
-        .min_waves  = 8,
+        .min_waves  = 10,
         .unlock_msg = "DEBLOQUE : Tourelle Flammes",
     },
 
@@ -177,9 +177,9 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
         .theme    = THEME_DESERT,
         .objective = {
             .type        = OBJ_SURVIVE_WAVES,
-            .target      = 6,
+            .target      = 9,
             .before_wave = 0,
-            .description = "Survivre 6 vagues avec portee reduite",
+            .description = "Survivre 9 vagues avec portee reduite",
         },
         .dialog_before =
             "VOSS :\n"
@@ -191,7 +191,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "\"La tempete se leve. Et avec elle, un signal radio.\n"
             "Crypte. Militaire. Il vient d'un ancien complexe\n"
             "quelque part a l'est du desert.\"\n",
-        .min_waves  = 6,
+        .min_waves  = 9,
         .unlock_msg = NULL,
     },
 
@@ -217,7 +217,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "\"Le signal vient bien du complexe militaire.\n"
             "Ce n'est pas un humain qui l'emet.\n"
             "C'est une machine.\"\n",
-        .min_waves  = 7,
+        .min_waves  = 10,
         .unlock_msg = NULL,
         .forced_base_count = 2,  // texte impose 2 bases (MAX_BASES=2)
     },
@@ -229,9 +229,9 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
         .theme    = THEME_DESERT,
         .objective = {
             .type        = OBJ_SURVIVE_WAVES,
-            .target      = 10,
+            .target      = 11,
             .before_wave = 0,
-            .description = "Survivre 10 vagues et detruire le general",
+            .description = "Survivre 11 vagues et detruire le general",
         },
         .dialog_before =
             "VOSS :\n"
@@ -244,7 +244,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "Dans ses circuits, nos techniciens ont recupere\n"
             "une routine de controle de drones. Defective, mais utilisable.\n"
             "Le destin de ce bastion pourrait changer.\"\n",
-        .min_waves  = 10,
+        .min_waves  = 11,
         .unlock_msg = "DEBLOQUE : Systeme de drones (prochaine campagne)",
     },
 
@@ -271,7 +271,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "\"Nos unites sont intactes. Bien.\n"
             "Mais la Faction Acier surveille nos mouvements.\n"
             "Leur chef a envoye un ultimatum. Il arrive.\"\n",
-        .min_waves  = 6,
+        .min_waves  = 10,
         .unlock_msg = NULL,
     },
 
@@ -297,7 +297,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "\"L'armure electrique de la faction est percee.\n"
             "Le plasma fonctionne. Maintenez la pression.\n"
             "Le chef recule vers le parlement en ruine.\"\n",
-        .min_waves  = 8,
+        .min_waves  = 11,
         .unlock_msg = NULL,
     },
 
@@ -351,7 +351,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "\"Commandant, avec ces composants nano, on peut\n"
             "perturber les signaux de controle des robots.\n"
             "Mais la source est plus profonde. Il y a une IA centrale.\"\n",
-        .min_waves  = 6,
+        .min_waves  = 15,
         .unlock_msg = NULL,
     },
 
@@ -376,7 +376,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "\"Deux generateurs hors service. Le troisieme resiste.\n"
             "L'IA a detecte notre strategie. Elle envoie ses meilleures unites.\n"
             "Les soigneurs, les chasseurs, l'artillerie... tout.\"\n",
-        .min_waves  = 0,  // objectif de collecte, pas de vagues min
+        .min_waves  = 10,
         .unlock_msg = NULL,
     },
 
@@ -387,9 +387,9 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
         .theme    = THEME_FACTORY,
         .objective = {
             .type        = OBJ_SURVIVE_WAVES,
-            .target      = 15,
+            .target      = 20,
             .before_wave = 0,
-            .description = "Survivre 15 vagues et detruire NEXUS",
+            .description = "Survivre 20 vagues et detruire NEXUS",
         },
         .dialog_before =
             "NEXUS — IA CENTRALE :\n"
@@ -403,7 +403,7 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             "Pour la premiere fois depuis des annees,\n"
             "le silence. Un vrai silence.\n"
             "On a gagne. Maintenant on reconstruit.\"\n",
-        .min_waves  = 15,
+        .min_waves  = 20,
         .unlock_msg = "FIN DE CAMPAGNE — Le monde peut recommencer.",
     },
 };

@@ -221,6 +221,7 @@ void game_state_update(GameState *gs, float dt) {
             if (_be->active && _be->spawn_delay <= 0.0f &&
                 !gs->meta.bestiary_discovered[(int)_be->type]) {
                 gs->meta.bestiary_discovered[(int)_be->type] = 1;
+                meta_save(&gs->meta);
                 ui_disc_push(&gs->ui, DISC_ENEMY, (int)_be->type);
             }
         }

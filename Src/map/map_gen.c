@@ -374,27 +374,20 @@ static int place_base(Map *map, int base_id, Edge base_edge,
 // ════════════════════════════════════════════════════
 // ASSIGNATION SPAWN → BASE
 //
-// num_spawns peut être < num_bases (arcade) : dans ce cas certaines bases
-// ne reçoivent aucun spawn et ne seront pas attaquées ("vies bonus").
-// num_spawns peut être > num_bases : les spawns excédentaires visent une
-// base aléatoire parmi celles existantes (incertitude tactique).
+// total_paths = max(num_spawns, num_bases) — garantit que chaque base
+// reçoit au moins un chemin d'attaque.
+// Les chemins supplémentaires (si total_paths > num_bases) sont assignés
+// en round-robin, puis mélangés pour l'incertitude tactique.
 // ════════════════════════════════════════════════════
-static void assign_spawns_to_bases(int num_spawns, int num_bases,
+static void assign_spawns_to_bases(int total_paths, int num_bases,
                                    int out_base_ids[MAX_PATHS])
 {
-    int covered = num_spawns < num_bases ? num_spawns : num_bases;
+    // Round-robin : base i % num_bases → chaque base couverte au moins une fois
+    for (int i = 0; i < total_paths; i++)
+        out_base_ids[i] = i % num_bases;
 
-    // Passe 1 : 1:1 pour les premières bases (jusqu'à min(spawns,bases))
-    for (int i = 0; i < covered; i++)
-        out_base_ids[i] = i;
-
-    // Passe 2 : spawns supplémentaires (si num_spawns > num_bases)
-    //           → base aléatoire parmi celles existantes
-    for (int i = covered; i < num_spawns; i++)
-        out_base_ids[i] = rng_int(num_bases);
-
-    // Passe 3 : mélange (Fisher-Yates) — incertitude tactique
-    for (int i = num_spawns - 1; i > 0; i--) {
+    // Mélange Fisher-Yates — incertitude tactique
+    for (int i = total_paths - 1; i > 0; i--) {
         int j = rng_int(i + 1);
         int tmp = out_base_ids[i];
         out_base_ids[i] = out_base_ids[j];
@@ -521,13 +514,17 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
     if (num_spawns < 1)         num_spawns = 1;
     if (num_spawns > MAX_PATHS) num_spawns = MAX_PATHS;
 
+    // Garantit un chemin vers chaque base : total_paths ≥ num_bases
+    int total_paths = num_spawns > map->base_count ? num_spawns : map->base_count;
+    if (total_paths > MAX_PATHS) total_paths = MAX_PATHS;
+
     // ── Assignation spawn → base ──────────────────────────────
     int base_ids[MAX_PATHS];
-    assign_spawns_to_bases(num_spawns, map->base_count, base_ids);
+    assign_spawns_to_bases(total_paths, map->base_count, base_ids);
 
     // ── Génération des chemins ────────────────────────────────
     map->path_count = 0;
-    for (int i = 0; i < num_spawns; i++) {
+    for (int i = 0; i < total_paths; i++) {
         int bid = base_ids[i];
         int carved = 0;
 

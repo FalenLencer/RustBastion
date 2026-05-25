@@ -633,7 +633,7 @@ static int game_do_render(AppContext *ctx) {
             }
             menu_refresh_slots(&ctx->menu);
             ctx->menu.paused = 0;
-            ctx->menu.screen = ctx->gs.is_campaign ? MENU_CAMPAIGN : MENU_ARCADE;
+            ctx->menu.screen = MENU_TITLE;
             ctx->screen      = SCREEN_MENU;
             ctx->interlude   = INTER_NONE;
             audio_play_menu_music();

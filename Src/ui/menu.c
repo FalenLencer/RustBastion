@@ -357,8 +357,9 @@ void menu_init(MenuState *m, const AppOptions *opts) {
     m->back_screen       = MENU_TITLE;
     m->new_theme         = THEME_COUNT;
     m->opt_dropdown_open = -1;
-    m->new_slot          = 0;
-    m->paused            = 0;
+    m->new_slot              = -1;
+    m->selected_campaign_act = -1;   // -1 = aucun acte choisi sur la carte
+    m->paused                = 0;
     m->opts.fullscreen   = 0;
     m->opts.win_width    = GetScreenWidth();
     m->opts.win_height   = GetScreenHeight();
@@ -439,7 +440,9 @@ MenuAction menu_render_and_act(MenuState *m, const MetaProgress *meta,
         case MENU_OPTIONS:      act = draw_options(m, vw, vh);            break;
         case MENU_BESTIARY:     act = draw_bestiary(m, meta, vw, vh);     break;
         case MENU_CONFIRM_DEL:
-            draw_slot_list(m, vw, vh, m->back_screen == MENU_CAMPAIGN);
+            draw_slot_list(m, vw, vh,
+                m->back_screen == MENU_CAMPAIGN ||
+                m->back_screen == MENU_WORLD_MAP);
             act = draw_confirm_del(m, vw, vh);
             break;
         default:

@@ -620,6 +620,7 @@ void ui_update(UIState *ui, GameState *gs) {
                             if (gs->is_campaign &&
                                 !gs->meta.tower_discovered[(int)_tt]) {
                                 gs->meta.tower_discovered[(int)_tt] = 1;
+                                meta_save(&gs->meta);
                                 ui_disc_push(ui, DISC_TOWER, (int)_tt);
                             }
                         }
@@ -666,6 +667,7 @@ void ui_update(UIState *ui, GameState *gs) {
                             } else if (gs->is_campaign &&
                                        !gs->meta.unit_discovered[(int)_put]) {
                                 gs->meta.unit_discovered[(int)_put] = 1;
+                                meta_save(&gs->meta);
                                 ui_disc_push(ui, DISC_UNIT, (int)_put);
                             }
                         } else {

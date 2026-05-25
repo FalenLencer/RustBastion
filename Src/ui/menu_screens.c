@@ -72,7 +72,8 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
                      "Carte de progression — 5 chapitres, 15 actes.",
                      C_GOLD, bx, by, bw, bh)) {
         push_back_screen(m);
-        m->screen = MENU_WORLD_MAP;
+        m->selected_campaign_act = -1;   // reset : aucun acte pre-selectionne
+        m->screen      = MENU_WORLD_MAP;
         m->back_screen = MENU_PLAY_HUB;
     }
     by += bh + gap;
@@ -203,32 +204,51 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
             }
             if (draw_btn("EFFACER", bx_del, by2, bw_del, bh2, C_RED, 0)) {
                 m->confirm_del_slot = i;
+                m->back_screen = is_campaign ? MENU_CAMPAIGN : MENU_ARCADE;
                 m->screen = MENU_CONFIRM_DEL;
             }
 
         } else {
             if (is_campaign) {
-                /* Slot vide campagne : affiche l'acte de départ sélectionné */
-                const ActData *sel_ad =
-                    campaign_act_get(m->selected_campaign_act);
                 dtxt(TextFormat("Emplacement %d — vide", i+1),
                      tx, y + M_IN, 9, C_DIM);
-                if (sel_ad) {
-                    char albl[72];
-                    snprintf(albl, sizeof(albl), "Acte %d — %s",
-                             m->selected_campaign_act + 1, sel_ad->title);
-                    char aclip[72];
-                    clip_text(albl, txt_clip_w, 11, aclip, sizeof(aclip));
-                    dtxt(aclip, tx, y + M_IN + 14, 11, C_GOLD);
-                    char sclip[64];
-                    clip_text(sel_ad->subtitle, txt_clip_w, 9, sclip, sizeof(sclip));
-                    dtxt(sclip, tx, y + M_IN + 28, 9, C_DIM);
-                }
-                if (draw_btn("LANCER", bx_rep, by2, bw_rep, bh2, C_GOLD, 0)) {
-                    act.start_campaign     = 1;
-                    act.new_slot           = i;
-                    act.campaign_order_seed = 0;
-                    act.start_campaign_act = m->selected_campaign_act;
+
+                if (m->new_slot == i && m->selected_campaign_act >= 0) {
+                    /* Acte sélectionné sur la carte → affiche + LANCER */
+                    const ActData *sel_ad =
+                        campaign_act_get(m->selected_campaign_act);
+                    if (sel_ad) {
+                        char albl[72];
+                        snprintf(albl, sizeof(albl), "Acte %d — %s",
+                                 m->selected_campaign_act + 1, sel_ad->title);
+                        char aclip[72];
+                        int lancer_w = bw_rep + btn_gap + bw_del; /* bouton large */
+                        clip_text(albl, bx_rep - tx - M_IN, 11, aclip, sizeof(aclip));
+                        dtxt(aclip, tx, y + M_IN + 14, 11, C_GOLD);
+                        char sclip[64];
+                        clip_text(sel_ad->subtitle, bx_rep - tx - M_IN, 9,
+                                  sclip, sizeof(sclip));
+                        dtxt(sclip, tx, y + M_IN + 28, 9, C_DIM);
+                        if (draw_btn("LANCER", bx_rep, by2, lancer_w, bh2,
+                                     C_GOLD, 0)) {
+                            act.start_campaign      = 1;
+                            act.new_slot            = i;
+                            act.campaign_order_seed = 0;
+                            act.start_campaign_act  = m->selected_campaign_act;
+                        }
+                    }
+                } else {
+                    /* Pas encore d'acte choisi → envoyer sur la carte du monde */
+                    int bw_new = 150;
+                    int bx_new = sx + sw - M_IN - bw_new;
+                    if (draw_btn("NOUVELLE PARTIE", bx_new, by2, bw_new, bh2,
+                                 C_GOLD, 0)) {
+                        m->new_slot              = i;
+                        m->selected_campaign_act = -1;
+                        push_back_screen(m);
+                        m->screen      = MENU_WORLD_MAP;
+                        m->back_screen = MENU_CAMPAIGN;
+                    }
                 }
             } else {
                 dtxt(TextFormat("Emplacement %d — vide", i+1),
@@ -416,13 +436,15 @@ MenuAction draw_confirm_del(MenuState *m, int vw, int vh) {
     int by2 = cy + ph/2 - M_PAD - bh2;
 
     if (draw_btn("EFFACER", cx - bw2 - M_IN/2, by2, bw2, bh2, C_RED, 0)) {
-        if (m->back_screen == MENU_CAMPAIGN)
+        if (m->back_screen == MENU_CAMPAIGN ||
+            m->back_screen == MENU_WORLD_MAP)
             campaign_save_delete(m->confirm_del_slot);
         else
             save_delete(m->confirm_del_slot);
         menu_refresh_slots(m);
         m->screen = (m->back_screen == MENU_CAMPAIGN ||
-                     m->back_screen == MENU_ARCADE)
+                     m->back_screen == MENU_ARCADE   ||
+                     m->back_screen == MENU_WORLD_MAP)
                     ? m->back_screen : MENU_PLAY_HUB;
         set_msg(m, "Partie effacee.");
     }
