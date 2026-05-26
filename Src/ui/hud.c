@@ -193,7 +193,9 @@ void ui_init(UIState *ui) {
     ui->overlay_tl_pos      = (Vector2){-1.0f, -1.0f};  // sentinel : init au 1er frame
     ui->overlay_tr_pos      = (Vector2){-1.0f, -1.0f};
     ui->overlay_bl_pos      = (Vector2){-1.0f, -1.0f};  // sentinel : init au 1er frame
-    ui->dragging_overlay    = -1;
+    ui->dragging_overlay      = -1;
+    ui->behavior_pending      = -1;
+    ui->behavior_pending_unit = -1;
 
     const int HUD_Y  = g_canvas_virt_h - UI_HUD_HEIGHT;
     const int M      = UI_MARGIN;

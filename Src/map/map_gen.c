@@ -625,10 +625,22 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
             }
             if (dup) continue;
 
-            map->deposits[placed].tile_x = dx;
-            map->deposits[placed].tile_y = dy;
-            map->deposits[placed].type   = (MaterialType)rng_int(MAT_COUNT);
-            map->deposits[placed].active = 1;
+            // Distance manhattan à la base la plus proche
+            int min_dist = 9999;
+            for (int b2 = 0; b2 < map->base_count; b2++) {
+                int md = manhattan((Point){dx,dy}, map->bases[b2].pos);
+                if (md < min_dist) min_dist = md;
+            }
+            // spawn_wave : 0 = immédiat, 4 = vague 4, 8 = vague 8
+            int sw = 0;
+            if (min_dist >= 12) sw = 8;
+            else if (min_dist >= 7) sw = 4;
+
+            map->deposits[placed].tile_x    = dx;
+            map->deposits[placed].tile_y    = dy;
+            map->deposits[placed].type      = (MaterialType)rng_int(MAT_COUNT);
+            map->deposits[placed].spawn_wave = sw;
+            map->deposits[placed].active    = (sw == 0) ? 1 : 0;
             map->tiles[dy][dx].buildable = 0;   // pas de tour sur un dépôt
             placed++;
         }

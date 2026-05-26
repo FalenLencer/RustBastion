@@ -164,6 +164,25 @@ void ui_update(UIState *ui, GameState *gs) {
                                         (float)(HUD_Y + UI_HUD_HEIGHT - M - btn_h),
                                         (float)max_w, (float)btn_h};
 
+        /* Boutons comportement unité — 4 boutons au-dessus de RENVOYER */
+        {
+            const int beh_h = 22;
+            const int beh_w = (max_w - GAP * 3) / 4;
+            int beh_y = HUD_Y + UI_HUD_HEIGHT - M - btn_h - GAP - beh_h;
+            for (int _b = 0; _b < 4; _b++) {
+                ui->unit_beh_btns[_b] = (Rectangle){
+                    (float)(right_x + _b * (beh_w + GAP)),
+                    (float)beh_y, (float)beh_w, (float)beh_h
+                };
+            }
+            /* 5e bouton : SUIVRE (médic uniquement) — rangée au-dessus des 4 boutons */
+            int beh_y2 = beh_y - beh_h - GAP;
+            ui->unit_beh_btns[4] = (Rectangle){
+                (float)right_x, (float)beh_y2,
+                (float)max_w, (float)beh_h
+            };
+        }
+
         (void)ubw; (void)uy;
     }
 
@@ -326,6 +345,62 @@ void ui_update(UIState *ui, GameState *gs) {
                     /* Clic hors bouton → déplacement du panneau */
                     ui->dragging_overlay = 2;
                     ui->drag_grab = (Vector2){mouse.x - bl_r.x, mouse.y - bl_r.y};
+                    goto end_click;
+                }
+            }
+        }
+
+        /* ── Comportement de l'unité sélectionnée ─────────────── */
+        if (ui->sell_unit_idx >= 0) {
+            Unit *_cu = &gs->units.units[ui->sell_unit_idx];
+            if (_cu->active && _cu->type != UNIT_WORKER) {
+                static const UnitBehavior BEH_MAP[4] = {
+                    UBEH_PATROL, UBEH_GUARD_TOWER, UBEH_ESCORT_WORKER, UBEH_MANUAL
+                };
+                for (int _b = 0; _b < 4; _b++) {
+                    if (!CheckCollisionPointRec(mouse, ui->unit_beh_btns[_b])) continue;
+                    UnitBehavior nb = BEH_MAP[_b];
+                    if (nb == UBEH_PATROL) {
+                        _cu->behavior        = UBEH_PATROL;
+                        _cu->guard_tower_idx = -1;
+                        _cu->escort_idx      = -1;
+                        _cu->manual_moving   = 0;
+                        ui->behavior_pending      = -1;
+                        ui->behavior_pending_unit = -1;
+                        audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+                    } else if (nb == UBEH_MANUAL) {
+                        _cu->behavior      = UBEH_MANUAL;
+                        _cu->manual_x      = _cu->x;
+                        _cu->manual_y      = _cu->y;
+                        _cu->manual_moving = 0;
+                        ui->behavior_pending      = -1;
+                        ui->behavior_pending_unit = -1;
+                        ui_push_notif(ui, "Clic sur la carte pour deplacer",
+                                      (Color){82, 155, 200, 255});
+                        audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+                    } else {
+                        // GUARD ou ESCORT : en attente de clic de cible
+                        // NE PAS changer le behavior ici — on attend la confirmation de la cible
+                        ui->behavior_pending      = (int)nb;
+                        ui->behavior_pending_unit = ui->sell_unit_idx;
+                        if (nb == UBEH_GUARD_TOWER)
+                            ui_push_notif(ui, "Cliquez sur une tourelle",
+                                          (Color){192, 57, 43, 255});
+                        else
+                            ui_push_notif(ui, "Cliquez sur un ouvrier",
+                                          (Color){200, 200, 50, 255});
+                        audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+                    }
+                    goto end_click;
+                }
+                /* 5e bouton : SUIVRE (médic uniquement) */
+                if (_cu->type == UNIT_MEDIC &&
+                    CheckCollisionPointRec(mouse, ui->unit_beh_btns[4])) {
+                    ui->behavior_pending      = (int)UBEH_FOLLOW_UNIT;
+                    ui->behavior_pending_unit = ui->sell_unit_idx;
+                    ui_push_notif(ui, "Cliquez sur une unite",
+                                  (Color){231, 76, 60, 255});
+                    audio_play_sfx(AUDIO_SFX_MENU_CLICK);
                     goto end_click;
                 }
             }
@@ -571,6 +646,124 @@ void ui_update(UIState *ui, GameState *gs) {
         else if (mouse.y < HUD_Y && ui->hovered_tile_x >= 0) {
             int tx = ui->hovered_tile_x;
             int ty = ui->hovered_tile_y;
+            float wx_m = (mouse.x - g_map_x_off) / g_map_render_scale;
+            float wy_m = mouse.y / g_map_render_scale;
+
+            // ── Attribution d'une cible de comportement en attente ───
+            if (ui->behavior_pending == (int)UBEH_GUARD_TOWER) {
+                int punit = ui->behavior_pending_unit;
+                int found = 0;
+                for (int _t = 0; _t < MAX_TOWERS && !found; _t++) {
+                    Tower *_tw = &gs->towers.towers[_t];
+                    if (!_tw->active) continue;
+                    if (_tw->tile_x == tx && _tw->tile_y == ty) {
+                        if (punit >= 0 && punit < MAX_UNITS &&
+                            gs->units.units[punit].active) {
+                            gs->units.units[punit].behavior        = UBEH_GUARD_TOWER;
+                            gs->units.units[punit].guard_tower_idx = _t;
+                            ui_push_notif(ui, "Unite en garde de tourelle",
+                                          (Color){192, 57, 43, 255});
+                        }
+                        found = 1;
+                    }
+                }
+                if (!found) {
+                    // Clic raté → revenir en patrouille
+                    if (punit >= 0 && punit < MAX_UNITS &&
+                        gs->units.units[punit].active) {
+                        gs->units.units[punit].behavior        = UBEH_PATROL;
+                        gs->units.units[punit].guard_tower_idx = -1;
+                    }
+                }
+                ui->behavior_pending      = -1;
+                ui->behavior_pending_unit = -1;
+                goto end_click;
+            }
+            if (ui->behavior_pending == (int)UBEH_ESCORT_WORKER) {
+                int punit = ui->behavior_pending_unit;
+                int found = 0;
+                for (int _j = 0; _j < MAX_UNITS && !found; _j++) {
+                    Unit *_wu = &gs->units.units[_j];
+                    if (!_wu->active || _wu->type != UNIT_WORKER) continue;
+                    float _dx = wx_m - _wu->x, _dy = wy_m - _wu->y;
+                    if (_dx*_dx + _dy*_dy <= (_wu->size+8.0f)*(_wu->size+8.0f)) {
+                        if (punit >= 0 && punit < MAX_UNITS &&
+                            gs->units.units[punit].active) {
+                            gs->units.units[punit].behavior   = UBEH_ESCORT_WORKER;
+                            gs->units.units[punit].escort_idx = _j;
+                            ui_push_notif(ui, "Unite en escorte d'ouvrier",
+                                          (Color){200, 200, 50, 255});
+                        }
+                        found = 1;
+                    }
+                }
+                if (!found) {
+                    if (punit >= 0 && punit < MAX_UNITS &&
+                        gs->units.units[punit].active) {
+                        gs->units.units[punit].behavior   = UBEH_PATROL;
+                        gs->units.units[punit].escort_idx = -1;
+                    }
+                }
+                ui->behavior_pending      = -1;
+                ui->behavior_pending_unit = -1;
+                goto end_click;
+            }
+
+            if (ui->behavior_pending == (int)UBEH_FOLLOW_UNIT) {
+                int punit = ui->behavior_pending_unit;
+                int found = 0;
+                for (int _j = 0; _j < MAX_UNITS && !found; _j++) {
+                    Unit *_wu = &gs->units.units[_j];
+                    if (!_wu->active || _j == punit) continue; // pas soi-même
+                    float _dx = wx_m - _wu->x, _dy = wy_m - _wu->y;
+                    if (_dx*_dx + _dy*_dy <= (_wu->size+8.0f)*(_wu->size+8.0f)) {
+                        if (punit >= 0 && punit < MAX_UNITS &&
+                            gs->units.units[punit].active) {
+                            gs->units.units[punit].behavior   = UBEH_FOLLOW_UNIT;
+                            gs->units.units[punit].escort_idx = _j;
+                            ui_push_notif(ui, "Medic en suivi d'unite",
+                                          (Color){231, 76, 60, 255});
+                        }
+                        found = 1;
+                    }
+                }
+                if (!found) {
+                    if (punit >= 0 && punit < MAX_UNITS &&
+                        gs->units.units[punit].active)
+                        gs->units.units[punit].behavior = UBEH_PATROL;
+                }
+                ui->behavior_pending      = -1;
+                ui->behavior_pending_unit = -1;
+                goto end_click;
+            }
+
+            // ── Destination manuelle pour une unité MANUEL sélectionnée ─
+            if (ui->sell_unit_idx >= 0) {
+                Unit *_mu = &gs->units.units[ui->sell_unit_idx];
+                if (_mu->active && _mu->type != UNIT_WORKER &&
+                    _mu->behavior == UBEH_MANUAL) {
+                    // Vérifier que la destination n'est pas sur une zone de spawn
+                    int in_spawn = 0;
+                    for (int _sp = 0; _sp < gs->map.path_count; _sp++) {
+                        const PathDef *_pd = &gs->map.paths[_sp];
+                        int spx = _pd->spawn.x, spy = _pd->spawn.y;
+                        int _dx = tx - spx, _dy = ty - spy;
+                        if (_dx*_dx + _dy*_dy <= SPAWN_EXCLUSION_RADIUS*SPAWN_EXCLUSION_RADIUS) {
+                            in_spawn = 1; break;
+                        }
+                    }
+                    if (!in_spawn) {
+                        _mu->manual_x      = wx_m;
+                        _mu->manual_y      = wy_m;
+                        _mu->manual_moving = 1;
+                        goto end_click;
+                    } else {
+                        ui_push_notif(ui, "Zone de spawn interdite !",
+                                      (Color){231, 76, 60, 255});
+                        goto end_click;
+                    }
+                }
+            }
 
             // Ouvrier sélectionné → dépôt
             if (ui->worker_selected_idx >= 0) {
@@ -703,11 +896,13 @@ void ui_update(UIState *ui, GameState *gs) {
     }
 
     if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
-        ui->selected_tool       = TOOL_NONE;
-        ui->selection.active    = 0;
-        ui->worker_selected_idx = -1;
-        ui->sell_unit_idx       = -1;
-        gs->units.selected_unit = -1;
+        ui->selected_tool         = TOOL_NONE;
+        ui->selection.active      = 0;
+        ui->worker_selected_idx   = -1;
+        ui->sell_unit_idx         = -1;
+        gs->units.selected_unit   = -1;
+        ui->behavior_pending      = -1;
+        ui->behavior_pending_unit = -1;
     }
 
     if (IsKeyPressed(KEY_ONE))   ui->selected_tool = TOOL_TOWER_GUN;
@@ -744,10 +939,12 @@ void ui_update(UIState *ui, GameState *gs) {
 
     /* ESCAPE : vide la sélection (la pause est gérée séparément dans game_do_input) */
     if (IsKeyPressed(KEY_ESCAPE)) {
-        ui->selected_tool       = TOOL_NONE;
-        ui->selection.active    = 0;
-        ui->worker_selected_idx = -1;
-        ui->sell_unit_idx       = -1;
-        gs->units.selected_unit = -1;
+        ui->selected_tool         = TOOL_NONE;
+        ui->selection.active      = 0;
+        ui->worker_selected_idx   = -1;
+        ui->sell_unit_idx         = -1;
+        gs->units.selected_unit   = -1;
+        ui->behavior_pending      = -1;
+        ui->behavior_pending_unit = -1;
     }
 }

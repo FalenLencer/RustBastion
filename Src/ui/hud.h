@@ -90,6 +90,10 @@ typedef struct {
     int           speed_mult;
     int           worker_selected_idx;
     int           sell_unit_idx;       // unité sélectionnée pour vente (-1 = aucune)
+    // Comportement d'unités de combat
+    Rectangle     unit_beh_btns[5];   // PATROL | GARDE | ESCORTE | MANUEL | SUIVRE(medic)
+    int           behavior_pending;    // UBEH_* en attente d'assignation (-1 = aucun)
+    int           behavior_pending_unit; // index de l'unité attendant l'assignation
     // Overlays déplaçables (positions en coordonnées virtuelles)
     Vector2       overlay_tl_pos;     // panneau haut-gauche (or / tours / unités)
     Vector2       overlay_tr_pos;     // panneau haut-droit  (vague / kills / ennemis)

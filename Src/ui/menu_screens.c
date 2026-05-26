@@ -190,9 +190,18 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
                 dtxt(arcbuf, tx, ty, 12, C_BLUE);
             }
             ty += 16;
-            dtxt(TextFormat("Vague %d  |  %d vies  |  %d or",
-                         si->wave, si->lives, si->gold),
-                     tx, ty, 10, C_TEXT);
+            {
+                char s1[32], s2[24], s3[24];
+                snprintf(s1, sizeof(s1), "Vague %d  |  ", si->wave);
+                snprintf(s2, sizeof(s2), "  %d  |  ", si->lives);
+                snprintf(s3, sizeof(s3), "  %d", si->gold);
+                int ix = tx;
+                dtxt(s1, ix, ty, 10, C_TEXT);   ix += mtxt(s1, 10);
+                draw_icon(g_icon_heart, ix, ty, fh(10), WHITE); ix += fh(10);
+                dtxt(s2, ix, ty, 10, C_TEXT);   ix += mtxt(s2, 10);
+                draw_icon(g_icon_gold,  ix, ty, fh(10), WHITE); ix += fh(10);
+                dtxt(s3, ix, ty, 10, C_TEXT);
+            }
             ty += M_LINE;
             dtxt(TextFormat("Emplacement %d", i+1), tx, ty, 9, C_DIM);
 

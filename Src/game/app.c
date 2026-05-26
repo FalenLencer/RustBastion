@@ -401,6 +401,7 @@ static int game_do_render(AppContext *ctx) {
         render_spawn_exclusion_zones(&gs->map);
         render_bases(&gs->map);
         render_deposits(&gs->map);
+        render_dropped_mats(gs->dropped_mats, gs->dropped_mat_count);
         render_paths(&gs->enemy_paths);
         render_towers(&gs->towers);
         render_units(&gs->units);

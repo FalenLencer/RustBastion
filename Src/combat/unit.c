@@ -5,6 +5,7 @@
  */
 
 #include "unit.h"
+#include "tower.h"
 #include "../engine/audio.h"
 #include <string.h>
 #include <math.h>
@@ -133,9 +134,13 @@ void unit_pool_init(UnitPool *up, float base_px, float base_py) {
     up->unit_limit = MAX_UNITS_PER_BASE;
 
     for (int i = 0; i < MAX_UNITS; i++) {
-        up->units[i].target_idx  = -1;
-        up->units[i].deposit_idx = -1;
-        up->units[i].carried_mat = MAT_NONE;
+        up->units[i].target_idx      = -1;
+        up->units[i].deposit_idx     = -1;
+        up->units[i].carried_mat     = MAT_NONE;
+        up->units[i].escort_idx      = -1;
+        up->units[i].guard_tower_idx = -1;
+        up->units[i].behavior        = UBEH_PATROL;
+        up->units[i].manual_moving   = 0;
     }
 }
 
@@ -185,6 +190,13 @@ int unit_spawn_at(UnitPool *up, UnitType type, int *gold, const MetaBonuses *bon
     float wanted_radius = (2.0f + (float)(slot % 3)) * TILE_SIZE;
     u->patrol_radius = fminf(wanted_radius, max_radius);
     u->patrol_angle  = ((float)slot / (float)MAX_UNITS) * 2.0f * PI;
+
+    u->behavior        = UBEH_PATROL;
+    u->escort_idx      = -1;
+    u->guard_tower_idx = -1;
+    u->manual_x        = bpx;
+    u->manual_y        = bpy;
+    u->manual_moving   = 0;
 
     u->x = bpx + cosf(u->patrol_angle) * u->patrol_radius;
     u->y = bpy + sinf(u->patrol_angle) * u->patrol_radius;
@@ -269,16 +281,18 @@ static int find_heal_target(const Unit *medic, const UnitPool *up) {
    MISE À JOUR
    ════════════════════════════════════════════════════ */
 void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
-                      MaterialType *inventory, int *inv_count)
+                      MaterialType *inventory, int *inv_count,
+                      const TowerPool *towers)
 {
     for (int i = 0; i < MAX_UNITS; i++) {
         Unit *u = &up->units[i];
         if (!u->active) continue;
 
-        // ── Mort de l'ouvrier : perte du matériau ────────
+        // ── Mort : note has_material avant désactivation
+        //    (game_state.c snapshote les ouvriers pour lâcher la ressource)
         if (u->hp <= 0.0f) {
-            u->active      = 0;
-            u->carried_mat = MAT_NONE;
+            u->active       = 0;
+            u->carried_mat  = MAT_NONE;
             u->has_material = 0;
             if (up->count > 0) up->count--;
             if (up->selected_unit == i) up->selected_unit = -1;
@@ -295,7 +309,9 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             switch (u->state) {
 
             case USTATE_GOTO_DEPOSIT: {
-                // Vérifie que le dépôt est encore valide
+                // Figé pendant PHASE_PREP
+                if (!up->mining_enabled) break;
+                // Dépôt toujours valide ?
                 if (u->deposit_idx < 0 ||
                     u->deposit_idx >= map->deposit_count ||
                     !map->deposits[u->deposit_idx].active) {
@@ -307,14 +323,11 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 float dep_x = dep->tile_x * TILE_SIZE + TILE_SIZE / 2.0f;
                 float dep_y = dep->tile_y * TILE_SIZE + TILE_SIZE / 2.0f;
                 float dist  = udist(u->x, u->y, dep_x, dep_y);
-
                 if (dist <= TILE_SIZE * UNIT_DEPOSIT_ARRIVE_DIST) {
-                    // Arrivé au dépôt — commence la collecte
                     u->state            = USTATE_COLLECT;
                     u->collect_duration = UNIT_WORKER_COLLECT_DURATION;
                     u->collect_timer    = u->collect_duration;
                 } else {
-                    // Avance vers le dépôt
                     float dx   = dep_x - u->x;
                     float dy   = dep_y - u->y;
                     float step = u->speed * TILE_SIZE * dt;
@@ -325,7 +338,9 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             }
 
             case USTATE_COLLECT: {
-                // Vérifie que le dépôt est encore là
+                // Figé pendant PHASE_PREP
+                if (!up->mining_enabled) break;
+                // Dépôt toujours valide ?
                 if (u->deposit_idx < 0 ||
                     u->deposit_idx >= map->deposit_count ||
                     !map->deposits[u->deposit_idx].active) {
@@ -333,23 +348,35 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     u->deposit_idx = -1;
                     break;
                 }
-                u->collect_timer -= dt;
+                // Ralentissement si ennemis proches
+                float collect_rate = 1.0f;
+                if (ep) {
+                    float slow_px = UNIT_WORKER_ENEMY_SLOW_RANGE * TILE_SIZE;
+                    for (int j = 0; j < MAX_ENEMIES; j++) {
+                        const Enemy *e = &ep->enemies[j];
+                        if (!e->active || e->dead || e->spawn_delay > 0.0f) continue;
+                        if (udist(u->x, u->y, e->x, e->y) <= slow_px) {
+                            collect_rate = UNIT_WORKER_ENEMY_SLOW_FACTOR;
+                            break;
+                        }
+                    }
+                }
+                u->collect_timer -= dt * collect_rate;
                 if (u->collect_timer <= 0.0f) {
-                    // Collecte terminée
                     MaterialDeposit *dep = &map->deposits[u->deposit_idx];
-                    u->carried_mat       = dep->type;
-                    u->has_material      = 1;
-                    dep->active          = 0; // dépôt épuisé
-                    u->deposit_idx       = -1;
-                    u->state             = USTATE_GOTO_BASE;
+                    u->carried_mat  = dep->type;
+                    u->has_material = 1;
+                    dep->active     = 0; // dépôt épuisé
+                    u->deposit_idx  = -1;
+                    u->state        = USTATE_GOTO_BASE;
                 }
                 break;
             }
 
             case USTATE_GOTO_BASE: {
+                // Retour à la base autorisé même en PHASE_PREP
                 float dist = udist(u->x, u->y, u->home_base_px, u->home_base_py);
                 if (dist <= TILE_SIZE * UNIT_BASE_ARRIVE_DIST) {
-                    // Arrivé à la base — dépose le matériau
                     if (u->has_material && inv_count &&
                         *inv_count < MAX_INVENTORY) {
                         inventory[*inv_count] = u->carried_mat;
@@ -370,12 +397,14 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             }
 
             default:
-                // PATROL : reste près de la base
+                // PATROL : tourne autour de la base
                 u->state = USTATE_PATROL;
                 u->patrol_angle += UNIT_WORKER_PATROL_ANGLE_SPEED * dt;
                 {
-                    float tx   = u->home_base_px + cosf(u->patrol_angle) * (TILE_SIZE * UNIT_WORKER_PATROL_RADIUS);
-                    float ty   = u->home_base_py + sinf(u->patrol_angle) * (TILE_SIZE * UNIT_WORKER_PATROL_RADIUS);
+                    float tx   = u->home_base_px
+                                 + cosf(u->patrol_angle) * (TILE_SIZE * UNIT_WORKER_PATROL_RADIUS);
+                    float ty   = u->home_base_py
+                                 + sinf(u->patrol_angle) * (TILE_SIZE * UNIT_WORKER_PATROL_RADIUS);
                     float dist = udist(u->x, u->y, tx, ty);
                     if (dist > UNIT_PATROL_SLACK) {
                         float dx   = tx - u->x;
@@ -389,19 +418,84 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             }
 
             // Clamp position
-            float margin = u->size + 2.0f;
-            if (u->x < margin)                          u->x = margin;
-            if (u->x > map->w * TILE_SIZE - margin)     u->x = map->w * TILE_SIZE - margin;
-            if (u->y < margin)                          u->y = margin;
-            if (u->y > map->h * TILE_SIZE - margin)     u->y = map->h * TILE_SIZE - margin;
-            continue; // ne pas passer dans la logique combat
+            {
+                float margin = u->size + 2.0f;
+                if (u->x < margin)                      u->x = margin;
+                if (u->x > map->w * TILE_SIZE - margin) u->x = map->w * TILE_SIZE - margin;
+                if (u->y < margin)                      u->y = margin;
+                if (u->y > map->h * TILE_SIZE - margin) u->y = map->h * TILE_SIZE - margin;
+            }
+            continue; // pas de logique combat pour l'ouvrier
         }
 
         // ════════════════════════════════════════════════
-        // UNITÉS DE COMBAT — logique existante
+        // UNITÉS DE COMBAT
         // ════════════════════════════════════════════════
 
-        // MÉDIC : soigne en priorité
+        // ── Résolution du comportement : position "home" effective ──
+        float eff_hx = u->home_base_px;
+        float eff_hy = u->home_base_py;
+
+        switch (u->behavior) {
+        case UBEH_GUARD_TOWER:
+            if (u->guard_tower_idx >= 0 && towers &&
+                u->guard_tower_idx < MAX_TOWERS &&
+                towers->towers[u->guard_tower_idx].active) {
+                eff_hx = towers->towers[u->guard_tower_idx].cx;
+                eff_hy = towers->towers[u->guard_tower_idx].cy;
+            } else {
+                // Tour détruite → retour patrouille
+                u->behavior        = UBEH_PATROL;
+                u->guard_tower_idx = -1;
+            }
+            break;
+        case UBEH_ESCORT_WORKER:
+            if (u->escort_idx >= 0 && u->escort_idx < MAX_UNITS &&
+                up->units[u->escort_idx].active &&
+                up->units[u->escort_idx].type == UNIT_WORKER) {
+                eff_hx = up->units[u->escort_idx].x;
+                eff_hy = up->units[u->escort_idx].y;
+            } else {
+                // Ouvrier mort/manquant → retour patrouille
+                u->behavior    = UBEH_PATROL;
+                u->escort_idx  = -1;
+            }
+            break;
+        case UBEH_FOLLOW_UNIT:
+            if (u->escort_idx >= 0 && u->escort_idx < MAX_UNITS &&
+                up->units[u->escort_idx].active) {
+                eff_hx = up->units[u->escort_idx].x;
+                eff_hy = up->units[u->escort_idx].y;
+            } else {
+                // Cible morte/manquante → retour patrouille
+                u->behavior   = UBEH_PATROL;
+                u->escort_idx = -1;
+            }
+            break;
+        case UBEH_MANUAL:
+            eff_hx = u->manual_x;
+            eff_hy = u->manual_y;
+            // Déplacement vers la destination manuelle
+            if (u->manual_moving) {
+                float dist = udist(u->x, u->y, u->manual_x, u->manual_y);
+                if (dist <= TILE_SIZE * 0.5f) {
+                    u->manual_moving = 0;
+                    u->state = USTATE_PATROL;
+                } else {
+                    float dx   = u->manual_x - u->x;
+                    float dy   = u->manual_y - u->y;
+                    float step = u->speed * TILE_SIZE * dt;
+                    u->x += (dx / dist) * step;
+                    u->y += (dy / dist) * step;
+                    u->state = USTATE_MOVE_MANUAL;
+                }
+            }
+            break;
+        default: // UBEH_PATROL
+            break;
+        }
+
+        // ── MÉDIC : soigne en priorité ────────────────────────────
         if (u->type == UNIT_MEDIC && u->heal_timer <= 0.0f) {
             int heal_tgt = find_heal_target(u, up);
             if (heal_tgt != -1) {
@@ -413,15 +507,14 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             }
         }
 
-        // Cherche cible ennemie
-        int tgt = find_enemy_target(u, ep, u->home_base_px, u->home_base_py);
+        // ── Cherche cible ennemie ─────────────────────────────────
+        int tgt = find_enemy_target(u, ep, eff_hx, eff_hy);
         u->target_idx = tgt;
 
         if (tgt != -1) {
             Enemy *e    = &ep->enemies[tgt];
             float  dist = udist(u->x, u->y, e->x, e->y);
             float  atk  = u->atk_range * TILE_SIZE;
-
             if (dist <= atk) {
                 u->state = USTATE_ATTACK;
                 if (u->atk_timer <= 0.0f) {
@@ -437,38 +530,56 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 u->x += (dx / dist) * step;
                 u->y += (dy / dist) * step;
             }
-        } else {
+        } else if (u->behavior != UBEH_MANUAL || !u->manual_moving) {
+            // Pas d'ennemi et pas en déplacement manuel actif → patrouille
             u->state = USTATE_PATROL;
-            u->patrol_angle += UNIT_PATROL_ANGLE_SPEED * dt;
-            float target_x = u->home_base_px + cosf(u->patrol_angle) * u->patrol_radius;
-            float target_y = u->home_base_py + sinf(u->patrol_angle) * u->patrol_radius;
-            float dist     = udist(u->x, u->y, target_x, target_y);
-            if (dist > UNIT_PATROL_SLACK) {
-                float dx   = target_x - u->x;
-                float dy   = target_y - u->y;
-                float step = u->speed * TILE_SIZE * UNIT_PATROL_SPEED_FRAC * dt;
-                u->x += (dx / dist) * step;
-                u->y += (dy / dist) * step;
+            if (u->behavior == UBEH_MANUAL) {
+                // En mode manuel : rester au point de destination (pas d'orbite)
+                float dist = udist(u->x, u->y, eff_hx, eff_hy);
+                if (dist > UNIT_PATROL_SLACK) {
+                    float dx   = eff_hx - u->x;
+                    float dy   = eff_hy - u->y;
+                    float step = u->speed * TILE_SIZE * UNIT_PATROL_SPEED_FRAC * dt;
+                    u->x += (dx / dist) * step;
+                    u->y += (dy / dist) * step;
+                }
+            } else {
+                // Orbite normale autour de eff_hx/hy
+                u->patrol_angle += UNIT_PATROL_ANGLE_SPEED * dt;
+                float target_x = eff_hx + cosf(u->patrol_angle) * u->patrol_radius;
+                float target_y = eff_hy + sinf(u->patrol_angle) * u->patrol_radius;
+                float dist     = udist(u->x, u->y, target_x, target_y);
+                if (dist > UNIT_PATROL_SLACK) {
+                    float dx   = target_x - u->x;
+                    float dy   = target_y - u->y;
+                    float step = u->speed * TILE_SIZE * UNIT_PATROL_SPEED_FRAC * dt;
+                    u->x += (dx / dist) * step;
+                    u->y += (dy / dist) * step;
+                }
             }
         }
 
-        // Limite déplacement hors portée
-        float max_dist = (u->intercept_range + 2.0f) * TILE_SIZE;
-        float d_base   = udist(u->x, u->y, u->home_base_px, u->home_base_py);
-        if (d_base > max_dist && u->target_idx == -1) {
-            float dx   = u->home_base_px - u->x;
-            float dy   = u->home_base_py - u->y;
-            float step = u->speed * TILE_SIZE * dt;
-            u->x += (dx / d_base) * step;
-            u->y += (dy / d_base) * step;
-            u->state = USTATE_RETURN;
+        // ── Rappel si trop loin du point home (sauf mode MANUEL) ──
+        if (u->behavior != UBEH_MANUAL) {
+            float max_dist = (u->intercept_range + 2.0f) * TILE_SIZE;
+            float d_base   = udist(u->x, u->y, eff_hx, eff_hy);
+            if (d_base > max_dist && u->target_idx == -1) {
+                float dx   = eff_hx - u->x;
+                float dy   = eff_hy - u->y;
+                float step = u->speed * TILE_SIZE * dt;
+                u->x += (dx / d_base) * step;
+                u->y += (dy / d_base) * step;
+                u->state = USTATE_RETURN;
+            }
         }
 
-        // Clamp position
-        float margin = u->size + 2.0f;
-        if (u->x < margin)                          u->x = margin;
-        if (u->x > map->w * TILE_SIZE - margin)     u->x = map->w * TILE_SIZE - margin;
-        if (u->y < margin)                          u->y = margin;
-        if (u->y > map->h * TILE_SIZE - margin)     u->y = map->h * TILE_SIZE - margin;
+        // ── Clamp position ────────────────────────────────────────
+        {
+            float margin = u->size + 2.0f;
+            if (u->x < margin)                      u->x = margin;
+            if (u->x > map->w * TILE_SIZE - margin) u->x = map->w * TILE_SIZE - margin;
+            if (u->y < margin)                      u->y = margin;
+            if (u->y > map->h * TILE_SIZE - margin) u->y = map->h * TILE_SIZE - margin;
+        }
     }
 }

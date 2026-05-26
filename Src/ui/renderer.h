@@ -48,3 +48,4 @@ void render_tower_preview(const Map *map, const TowerPool *tp,
 void render_tile_detail  (int px, int py, TileType type, ThemeID theme);
 void render_hud          (const GameState *gs);
 void render_deposits     (const Map *map);
+void render_dropped_mats (const DroppedMat *mats, int count);

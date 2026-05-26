@@ -15,6 +15,10 @@ Texture2D g_unit_splash  [UNIT_TYPE_COUNT];
 Texture2D g_enemy_splash [ENEMY_TYPE_COUNT];
 Font      g_font;          // police étendue — initialisée dans assets_load()
 
+Texture2D g_icon_scrap;
+Texture2D g_icon_gold;
+Texture2D g_icon_heart;
+
 // ════════════════════════════════════════════════════
 // HELPER — charge une texture ; retourne {0} si absent
 // Les textures sont toujours relatives au CWD (racine du projet),
@@ -93,6 +97,11 @@ void assets_load(void) {
     g_enemy_splash[ENEMY_HEALER]      = load_safe("assets/textures/splash_art/Enemie_Healer_splash_art.png");
     g_enemy_splash[ENEMY_HUNTER]      = load_safe("assets/textures/splash_art/Hunter_splash_art.png");
     g_enemy_splash[ENEMY_ARTILLERY]   = load_safe("assets/textures/splash_art/Artillery_splash_art.png");
+
+    // ── Icônes UI ────────────────────────────────────────────────────────
+    g_icon_scrap = load_safe("assets/textures/icone/scrap.png");
+    g_icon_gold  = load_safe("assets/textures/icone/gold.png");
+    g_icon_heart = load_safe("assets/textures/icone/heart.png");
 }
 
 // ════════════════════════════════════════════════════
@@ -106,4 +115,7 @@ void assets_unload(void) {
     for (int i = 0; i < ENEMY_TYPE_COUNT; i++)
         if (g_enemy_splash[i].id != 0) UnloadTexture(g_enemy_splash[i]);
     if (g_font.texture.id != 0) UnloadFont(g_font);
+    if (g_icon_scrap.id != 0) UnloadTexture(g_icon_scrap);
+    if (g_icon_gold.id  != 0) UnloadTexture(g_icon_gold);
+    if (g_icon_heart.id != 0) UnloadTexture(g_icon_heart);
 }

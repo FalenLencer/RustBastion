@@ -54,6 +54,10 @@ struct GameState {
     // ── Achats de slots en jeu (or) ───────────────────────────
     int slots_tower_bought;      // slots tours achetés en cours de partie
     int slots_unit_bought;       // slots unités achetés en cours de partie
+
+    // ── Matériaux lâchés au sol (ouvriers tués en portant) ────
+    DroppedMat dropped_mats[MAX_DROPPED_MATS];
+    int        dropped_mat_count;
 };
 
 typedef struct GameState GameState;

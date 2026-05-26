@@ -30,6 +30,15 @@ static inline int mtxt(const char *text, int fontSize) {
 static inline int fh(int fontSize) {
     return (int)((float)fontSize * FONT_SCALE + 0.5f);
 }
+// Dessine une icône texturée carrée de `size` pixels, tintée par `tint`.
+// Sans effet si la texture n'est pas chargée (id == 0).
+static inline void draw_icon(Texture2D tex, int x, int y, int size, Color tint) {
+    if (tex.id == 0) return;
+    DrawTexturePro(tex,
+        (Rectangle){0, 0, (float)tex.width, (float)tex.height},
+        (Rectangle){(float)x, (float)y, (float)size, (float)size},
+        (Vector2){0, 0}, 0.0f, tint);
+}
 // ─────────────────────────────────────────────────────────────────────────
 
 void ui_clip_text(const char *src, int max_w, int fs,

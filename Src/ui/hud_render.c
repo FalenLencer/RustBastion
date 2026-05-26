@@ -209,7 +209,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
         // FERRAILLE — uniquement en campagne
         if (gs->is_campaign) {
             float sr = fminf((float)gs->meta.scrap / 200.0f, 1.0f);
-            dtxt("SCR", px, py + 1, 10, (Color){30, 65, 30, 255});
+            draw_icon(g_icon_scrap, px, py - 1, 16, WHITE);
             draw_bar(bar_x, py + 2, bar_w, 7, sr,
                      (Color){127, 200, 50, 255}, (Color){4, 16, 4, 200});
             dtxt(TextFormat("%d", gs->meta.scrap),
@@ -660,14 +660,45 @@ void ui_render(const UIState *ui, const GameState *gs) {
             py += 13;
 
             // État
-            const char *ss;
-            switch (u->state) {
-                case USTATE_GOTO_DEPOSIT: ss = "-> Depot";    break;
-                case USTATE_COLLECT:      ss = "Collecte..."; break;
-                case USTATE_GOTO_BASE:    ss = "<- Base";     break;
-                default:                  ss = "Patrouille";  break;
+            if (u->type == UNIT_WORKER) {
+                const char *ss;
+                switch (u->state) {
+                    case USTATE_GOTO_DEPOSIT: ss = "-> Depot";    break;
+                    case USTATE_COLLECT:      ss = "Collecte..."; break;
+                    case USTATE_GOTO_BASE:    ss = "<- Base";     break;
+                    default:                  ss = "En attente";  break;
+                }
+                dtxt(ss, rx, py, 13, (Color){148,128,95,255}); py += 17;
+                if (!gs->units.mining_enabled)
+                    dtxt("Minage : pause vague", rx, py, 11,
+                         (Color){200,180,50,200});
+                else if (u->state == USTATE_COLLECT) {
+                    // Indicateur de ralentissement par ennemis
+                    for (int _ej = 0; _ej < MAX_ENEMIES; _ej++) {
+                        const Enemy *_e = &gs->enemies.enemies[_ej];
+                        if (!_e->active || _e->dead || _e->spawn_delay > 0.0f) continue;
+                        float _dx = _e->x - u->x, _dy = _e->y - u->y;
+                        float _d2 = UNIT_WORKER_ENEMY_SLOW_RANGE * TILE_SIZE;
+                        if (_dx*_dx + _dy*_dy <= _d2*_d2) {
+                            dtxt("! Ennemi proche: lent", rx, py, 11,
+                                 (Color){231,76,60,220});
+                            break;
+                        }
+                    }
+                }
+            } else {
+                // Unité de combat : état + comportement
+                static const char *BNAMES[5] = {
+                    "Patrouille", "Garde tourelle", "Escorte", "Manuel", "Suit unite"
+                };
+                static const Color BCOLS[5] = {
+                    {148,128,95,255},{192,57,43,255},{200,200,50,255},
+                    {82,155,200,255},{231,76,60,255}
+                };
+                int beh = (int)u->behavior;
+                if (beh < 0 || beh > 4) beh = 0;
+                dtxt(BNAMES[beh], rx, py, 13, BCOLS[beh]); py += 17;
             }
-            dtxt(ss, rx, py, 13, (Color){148,128,95,255}); py += 17;
 
             if (u->has_material && u->carried_mat != MAT_NONE) {
                 dtxt(TextFormat("Porte  %s", MATERIAL_NAMES[u->carried_mat]),
@@ -676,6 +707,56 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
             if (u->type == UNIT_WORKER)
                 dtxt("Clic depot = mission", rx, py, 11, (Color){92,92,35,175});
+
+            // ── Boutons de comportement (unités de combat seulement) ──
+            if (u->type != UNIT_WORKER) {
+                static const char *BLBL[4] = {"PATROL","GARDE","ESCORT","MANUEL"};
+                static const Color BCOL[4] = {
+                    {100,85,55,255},{192,57,43,255},{200,200,50,255},{82,155,200,255}
+                };
+                Vector2 _vm4 = virt_mouse();
+                for (int _b = 0; _b < 4; _b++) {
+                    const Rectangle *_br = &ui->unit_beh_btns[_b];
+                    int _active = ((int)u->behavior == _b);
+                    int _hov    = CheckCollisionPointRec(_vm4, *_br);
+                    Color _bg   = _active ? (Color){20,12,4,240}
+                                : _hov   ? (Color){14,8,2,220}
+                                         : (Color){8,5,2,200};
+                    Color _brd  = _active ? BCOL[_b] : _hov
+                                ? (Color){BCOL[_b].r/2,BCOL[_b].g/2,BCOL[_b].b/2,200}
+                                : (Color){50,38,14,150};
+                    DrawRectangleRounded(*_br, 0.20f, 4, _bg);
+                    DrawRectangleRoundedLinesEx(*_br, 0.20f, 4,
+                        _active ? 2.0f : 1.0f, _brd);
+                    int _tw4 = mtxt(BLBL[_b], 8);
+                    dtxt(BLBL[_b],
+                         (int)(_br->x + _br->width/2 - _tw4/2),
+                         (int)(_br->y + _br->height/2 - 5),
+                         8, _active ? BCOL[_b] : (Color){110,90,55,220});
+                }
+                /* 5e bouton : SUIVRE (médic uniquement) */
+                if (u->type == UNIT_MEDIC) {
+                    const Rectangle *_br5 = &ui->unit_beh_btns[4];
+                    int   _act5 = (u->behavior == UBEH_FOLLOW_UNIT);
+                    int   _hov5 = CheckCollisionPointRec(_vm4, *_br5);
+                    Color _sc5  = {231, 76, 60, 255};
+                    Color _bg5  = _act5 ? (Color){20,12,4,240}
+                                : _hov5 ? (Color){14,8,2,220}
+                                        : (Color){8,5,2,200};
+                    Color _brd5 = _act5 ? _sc5
+                                : _hov5 ? (Color){_sc5.r/2,_sc5.g/2,_sc5.b/2,200}
+                                        : (Color){50,38,14,150};
+                    DrawRectangleRounded(*_br5, 0.20f, 4, _bg5);
+                    DrawRectangleRoundedLinesEx(*_br5, 0.20f, 4,
+                        _act5 ? 2.0f : 1.0f, _brd5);
+                    const char *_lbl5 = "SUIVRE UNITE";
+                    int _tw5 = mtxt(_lbl5, 8);
+                    dtxt(_lbl5,
+                         (int)(_br5->x + _br5->width/2 - _tw5/2),
+                         (int)(_br5->y + _br5->height/2 - 5),
+                         8, _act5 ? _sc5 : (Color){110,90,55,220});
+                }
+            }
 
             // Bouton RENVOYER
             {
@@ -792,10 +873,11 @@ void ui_render(const UIState *ui, const GameState *gs) {
             // Or
             char gbuf[20];
             if (gs->gold >= 10000)
-                snprintf(gbuf, sizeof(gbuf), "%dk or", gs->gold / 1000);
+                snprintf(gbuf, sizeof(gbuf), "%dk", gs->gold / 1000);
             else
-                snprintf(gbuf, sizeof(gbuf), "%d or", gs->gold);
-            dtxt(gbuf, tx, ty, 12, (Color){230, 155, 35, 255});
+                snprintf(gbuf, sizeof(gbuf), "%d", gs->gold);
+            draw_icon(g_icon_gold, tx, ty, fh(12), WHITE);
+            dtxt(gbuf, tx + fh(12) + 2, ty, 12, (Color){230, 155, 35, 255});
             ty += line1_h + 3;
 
             // Tours

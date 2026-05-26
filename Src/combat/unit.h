@@ -22,7 +22,9 @@
 #define UNIT_MEDIC_HEAL_RANGE          3.0f  /* portée de soin (en tiles)           */
 
 // ── Ouvrier ───────────────────────────────────────────────────
-#define UNIT_WORKER_COLLECT_DURATION   4.0f  /* durée de collecte au dépôt (s)      */
+#define UNIT_WORKER_COLLECT_DURATION   8.0f  /* durée de collecte au dépôt (s)      */
+#define UNIT_WORKER_ENEMY_SLOW_RANGE   3.5f  /* ennemis dans ce rayon = collecte slow*/
+#define UNIT_WORKER_ENEMY_SLOW_FACTOR  0.35f /* facteur de vitesse collecte ralentie */
 #define UNIT_DEPOSIT_ARRIVE_DIST       0.8f  /* seuil d'arrivée au dépôt (en tiles) */
 #define UNIT_BASE_ARRIVE_DIST          1.0f  /* seuil d'arrivée à la base (en tiles)*/
 #define UNIT_WORKER_PATROL_ANGLE_SPEED 0.3f  /* vitesse angulaire patrouille (rad/s)*/
@@ -53,7 +55,17 @@ typedef enum {
     USTATE_GOTO_DEPOSIT, // ← se dirige vers un dépôt
     USTATE_COLLECT,      // ← en train de collecter
     USTATE_GOTO_BASE,    // ← revient à la base avec le matériau
+    USTATE_MOVE_MANUAL,  // ← déplacement manuel vers destination
 } UnitState;
+
+// ── Comportement (ordre du joueur) ───────────────────────────
+typedef enum {
+    UBEH_PATROL = 0,    // patrouille automatique (défaut)
+    UBEH_GUARD_TOWER,   // défend une tourelle spécifique
+    UBEH_ESCORT_WORKER, // escorte un ouvrier spécifique
+    UBEH_MANUAL,        // position manuelle fixée par le joueur
+    UBEH_FOLLOW_UNIT,   // (médic) suit n'importe quelle unité alliée
+} UnitBehavior;
 
 typedef struct {
     const char *name;
@@ -103,6 +115,13 @@ typedef struct {
 
     // Position de la base d'origine (pour patrouille et retour)
     float      home_base_px, home_base_py;
+
+    // ── Comportement (unités de combat) ──────────────
+    UnitBehavior behavior;
+    int          escort_idx;       // UBEH_ESCORT_WORKER: index de l'ouvrier ; UBEH_FOLLOW_UNIT: index de l'unité suivie
+    int          guard_tower_idx;  // UBEH_GUARD_TOWER: index de la tour
+    float        manual_x, manual_y; // UBEH_MANUAL: destination
+    int          manual_moving;    // 1 = se déplace vers manual_x/y
 } Unit;
 
 typedef struct UnitPool {
@@ -114,6 +133,9 @@ typedef struct UnitPool {
 
     // Index de l'unité sélectionnée par le joueur (-1 = aucune)
     int   selected_unit;
+
+    // 1 = ouvriers actifs (PHASE_WAVE), 0 = figés (PHASE_PREP)
+    int   mining_enabled;
 } UnitPool;
 
 // ── API ──────────────────────────────────────────────────────
@@ -121,7 +143,8 @@ void unit_pool_init    (UnitPool *up, float base_px, float base_py);
 int  unit_spawn        (UnitPool *up, UnitType type, int *gold, const MetaBonuses *bonuses);
 int  unit_spawn_at     (UnitPool *up, UnitType type, int *gold, const MetaBonuses *bonuses, float bpx, float bpy);
 void unit_pool_update  (UnitPool *up, EnemyPool *ep, Map *map, float dt,
-                        MaterialType *inventory, int *inv_count);
+                        MaterialType *inventory, int *inv_count,
+                        const TowerPool *towers);
 void unit_damage       (Unit *u, float dmg);
 void unit_assign_deposit(UnitPool *up, int unit_idx, int deposit_idx);
 int unit_active_limit(const MetaBonuses *bonuses, int base_count);

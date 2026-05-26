@@ -35,7 +35,17 @@ typedef struct {
     int          tile_x, tile_y;  // position sur la carte
     MaterialType type;
     int          active;          // 1 = disponible, 0 = collecté
+    int          spawn_wave;      // 0 = dispo dès le début, >0 = s'active à la vague N
 } MaterialDeposit;
+
+// ── Matériau lâché sur le sol (ouvrier tué en portant) ───────
+#define MAX_DROPPED_MATS 8
+typedef struct {
+    float        x, y;
+    MaterialType type;
+    int          active;
+    float        lifetime;   // disparaît après N secondes
+} DroppedMat;
 
 // ── Noms et couleurs ─────────────────────────────────────────
 extern const char  *MATERIAL_NAMES [MAT_COUNT];

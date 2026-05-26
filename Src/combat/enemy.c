@@ -81,6 +81,7 @@ const char *ENEMY_SPEC[ENEMY_TYPE_COUNT] = {
    ════════════════════════════════════════════════════ */
 void enemy_pool_init(EnemyPool *pool) {
     memset(pool, 0, sizeof(EnemyPool));
+    pool->raider_count = 0;
 }
 
 /* ════════════════════════════════════════════════════
@@ -130,6 +131,10 @@ void enemy_spawn(EnemyPool *pool, EnemyType type,
     e->active      = 1;
     e->hunt_target = -1;
     e->arty_target = -1;
+    e->raiding     = 0;
+    e->raid_target = -1;
+    e->raid_base_x = 0.0f;
+    e->raid_base_y = 0.0f;
 
     // Ghost
     e->invisible = (type == ENEMY_GHOST) ? 1 : 0;
@@ -182,6 +187,18 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                        Map *map,
                        float dt, int *lives, int *gold, int *kills)
 {
+    // ── Comptage raiders actifs + limite ──────────────────────────
+    int raider_count_now = 0;
+    int active_count     = 0;
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        if (!pool->enemies[i].active || pool->enemies[i].dead) continue;
+        active_count++;
+        if (pool->enemies[i].raiding) raider_count_now++;
+    }
+    pool->raider_count  = raider_count_now;
+    int raid_max = (int)((float)active_count * ENEMY_RAID_MAX_FRACTION);
+    if (raid_max < 1) raid_max = 1;
+
     for (int i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &pool->enemies[i];
         if (!e->active) continue;
@@ -269,6 +286,69 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                     other->hp += e->heal_amount * dt;
                     if (other->hp > other->max_hp)
                         other->hp = other->max_hp;
+                }
+            }
+        }
+
+        // ════════════════════════════════════════════════
+        // RAIDER — détachement vers un ouvrier
+        // ════════════════════════════════════════════════
+        if (e->raiding && units) {
+            int valid = 0;
+            if (e->raid_target >= 0 && e->raid_target < MAX_UNITS) {
+                const Unit *wu = &units->units[e->raid_target];
+                if (wu->active && wu->type == UNIT_WORKER) {
+                    float dist = edist(e->x, e->y, wu->x, wu->y);
+                    if (dist <= ENEMY_RAID_ABANDON_RANGE * TILE_SIZE) {
+                        valid = 1;
+                        if (dist <= e->melee_range) {
+                            // Attaque l'ouvrier
+                            if (e->atk_timer <= 0.0f) {
+                                unit_damage((Unit*)wu,
+                                            (float)e->damage * ENEMY_MELEE_DMG_MULT);
+                                e->atk_timer = 1.0f / ENEMY_MELEE_RATE_DEFAULT;
+                            }
+                        } else {
+                            // Fonce sur l'ouvrier
+                            float dx   = wu->x - e->x;
+                            float dy   = wu->y - e->y;
+                            float step = e->speed * TILE_SIZE * dt;
+                            e->x += (dx / dist) * step;
+                            e->y += (dy / dist) * step;
+                        }
+                        continue; // ne suit pas le chemin normal
+                    }
+                }
+            }
+            if (!valid) {
+                // Ouvrier mort ou trop loin : reprend le chemin
+                e->raiding     = 0;
+                e->raid_target = -1;
+                raider_count_now--;
+            }
+        }
+
+        // ─── Détection d'ouvrier à proximité (peut devenir raider) ──
+        if (!e->raiding && e->type != ENEMY_HUNTER && e->type != ENEMY_ARTILLERY
+            && units && raider_count_now < raid_max) {
+            float detect_px = ENEMY_RAID_DETECT_RANGE * TILE_SIZE;
+            for (int j = 0; j < MAX_UNITS; j++) {
+                const Unit *wu = &units->units[j];
+                if (!wu->active || wu->type != UNIT_WORKER) continue;
+                // N'attire que les ouvriers en mission (pas en patrouille de base)
+                if (wu->state == USTATE_PATROL) continue;
+                float d = edist(e->x, e->y, wu->x, wu->y);
+                if (d <= detect_px) {
+                    // Enregistre la position de base cible pour le retour
+                    if (e->path_id >= 0 && e->path_id < paths->count) {
+                        const Path *p = &paths->paths[e->path_id];
+                        e->raid_base_x = p->steps[p->len-1].x * TILE_SIZE + TILE_SIZE/2.0f;
+                        e->raid_base_y = p->steps[p->len-1].y * TILE_SIZE + TILE_SIZE/2.0f;
+                    }
+                    e->raiding = 1;
+                    e->raid_target = j;
+                    raider_count_now++;
+                    break;
                 }
             }
         }

@@ -25,5 +25,10 @@ extern Texture2D g_enemy_splash [ENEMY_TYPE_COUNT];
 // Police globale chargée avec les codepoints étendus (accents, tiret cadratin, etc.)
 extern Font g_font;
 
+// Icônes UI (ressources HUD et menus)
+extern Texture2D g_icon_scrap;
+extern Texture2D g_icon_gold;
+extern Texture2D g_icon_heart;
+
 void assets_load  (void);
 void assets_unload(void);

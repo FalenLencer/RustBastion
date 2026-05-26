@@ -589,6 +589,15 @@ void render_units(const UnitPool *up) {
             DrawCircle((int)u->x, (int)u->y, (int)(u->size + 2),
                        (Color){255,255,255,100});
 
+        // ── Indicateur de comportement (anneau coloré) ────────────
+        if (u->type != UNIT_WORKER && u->behavior != UBEH_PATROL) {
+            static const Color BCOLS[4] = {
+                {0,0,0,0},{192,57,43,200},{200,200,50,200},{82,155,200,200}
+            };
+            Color bc = BCOLS[(int)u->behavior];
+            DrawCircleLines((int)u->x, (int)u->y, (int)(u->size + 4), bc);
+        }
+
         DrawCircle((int)u->x, (int)u->y, (int)u->size, col);
         DrawCircleLines((int)u->x, (int)u->y, (int)u->size,
                         (Color){255,255,255,80});
@@ -602,6 +611,7 @@ void render_units(const UnitPool *up) {
             case USTATE_HEAL:         icon = "+"; break;
             case USTATE_GOTO_DEPOSIT: icon = "D"; break;
             case USTATE_COLLECT:      icon = "C"; break;
+            case USTATE_MOVE_MANUAL:  icon = "M"; break;
             case USTATE_GOTO_BASE:    icon = "B"; break;
             default:                  icon = "."; break;
         }
@@ -641,12 +651,23 @@ void render_deposits(const Map *map) {
 
     for (int i = 0; i < map->deposit_count; i++) {
         const MaterialDeposit *d = &map->deposits[i];
-        if (!d->active) continue;
-
         int px = d->tile_x * TILE_SIZE;
         int py = d->tile_y * TILE_SIZE;
         int cx = px + TILE_SIZE / 2;
         int cy = py + TILE_SIZE / 2;
+
+        if (!d->active) {
+            if (d->spawn_wave > 0) {
+                // Dépôt verrouillé : icône grisée + numéro de vague
+                DrawCircle(cx, cy, TILE_SIZE / 2 - 6, (Color){18,14,8,160});
+                DrawCircleLines(cx, cy, TILE_SIZE / 2 - 4, (Color){60,50,25,180});
+                char _wbuf[8];
+                snprintf(_wbuf, sizeof(_wbuf), "V%d", d->spawn_wave);
+                int _iw = mtxt(_wbuf, 9);
+                dtxt(_wbuf, cx - _iw/2, cy - 5, 9, (Color){90,75,35,200});
+            }
+            continue;
+        }
 
         Color col = MAT_COLORS[d->type];
 
@@ -661,5 +682,41 @@ void render_deposits(const Map *map) {
         // Icône centré
         int iw = mtxt(MAT_ICONS[d->type], 11);
         dtxt(MAT_ICONS[d->type], cx - iw/2, cy - 5, 11, col);
+    }
+}
+
+// ════════════════════════════════════════════════════
+// MATÉRIAUX LÂCHÉS AU SOL
+// ════════════════════════════════════════════════════
+void render_dropped_mats(const DroppedMat *mats, int count) {
+    static const Color MAT_COLORS[MAT_COUNT] = {
+        [MAT_IRON]  = {160, 160, 180, 255},
+        [MAT_ACID]  = { 80, 200,  50, 255},
+        [MAT_PLASMA]= { 80, 160, 255, 255},
+        [MAT_CRYO]  = {140, 220, 255, 255},
+        [MAT_NANO]  = {200, 100, 255, 255},
+    };
+    static const char *MAT_ICONS[MAT_COUNT] = {
+        [MAT_IRON]  = "Fe", [MAT_ACID]  = "Ac", [MAT_PLASMA]= "Pl",
+        [MAT_CRYO]  = "Cr", [MAT_NANO]  = "Na",
+    };
+    float t = (float)GetTime();
+    for (int i = 0; i < count; i++) {
+        const DroppedMat *dm = &mats[i];
+        if (!dm->active || dm->type < 0 || dm->type >= MAT_COUNT) continue;
+        Color col = MAT_COLORS[dm->type];
+        // Clignotement si < 5s restantes
+        float fade = (dm->lifetime < 5.0f)
+                   ? (0.3f + 0.7f * ((sinf(t * 6.0f) + 1.0f) * 0.5f))
+                   : 1.0f;
+        // Halo rouge (danger)
+        DrawCircle((int)dm->x, (int)dm->y, 10,
+                   (Color){200,50,30,(unsigned char)(80*fade)});
+        DrawCircleLines((int)dm->x, (int)dm->y, 10,
+                        (Color){200,80,50,(unsigned char)(180*fade)});
+        // Icône matériau
+        int iw = mtxt(MAT_ICONS[dm->type], 9);
+        dtxt(MAT_ICONS[dm->type], (int)dm->x - iw/2, (int)dm->y - 5, 9,
+             (Color){col.r, col.g, col.b, (unsigned char)(220*fade)});
     }
 }

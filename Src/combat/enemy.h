@@ -81,11 +81,18 @@ typedef struct {
     // Flammes — accumulation de brûlure
     int   burn_stacks;       // paliers actifs (0..BURN_MAX_STACKS)
     float burn_decay_timer;  // temps avant perte des stacks (s)
+
+    // Raider — détachement vers un ouvrier
+    int   raiding;           // 1 = cet ennemi traque un ouvrier
+    int   raid_target;       // index de l'ouvrier dans UnitPool (-1 = aucun)
+    float raid_base_x;       // position base cible (pour après la traque)
+    float raid_base_y;
 } Enemy;
 
 typedef struct {
     Enemy enemies[MAX_ENEMIES];
     int   count;
+    int   raider_count;      // ennemis actuellement en mode raid
 } EnemyPool;
 
 typedef struct {
@@ -146,6 +153,11 @@ extern const char *ENEMY_SPEC[ENEMY_TYPE_COUNT];
 #define ENEMY_ARTY_RANGE             4.0f  /* portée de tir (en tiles)     */
 #define ENEMY_ARTY_DAMAGE           40.0f  /* dégâts par tir               */
 #define ENEMY_ARTY_FIRE_TIMER        3.0f  /* cooldown entre tirs (s)      */
+
+// ── Raider (détachement vers ouvrier) ────────────────────────
+#define ENEMY_RAID_DETECT_RANGE      5.0f  /* détection ouvrier (en tiles) */
+#define ENEMY_RAID_MAX_FRACTION      0.3f  /* max 30% des ennemis actifs   */
+#define ENEMY_RAID_ABANDON_RANGE    14.0f  /* abandon si ouvrier trop loin */
 
 // Forward declarations
 typedef struct UnitPool  UnitPool;

@@ -140,6 +140,9 @@ void game_state_init(GameState *gs) {
     gs->act_materials_collected = 0;
     gs->slots_tower_bought      = 0;
     gs->slots_unit_bought       = 0;
+    gs->dropped_mat_count       = 0;
+    for (int i = 0; i < MAX_DROPPED_MATS; i++)
+        gs->dropped_mats[i].active = 0;
 }
 
 void game_state_update(GameState *gs, float dt) {
@@ -176,6 +179,21 @@ void game_state_update(GameState *gs, float dt) {
     int unit_cnt_before = gs->units.count;
     int inv_cnt_before  = gs->inventory_count;
 
+    // Activation/désactivation du minage selon la phase
+    gs->units.mining_enabled = (gs->phase == PHASE_WAVE) ? 1 : 0;
+
+    // Snapshot ouvriers AVANT update (pour détecter morts avec matériau)
+    typedef struct { int active; int has_mat; MaterialType mat; float x, y; } WSnap;
+    WSnap wsnap[MAX_UNITS];
+    for (int _w = 0; _w < MAX_UNITS; _w++) {
+        const Unit *u = &gs->units.units[_w];
+        wsnap[_w].active  = u->active;
+        wsnap[_w].has_mat = (u->type == UNIT_WORKER) ? u->has_material : 0;
+        wsnap[_w].mat     = u->carried_mat;
+        wsnap[_w].x       = u->x;
+        wsnap[_w].y       = u->y;
+    }
+
     // Mise à jour ennemis — passe towers pour Artillery
     enemy_pool_update(&gs->enemies, &gs->enemy_paths,
                       &gs->units, &gs->towers,
@@ -198,7 +216,60 @@ void game_state_update(GameState *gs, float dt) {
 
     tower_pool_update(&gs->towers, &gs->enemies, effective_dt);
     unit_pool_update(&gs->units, &gs->enemies, &gs->map,
-                     effective_dt, gs->inventory, &gs->inventory_count);
+                     effective_dt, gs->inventory, &gs->inventory_count,
+                     &gs->towers);
+
+    // ── Ouvriers tués en portant → lâchent le matériau ───────────
+    for (int _w = 0; _w < MAX_UNITS; _w++) {
+        if (wsnap[_w].active && wsnap[_w].has_mat &&
+            !gs->units.units[_w].active) {
+            if (gs->dropped_mat_count < MAX_DROPPED_MATS) {
+                DroppedMat *dm = &gs->dropped_mats[gs->dropped_mat_count++];
+                dm->x        = wsnap[_w].x;
+                dm->y        = wsnap[_w].y;
+                dm->type     = wsnap[_w].mat;
+                dm->active   = 1;
+                dm->lifetime = 15.0f;
+            }
+        }
+    }
+
+    // ── Matériaux au sol : expiration et absorption par ennemis ──
+    {
+        for (int _d = 0; _d < gs->dropped_mat_count; _d++) {
+            DroppedMat *dm = &gs->dropped_mats[_d];
+            if (!dm->active) continue;
+            dm->lifetime -= effective_dt;
+            if (dm->lifetime <= 0.0f) { dm->active = 0; continue; }
+            // Ennemi passe dessus ?
+            for (int _e = 0; _e < MAX_ENEMIES; _e++) {
+                const Enemy *en = &gs->enemies.enemies[_e];
+                if (!en->active || en->dead || en->spawn_delay > 0.0f) continue;
+                float dx = en->x - dm->x, dy = en->y - dm->y;
+                if (dx*dx + dy*dy <= (float)(TILE_SIZE * TILE_SIZE)) {
+                    dm->active = 0; // absorbé
+                    break;
+                }
+            }
+        }
+        // Compactage
+        int _w2 = 0;
+        for (int _d = 0; _d < gs->dropped_mat_count; _d++)
+            if (gs->dropped_mats[_d].active)
+                gs->dropped_mats[_w2++] = gs->dropped_mats[_d];
+        gs->dropped_mat_count = _w2;
+    }
+
+    // ── Activation des dépôts selon la vague ─────────────────────
+    for (int _dep = 0; _dep < gs->map.deposit_count; _dep++) {
+        MaterialDeposit *dep = &gs->map.deposits[_dep];
+        if (!dep->active && dep->spawn_wave > 0 &&
+            gs->wave_manager.number >= dep->spawn_wave) {
+            dep->active = 1;
+            ui_push_notif(&gs->ui, "Nouveau gisement accessible !",
+                          (Color){62, 175, 200, 255});
+        }
+    }
     {
         // Campagne : on passe l'acte courant-1 comme seuil de déblocage.
         // Acte 0 → max_stage=-1 (seul RAIDER), acte 1 → 0 (BRUTE arrive), etc.
