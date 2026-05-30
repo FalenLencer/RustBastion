@@ -377,6 +377,7 @@ void menu_init(MenuState *m, const AppOptions *opts) {
         m->opts.sfx_volume = (int)(audio_get_sfx_volume() * 100.0f + 0.5f);
     menu_refresh_slots(m);
     menu_load_bg_textures();
+    menu_anim_init(&m->anim);
 }
 
 void menu_refresh_slots(MenuState *m) {
@@ -385,7 +386,7 @@ void menu_refresh_slots(MenuState *m) {
 }
 
 void menu_cleanup(MenuState *m) {
-    (void)m;
+    menu_anim_cleanup(&m->anim);
     menu_unload_bg_textures();
 }
 
@@ -395,6 +396,8 @@ void menu_cleanup(MenuState *m) {
 MenuAction menu_update(MenuState *m, const MetaProgress *meta) {
     MenuAction act = {0};
     if (m->msg_timer > 0.0f) m->msg_timer -= GetFrameTime();
+    if (m->screen == MENU_TITLE)
+        menu_anim_update(&m->anim, GetFrameTime());
     if (m->screen == MENU_UPGRADES) {
         if (IsKeyPressed(KEY_UP))
             m->sel_upg = (m->sel_upg - 1 + UPGRADE_COUNT) % UPGRADE_COUNT;

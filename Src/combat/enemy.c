@@ -7,6 +7,7 @@
 #include "enemy.h"
 #include "unit.h"
 #include "tower.h"
+#include "combat_math.h"
 #include "../engine/audio.h"
 #include "raylib.h"
 #include <string.h>
@@ -87,11 +88,6 @@ void enemy_pool_init(EnemyPool *pool) {
 /* ════════════════════════════════════════════════════
    UTILITAIRE
    ════════════════════════════════════════════════════ */
-static float edist(float ax, float ay, float bx, float by) {
-    float dx = ax-bx, dy = ay-by;
-    return sqrtf(dx*dx + dy*dy);
-}
-
 /* ════════════════════════════════════════════════════
    SPAWN
    ════════════════════════════════════════════════════ */
@@ -124,8 +120,9 @@ void enemy_spawn(EnemyPool *pool, EnemyType type,
     e->size        = base->size;
     e->reward      = base->reward;
     e->damage      = base->damage;
-    e->melee_range = base->melee_range;
-    e->path_id     = path_id;
+    e->melee_range     = base->melee_range;
+    e->unit_atk_range  = base->melee_range; /* défaut = mêlée ; surchargé ci-dessous pour les types à distance */
+    e->path_id         = path_id;
     e->path_index  = 0;
     e->spawn_delay = spawn_delay;
     e->active      = 1;
@@ -146,13 +143,17 @@ void enemy_spawn(EnemyPool *pool, EnemyType type,
         e->heal_timer  = 0.0f;
     }
 
-    // Hunter
-    if (type == ENEMY_HUNTER)
-        e->hunt_range = ENEMY_HUNTER_HUNT_RANGE * TILE_SIZE;
+    // Hunter — longue portée de tir sur les unités
+    if (type == ENEMY_HUNTER) {
+        e->hunt_range      = ENEMY_HUNTER_HUNT_RANGE      * TILE_SIZE;
+        e->unit_atk_range  = ENEMY_HUNTER_UNIT_ATK_RANGE  * TILE_SIZE;
+    }
 
-    // Artillery
-    if (type == ENEMY_ARTILLERY)
-        e->arty_range = ENEMY_ARTY_RANGE * TILE_SIZE;
+    // Artillery — portée tour + portée secondaire sur unités
+    if (type == ENEMY_ARTILLERY) {
+        e->arty_range     = ENEMY_ARTY_RANGE          * TILE_SIZE;
+        e->unit_atk_range = ENEMY_ARTY_UNIT_ATK_RANGE * TILE_SIZE;
+    }
 
     // Pathbreaker
     if (type == ENEMY_PATHBREAKER) {
@@ -282,7 +283,7 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                 if (i == j) continue;
                 Enemy *other = &pool->enemies[j];
                 if (!other->active || other->dead || other->spawn_delay > 0.0f) continue;
-                if (edist(e->x, e->y, other->x, other->y) <= e->heal_range) {
+                if (gdist(e->x, e->y, other->x, other->y) <= e->heal_range) {
                     other->hp += e->heal_amount * dt;
                     if (other->hp > other->max_hp)
                         other->hp = other->max_hp;
@@ -298,7 +299,7 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
             if (e->raid_target >= 0 && e->raid_target < MAX_UNITS) {
                 const Unit *wu = &units->units[e->raid_target];
                 if (wu->active && wu->type == UNIT_WORKER) {
-                    float dist = edist(e->x, e->y, wu->x, wu->y);
+                    float dist = gdist(e->x, e->y, wu->x, wu->y);
                     if (dist <= ENEMY_RAID_ABANDON_RANGE * TILE_SIZE) {
                         valid = 1;
                         if (dist <= e->melee_range) {
@@ -337,7 +338,7 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                 if (!wu->active || wu->type != UNIT_WORKER) continue;
                 // N'attire que les ouvriers en mission (pas en patrouille de base)
                 if (wu->state == USTATE_PATROL) continue;
-                float d = edist(e->x, e->y, wu->x, wu->y);
+                float d = gdist(e->x, e->y, wu->x, wu->y);
                 if (d <= detect_px) {
                     // Enregistre la position de base cible pour le retour
                     if (e->path_id >= 0 && e->path_id < paths->count) {
@@ -362,7 +363,7 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
             for (int j = 0; j < MAX_UNITS; j++) {
                 const Unit *u = &units->units[j];
                 if (!u->active) continue;
-                float d = edist(e->x, e->y, u->x, u->y);
+                float d = gdist(e->x, e->y, u->x, u->y);
                 if (d < e->hunt_range && d < best_d) {
                     best_d = d; best_u = j;
                 }
@@ -373,17 +374,17 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                 const Unit *u = &units->units[best_u];
                 float dx   = u->x - e->x;
                 float dy   = u->y - e->y;
-                float dist = edist(e->x, e->y, u->x, u->y);
+                float dist = gdist(e->x, e->y, u->x, u->y);
 
-                if (dist <= e->melee_range) {
-                    // Attaque l'unité
+                if (dist <= e->unit_atk_range) {
+                    /* À portée : s'arrête et tire (longue portée) */
                     if (e->atk_timer <= 0.0f) {
                         unit_damage((Unit*)u, (float)e->damage * ENEMY_MELEE_DMG_MULT);
                         e->atk_timer = ENEMY_HUNTER_ATK_TIMER;
                     }
                     continue;
                 } else {
-                    // Fonce sur l'unité en ignorant le chemin
+                    /* Hors portée : se rapproche jusqu'à unit_atk_range */
                     float step = e->speed * TILE_SIZE * dt;
                     e->x += (dx / dist) * step;
                     e->y += (dy / dist) * step;
@@ -394,16 +395,15 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
         }
 
         // ════════════════════════════════════════════════
-        // ARTILLERY — s'arrête et tire sur les tours
+        // ARTILLERY — priorité tours, puis unités à portée
         // ════════════════════════════════════════════════
         if (e->type == ENEMY_ARTILLERY && towers) {
             float best_d = FLT_MAX;
             int   best_t = -1;
             for (int j = 0; j < MAX_TOWERS; j++) {
                 Tower *tw = &towers->towers[j];
-                // Ignorer les tours inactives OU déjà à 0 HP (en attente de cleanup)
                 if (!tw->active || tw->hp <= 0.0f) continue;
-                float d = edist(e->x, e->y, tw->cx, tw->cy);
+                float d = gdist(e->x, e->y, tw->cx, tw->cy);
                 if (d <= e->arty_range && d < best_d) {
                     best_d = d; best_t = j;
                 }
@@ -411,14 +411,36 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
             e->arty_target = best_t;
 
             if (best_t != -1) {
+                /* Tour à portée : tir principal sur la tour */
                 Tower *tw = &towers->towers[best_t];
                 if (e->arty_timer <= 0.0f) {
                     tw->hp -= ENEMY_ARTY_DAMAGE;
                     if (tw->hp <= 0.0f) tw->hp = 0.0f;
                     e->arty_timer = ENEMY_ARTY_FIRE_TIMER;
                 }
-                // S'arrête pendant qu'il tire
-                continue;
+                continue; // s'arrête pendant qu'il tire
+            }
+
+            /* Pas de tour à portée — tir secondaire sur l'unité la plus proche */
+            if (units) {
+                float best_du = FLT_MAX;
+                int   best_u  = -1;
+                for (int j = 0; j < MAX_UNITS; j++) {
+                    const Unit *u = &units->units[j];
+                    if (!u->active) continue;
+                    float d = gdist(e->x, e->y, u->x, u->y);
+                    if (d <= e->unit_atk_range && d < best_du) {
+                        best_du = d; best_u = j;
+                    }
+                }
+                if (best_u != -1) {
+                    if (e->atk_timer <= 0.0f) {
+                        unit_damage((Unit*)&units->units[best_u],
+                                    (float)e->damage * ENEMY_MELEE_DMG_MULT);
+                        e->atk_timer = ENEMY_ARTY_FIRE_TIMER; /* même cadence que pour les tours */
+                    }
+                    continue; // s'arrête pour tirer
+                }
             }
         }
 
@@ -434,8 +456,8 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                 for (int j = 0; j < MAX_UNITS; j++) {
                     const Unit *u = &units->units[j];
                     if (!u->active) continue;
-                    float d = edist(e->x, e->y, u->x, u->y);
-                    if (d <= e->melee_range && d < closest_dist) {
+                    float d = gdist(e->x, e->y, u->x, u->y);
+                    if (d <= e->unit_atk_range && d < closest_dist) {
                         closest_dist = d; engaged_unit = j;
                     }
                 }

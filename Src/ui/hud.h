@@ -112,6 +112,8 @@ void       ui_init            (UIState *ui);
 void       ui_disc_push       (UIState *ui, DiscType type, int idx);
 void       ui_push_notif      (UIState *ui, const char *text, Color col);
 void       ui_set_mouse_offset(float ox, float oy, float sx, float sy);
+// Souris en coordonnées virtuelles (applique offset + échelle de présentation).
+Vector2    virt_mouse         (void);
 void       ui_update          (UIState *ui, GameState *gs);
 void       ui_render          (const UIState *ui, const GameState *gs);
 int        ui_tool_is_tower   (ToolID id);

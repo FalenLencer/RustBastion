@@ -256,7 +256,7 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
 {
     MenuAction act = {0};
     draw_bg(m, vw, vh);
-    draw_header("PARTIE PERSONNALISEE", vw);
+    draw_header("CUSTOM GAME", vw);
 
     ensure_defaults(&m->custom_cfg);
     CustomConfig *cfg = &m->custom_cfg;

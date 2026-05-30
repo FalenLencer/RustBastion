@@ -9,6 +9,7 @@
 #include "../game/save.h"
 #include "../map/theme.h"
 #include "../game/meta.h"
+#include "menu_anim.h"
 
 // ════════════════════════════════════════════════════
 // ÉTATS DU MENU
@@ -86,6 +87,9 @@ typedef struct {
     int         sel_material;       // index minerai sélectionné (0..MAT_COUNT-1)
     int         sel_tower;          // index tour sélectionnée (0..TOWER_TYPE_COUNT-1)
     int         sel_unit;           // index unité sélectionnée (0..UNIT_TYPE_COUNT-1)
+
+    // Animation cinématique de l'écran titre
+    MenuAnimState anim;
 } MenuState;
 
 typedef struct {

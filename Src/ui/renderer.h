@@ -45,7 +45,6 @@ void render_projectiles  (const TowerPool *tp);
 void render_units        (const UnitPool *up);
 void render_tower_preview(const Map *map, const TowerPool *tp,
                           TowerType type, int tile_x, int tile_y);
-void render_tile_detail  (int px, int py, TileType type, ThemeID theme);
 void render_hud          (const GameState *gs);
 void render_deposits     (const Map *map);
 void render_dropped_mats (const DroppedMat *mats, int count);

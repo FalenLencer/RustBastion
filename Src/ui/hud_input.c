@@ -129,14 +129,13 @@ void ui_update(UIState *ui, GameState *gs) {
         const int GAP     = 6;
         const int right_x = g_canvas_virt_w - UI_PANEL_W + M;
         const int max_w   = UI_PANEL_W - M * 2;
-        const int PSZ     = 82;   /* portrait */
         const int ubh     = 38;   /* hauteur bouton upgrade (3 lignes visibles) */
         const int ubw     = (max_w - GAP * 2) / 3;
         const int rsh     = (max_w - GAP) / 2;
         const int btn_h   = 34;
 
-        /* Boutons d'amélioration + réparation tour (sous le portrait 82×82) */
-        int uy = HUD_Y + M + PSZ + GAP;
+        /* Boutons d'amélioration + réparation tour (sous le portrait) */
+        int uy = HUD_Y + M + PORTRAIT_SZ + GAP;
         ui->upg_dmg_btn   = (Rectangle){(float)right_x,                     (float)uy, (float)ubw, (float)ubh};
         ui->upg_range_btn = (Rectangle){(float)(right_x + ubw + GAP),       (float)uy, (float)ubw, (float)ubh};
         ui->upg_rate_btn  = (Rectangle){(float)(right_x + (ubw+GAP)*2),     (float)uy, (float)ubw, (float)ubh};
@@ -184,33 +183,6 @@ void ui_update(UIState *ui, GameState *gs) {
         }
 
         (void)ubw; (void)uy;
-    }
-
-    /* ── Boutons réparation bases (overlay bas-gauche) ─────────── */
-    {
-        if (ui->overlay_bl_pos.x >= 0.0f) {
-            const int OV_P = OVERLAY_OV_P;
-            int bx = (int)ui->overlay_bl_pos.x + OV_P;
-            int by = (int)ui->overlay_bl_pos.y + OV_P + 4;  /* top + grip */
-            const int bw = OVERLAY_BL_W - OV_P * 2;
-            for (int b = 0; b < gs->map.base_count && b < MAX_BASES; b++) {
-                const BaseInfo *base = &gs->map.bases[b];
-                by += 18;   /* label(8) + gap(2) + barre(6) + gap(2) */
-                if (base->active && base->hp > 0 && base->hp < base->max_hp) {
-                    ui->repair_base_btn[b] = (Rectangle){
-                        (float)bx, (float)(by + 1),
-                        (float)bw, 14.0f
-                    };
-                    by += 16;   /* bouton (14) + gap (2) */
-                } else {
-                    ui->repair_base_btn[b] = (Rectangle){0.0f, 0.0f, 0.0f, 0.0f};
-                }
-                if (b < gs->map.base_count - 1) by += 4;   /* gap inter-bases */
-            }
-        } else {
-            for (int b = 0; b < MAX_BASES; b++)
-                ui->repair_base_btn[b] = (Rectangle){0.0f, 0.0f, 0.0f, 0.0f};
-        }
     }
 
     // Visibilité bouton matériau (+ vérif que la tour est encore active)
@@ -273,6 +245,34 @@ void ui_update(UIState *ui, GameState *gs) {
             if (pos->y < 0)                    pos->y = 0;
             if (pos->x + ow > g_canvas_virt_w) pos->x = g_canvas_virt_w - ow;
             if (pos->y + oh > canvas_h)         pos->y = canvas_h - oh;
+        }
+    }
+
+    /* ── Boutons réparation bases (overlay bas-gauche) ─────────── */
+    /* Calculé APRÈS le drag pour que les rects suivent sans décalage */
+    {
+        if (ui->overlay_bl_pos.x >= 0.0f) {
+            const int OV_P = OVERLAY_OV_P;
+            int bx = (int)ui->overlay_bl_pos.x + OV_P;
+            int by = (int)ui->overlay_bl_pos.y + OV_P + 4;  /* top + grip */
+            const int bw = OVERLAY_BL_W - OV_P * 2;
+            for (int b = 0; b < gs->map.base_count && b < MAX_BASES; b++) {
+                const BaseInfo *base = &gs->map.bases[b];
+                by += 18;   /* label(8) + gap(2) + barre(6) + gap(2) */
+                if (base->active && base->hp > 0 && base->hp < base->max_hp) {
+                    ui->repair_base_btn[b] = (Rectangle){
+                        (float)bx, (float)(by + 1),
+                        (float)bw, 14.0f
+                    };
+                    by += 16;   /* bouton (14) + gap (2) */
+                } else {
+                    ui->repair_base_btn[b] = (Rectangle){0.0f, 0.0f, 0.0f, 0.0f};
+                }
+                if (b < gs->map.base_count - 1) by += 4;   /* gap inter-bases */
+            }
+        } else {
+            for (int b = 0; b < MAX_BASES; b++)
+                ui->repair_base_btn[b] = (Rectangle){0.0f, 0.0f, 0.0f, 0.0f};
         }
     }
 
@@ -852,6 +852,25 @@ void ui_update(UIState *ui, GameState *gs) {
                         }
                         if (near_any_base) {
                             UnitType _put = ui_tool_to_unit(ui->selected_tool);
+
+                            /* Limite médics par base — vérifiée avant l'appel
+                               pour afficher une notification spécifique.       */
+                            if (_put == UNIT_MEDIC) {
+                                int _mc = 0;
+                                for (int _j = 0; _j < MAX_UNITS; _j++) {
+                                    const Unit *_u = &gs->units.units[_j];
+                                    if (_u->active && _u->type == UNIT_MEDIC &&
+                                        _u->home_base_px == spawn_bpx &&
+                                        _u->home_base_py == spawn_bpy)
+                                        _mc++;
+                                }
+                                if (_mc >= MAX_MEDICS_PER_BASE) {
+                                    ui_push_notif(ui, "Max 4 medics par base !",
+                                                  (Color){231, 76, 60, 255});
+                                    goto end_click;
+                                }
+                            }
+
                             if (!unit_spawn_at(&gs->units, _put,
                                                &gs->gold, &gs->bonuses,
                                                spawn_bpx, spawn_bpy)) {

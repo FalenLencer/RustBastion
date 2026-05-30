@@ -33,8 +33,17 @@ MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
         Rectangle fr = {(float)fx,(float)fy,(float)fw,(float)fhh};
         DrawRectangleRounded(fr, (float)PANEL_R/fhh, 5, (Color){6,20,6,255});
         DrawRectangleRoundedLinesEx(fr, (float)PANEL_R/fhh, 5, 1.5f, C_GREEN);
-        txt_c(TextFormat("Ferraille : %d", meta->scrap),
-              cx, fy + fhh/2 - 6, 13, C_GREEN);
+        {
+            const char *sval = TextFormat("%d", meta->scrap);
+            int icon_sz = fh(13);
+            int tw      = mtxt(sval, 13);
+            int gap     = 5;
+            int total_w = icon_sz + gap + tw;
+            int ix      = cx - total_w / 2;
+            int iy      = fy + fhh/2 - icon_sz/2;
+            draw_icon(g_icon_scrap, ix, iy, icon_sz, WHITE);
+            dtxt(sval, ix + icon_sz + gap, iy, 13, C_GREEN);
+        }
     }
 
     int lx = M_PAD * 3;
@@ -101,7 +110,11 @@ MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
         int cost_x = lx + rw - 82;
         if (cost > 0) {
             int can = meta->scrap >= cost;
-            draw_text_boxed(TextFormat("%d ferr.", cost), cost_x, y + 9, 11,
+            char cbuf[12];
+            snprintf(cbuf, sizeof(cbuf), "%d", cost);
+            int icon_sz = fh(11);
+            draw_icon(g_icon_scrap, cost_x, y + 8, icon_sz, WHITE);
+            draw_text_boxed(cbuf, cost_x + icon_sz + 2, y + 9, 11,
                             can ? C_GOLD : C_RED);
             if (hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                 if (meta_upgrade((MetaProgress*)meta, i))

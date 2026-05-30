@@ -111,6 +111,11 @@ void game_init_map_full(GameState *gs, ThemeID theme,
            seed, gs->enemy_paths.count,
            gs->map.base_count, (int)gs->map.theme,
            gs->map.w, gs->map.h, g_map_render_scale, attempts);
+
+    /* Bonus d'or de départ : chaque base supplémentaire ajoute 60 or.
+       Appliqué uniquement en début de partie (wave 0), pas en regen endless. */
+    if (gs->map.base_count > 1 && gs->wave_manager.number == 0)
+        gs->gold += (gs->map.base_count - 1) * 60;
 }
 
 void game_init_map(GameState *gs, ThemeID theme, int forced_bases) {

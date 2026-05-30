@@ -17,6 +17,7 @@
 #include "../engine/canvas.h"
 #include "../engine/window.h"
 #include "../ui/renderer.h"
+#include "../ui/tile_art.h"
 #include "../ui/hud.h"
 #include "../ui/interlude.h"
 #include "../ui/campaign_data.h"
@@ -198,11 +199,7 @@ static void game_do_input(AppContext *ctx) {
     }
     /* Bouton pause cliqué dans le HUD */
     if (!ctx->menu.paused && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-        int sh = GetScreenHeight();
-        float scale = (float)sh / g_canvas_virt_h;
-        if (scale < 0.05f) scale = 0.05f;
-        Vector2 mp = GetMousePosition();
-        Vector2 vm = { mp.x / scale, mp.y / scale };
+        Vector2 vm = virt_mouse();
         if (CheckCollisionPointRec(vm, ctx->gs.ui.pause_btn)) {
             ctx->menu.paused = 1;
             ctx->menu.screen = MENU_PAUSE;
@@ -332,12 +329,8 @@ static void game_handle_dialog_after(AppContext *ctx) {
 static void game_handle_extract(AppContext *ctx) {
     if (ctx->interlude != INTER_EXTRACT) return;
 
-    /* Souris virtuelle (même calcul que dans game_do_render) */
-    int sh = GetScreenHeight();
-    float scale = (float)sh / g_canvas_virt_h;
-    if (scale < 0.05f) scale = 0.05f;
-    Vector2 mp = GetMousePosition();
-    Vector2 vm = { mp.x / scale, mp.y / scale };
+    /* Souris virtuelle (offset + échelle de présentation) */
+    Vector2 vm = virt_mouse();
 
     /* Rectangles des boutons — doivent correspondre à interlude_render_extract */
     {
@@ -398,11 +391,12 @@ static int game_do_render(AppContext *ctx) {
     map_cam.zoom   = g_map_render_scale;
     BeginMode2D(map_cam);
         render_map(&gs->map);
+        tile_art_draw_paths(&gs->map);    // routes connectées (remplace les traits)
+        tile_art_draw_spawns(&gs->map);   // portails d'invasion
         render_spawn_exclusion_zones(&gs->map);
         render_bases(&gs->map);
         render_deposits(&gs->map);
         render_dropped_mats(gs->dropped_mats, gs->dropped_mat_count);
-        render_paths(&gs->enemy_paths);
         render_towers(&gs->towers);
         render_units(&gs->units);
         render_enemies(&gs->enemies);
@@ -415,14 +409,15 @@ static int game_do_render(AppContext *ctx) {
     /* • Démarrage : grand overlay centré sur la carte, fade-in 0.3 s,
          plein 4.2 s, fade-out 0.5 s  (banner_timer compte de 5 → 0).
        • Pause      : bandeau compact fixe en haut de la carte.      */
+    /* Variables de titre hoistées au scope fonction : réutilisées par le
+       bandeau de pause dessiné plus bas (après le voile du menu pause). */
+    char big_title[80]  = {0};   /* titre principal (gros, centré)  */
+    char line1    [120] = {0};   /* sous-titre / détails            */
+    char line2    [80]  = {0};   /* info secondaire                 */
+    Color ctitle = {255, 210,  80, 255};
+    Color c1     = {200, 170,  60, 255};
+    Color c2     = {150, 215, 110, 255};
     {
-        char big_title[80]  = {0};   /* titre principal (gros, centré)  */
-        char line1    [120] = {0};   /* sous-titre / détails            */
-        char line2    [80]  = {0};   /* info secondaire                 */
-        Color ctitle = {255, 210,  80, 255};
-        Color c1     = {200, 170,  60, 255};
-        Color c2     = {150, 215, 110, 255};
-
         if (gs->is_campaign && ctx->interlude == INTER_NONE) {
             const ActData *ad = campaign_act_get(gs->campaign_stage);
             snprintf(big_title, sizeof(big_title), "%s", ad->title);
@@ -449,7 +444,7 @@ static int game_do_render(AppContext *ctx) {
             c2     = (Color){ 90, 155, 200, 255};
         } else if (gs->is_custom) {
             const Theme *th = theme_get(gs->map.theme);
-            snprintf(big_title, sizeof(big_title), "PERSONNALISE");
+            snprintf(big_title, sizeof(big_title), "CUSTOM GAME");
             snprintf(line1, sizeof(line1), "%s  ·  %d spawn(s)  ·  %d base(s)",
                      th->name, gs->enemy_paths.count, gs->map.base_count);
             ctitle = (Color){200, 130, 255, 255};
@@ -493,16 +488,30 @@ static int game_do_render(AppContext *ctx) {
                 float px = (float)(cx - pw / 2);
                 float py = (float)(cy - ph / 2);
 
-                /* Fond */
-                DrawRectangleRounded(
-                    (Rectangle){px, py, (float)pw, (float)ph},
-                    0.16f, 6,
-                    (Color){3, 2, 0, (unsigned char)((int)a * 220 / 255)});
-                DrawRectangleRoundedLinesEx(
-                    (Rectangle){px, py, (float)pw, (float)ph},
-                    0.16f, 6, 2.2f,
-                    (Color){ctitle.r/2, ctitle.g/2, ctitle.b/2,
-                            (unsigned char)((int)a * 180 / 255)});
+                /* Fond + cadre à équerres (identité militaire) */
+                Rectangle _br = {px, py, (float)pw, (float)ph};
+                DrawRectangleRounded(_br, 0.16f, 6,
+                    (Color){3, 2, 0, (unsigned char)((int)a * 225 / 255)});
+                DrawRectangleRoundedLinesEx(_br, 0.16f, 6, 2.0f,
+                    (Color){(unsigned char)(ctitle.r/2), (unsigned char)(ctitle.g/2),
+                            (unsigned char)(ctitle.b/2),
+                            (unsigned char)((int)a * 190 / 255)});
+                /* Filet d'accent supérieur */
+                DrawRectangle((int)px + 10, (int)py + 6, pw - 20, 2,
+                    (Color){ctitle.r, ctitle.g, ctitle.b,
+                            (unsigned char)((int)a * 200 / 255)});
+                /* Équerres d'angle */
+                {
+                    int L = 10;
+                    unsigned char ca = (unsigned char)((int)a * 220 / 255);
+                    Color cc = {ctitle.r, ctitle.g, ctitle.b, ca};
+                    int x0 = (int)px + 4, y0 = (int)py + 4;
+                    int x1 = (int)px + pw - 4, y1 = (int)py + ph - 4;
+                    DrawRectangle(x0,     y0,     L, 2, cc); DrawRectangle(x0,     y0,     2, L, cc);
+                    DrawRectangle(x1 - L, y0,     L, 2, cc); DrawRectangle(x1 - 2, y0,     2, L, cc);
+                    DrawRectangle(x0,     y1 - 2, L, 2, cc); DrawRectangle(x0,     y1 - L, 2, L, cc);
+                    DrawRectangle(x1 - L, y1 - 2, L, 2, cc); DrawRectangle(x1 - 2, y1 - L, 2, L, cc);
+                }
 
                 int ly = (int)py + PAD_V;
 
@@ -536,48 +545,8 @@ static int game_do_render(AppContext *ctx) {
             }
         }
 
-        /* ── B) Bandeau compact en haut — pendant la pause ────── */
-        else if (ctx->menu.paused && big_title[0]) {
-            /* Combine big_title + line1 en une seule ligne compacte */
-            char compact[200];
-            if (line1[0])
-                snprintf(compact, sizeof(compact),
-                         "%s  —  %s", big_title, line1);
-            else
-                snprintf(compact, sizeof(compact), "%s", big_title);
-
-            int fs  = 11;
-            int cx  = g_map_x_off + g_canvas_virt_w_base / 2;
-            int tw  = mtxt(compact, fs);
-            int bx  = cx - tw / 2;
-            int by  = 8;
-            int bh  = fh(fs) + 10;
-
-            DrawRectangleRounded(
-                (Rectangle){(float)(bx - 12), (float)(by - 4),
-                            (float)(tw + 24),  (float)bh},
-                0.4f, 4, (Color){4, 3, 1, 215});
-            DrawRectangleRoundedLinesEx(
-                (Rectangle){(float)(bx - 12), (float)(by - 4),
-                            (float)(tw + 24),  (float)bh},
-                0.4f, 4, 1.2f,
-                (Color){ctitle.r / 2, ctitle.g / 2, ctitle.b / 2, 180});
-            dtxt(compact, bx, by, fs,
-                 (Color){ctitle.r, ctitle.g, ctitle.b, 255});
-
-            /* line2 sous le bandeau (ex : objectif campagne) */
-            if (line2[0]) {
-                int fs2 = 10;
-                int tw2 = mtxt(line2, fs2);
-                int by2 = by + bh + 4;
-                DrawRectangleRounded(
-                    (Rectangle){(float)(cx - tw2 / 2 - 8), (float)(by2 - 3),
-                                (float)(tw2 + 16), (float)(fh(fs2) + 8)},
-                    0.4f, 4, (Color){4, 3, 1, 195});
-                dtxt(line2, cx - tw2 / 2, by2, fs2,
-                     (Color){c2.r, c2.g, c2.b, 220});
-            }
-        }
+        /* Le bandeau de pause est dessiné plus bas, APRÈS le voile du
+           menu pause, pour qu'il reste bien lisible (voir game_do_render). */
     }
 
     /* ── Interludes ───────────────────────────────────────────── */
@@ -596,12 +565,8 @@ static int game_do_render(AppContext *ctx) {
                                       ctx->interlude_scrap, g_canvas_virt_w, g_canvas_virt_h);
     }
     if (ctx->interlude == INTER_EXTRACT) {
-        /* Convertit la souris en coordonnées virtuelles */
-        int sh = GetScreenHeight();
-        float scale = (float)sh / g_canvas_virt_h;
-        if (scale < 0.05f) scale = 0.05f;
-        Vector2 mp = GetMousePosition();
-        Vector2 vm = { mp.x / scale, mp.y / scale };
+        /* Souris en coordonnées virtuelles (offset + échelle uniforme) */
+        Vector2 vm = virt_mouse();
         interlude_render_extract(gs, g_canvas_virt_w, g_canvas_virt_h, vm);
     }
 
@@ -609,6 +574,56 @@ static int game_do_render(AppContext *ctx) {
     if (ctx->menu.paused) {
         MenuAction pact = menu_render_and_act(&ctx->menu, &ctx->gs.meta,
                                               g_canvas_virt_w, g_canvas_virt_h);
+
+        /* ── Bandeau d'info en haut — dessiné APRÈS le voile du menu ──
+           pour rester parfaitement lisible (avant il était noyé sous le
+           rectangle d'assombrissement plein écran du menu pause).        */
+        if (big_title[0]) {
+            char compact[200];
+            if (line1[0])
+                snprintf(compact, sizeof(compact), "%s  —  %s", big_title, line1);
+            else
+                snprintf(compact, sizeof(compact), "%s", big_title);
+
+            int fs = 12;
+            int cx = g_map_x_off + g_canvas_virt_w_base / 2;
+            int tw = mtxt(compact, fs);
+            int bw = tw + 48;          /* place pour l'icône pause + marges */
+            int bx = cx - bw / 2;
+            int by = 10;
+            int bh = fh(fs) + 16;
+            Rectangle pr = {(float)bx, (float)by, (float)bw, (float)bh};
+
+            /* Panneau opaque + filet d'accent + bordure vive */
+            DrawRectangleRounded(pr, 0.35f, 6, (Color){12, 8, 3, 248});
+            DrawRectangle(bx + 8, by + 5, bw - 16, 2,
+                          (Color){ctitle.r, ctitle.g, ctitle.b, 235});
+            DrawRectangleRoundedLinesEx(pr, 0.35f, 6, 2.0f,
+                          (Color){ctitle.r, ctitle.g, ctitle.b, 240});
+
+            /* Icône pause (deux barres) dans la marge gauche */
+            int icy = by + bh/2 - 5;
+            DrawRectangle(bx + 13, icy, 3, 10, (Color){ctitle.r, ctitle.g, ctitle.b, 240});
+            DrawRectangle(bx + 19, icy, 3, 10, (Color){ctitle.r, ctitle.g, ctitle.b, 240});
+
+            /* Texte clair et contrasté */
+            dtxt(compact, cx - tw/2 + 12, by + (bh - fh(fs))/2, fs,
+                 (Color){255, 244, 210, 255});
+
+            /* line2 (objectif campagne, etc.) sous le bandeau */
+            if (line2[0]) {
+                int fs2 = 10;
+                int tw2 = mtxt(line2, fs2);
+                int by2 = by + bh + 5;
+                Rectangle pr2 = {(float)(cx - tw2/2 - 10), (float)by2,
+                                 (float)(tw2 + 20), (float)(fh(fs2) + 8)};
+                DrawRectangleRounded(pr2, 0.4f, 5, (Color){12, 8, 3, 240});
+                DrawRectangleRoundedLinesEx(pr2, 0.4f, 5, 1.2f,
+                              (Color){c2.r, c2.g, c2.b, 170});
+                dtxt(line2, cx - tw2/2, by2 + 4, fs2,
+                     (Color){c2.r, c2.g, c2.b, 240});
+            }
+        }
         /* Sauvegarde rapide (sans quitter) */
         if (pact.save_and_quit == 2 && ctx->active_slot >= 0) {
             if (ctx->gs.is_campaign)

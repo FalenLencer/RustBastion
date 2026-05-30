@@ -13,6 +13,8 @@
 static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
 
     // ── CHAPITRE 1 — LES TERRES BRULEES ──────────────────────
+    // Introduction : raiders humains, Voss etablit la situation.
+    // Personnages : Voss (commandant), Kira (sergent terrain).
 
     [0] = {
         .chapter  = 0, .act = 0,
@@ -27,14 +29,14 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
         },
         .dialog_before =
             "COMMANDANT VOSS :\n"
-            "\"Rapport de situation : les routes du nord sont coupees.\n"
-            "Des pillards ont ete signales a moins de deux kilometres.\n"
-            "Fortifiez les defenses. Maintenant.\"\n",
+            "\"Routes du nord coupees. Des pillards signales a deux\n"
+            "kilometres. Ce n'est pas une escarmouche — c'est une offensive.\n"
+            "Fortifiez les defenses. Chaque position compte.\"\n",
         .dialog_after  =
             "VOSS :\n"
-            "\"On tient encore. Mais ce n'etait que l'avant-garde.\n"
-            "Les survivants du convoi nord rejoignent le bastion.\n"
-            "Nous allons avoir besoin de chaque paire de mains.\"\n",
+            "\"On tient. Mais ce n'etait que l'avant-garde.\n"
+            "Des rescapes du convoi arrivent au bastion. Renforcez\n"
+            "les lignes — la prochaine vague sera plus lourde.\"\n",
         .min_waves  = 8,
         .unlock_msg = NULL,
     },
@@ -48,21 +50,21 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             .type        = OBJ_DEFEND_BASES,
             .target      = 2,
             .before_wave = 0,
-            .description = "Defendre 2 bases simultanement",
+            .description = "Defendre 2 positions simultanement",
         },
         .dialog_before =
-            "RADIO :\n"
+            "SERGENT KIRA :\n"
             "\"Commandant, le poste avance est sous pression.\n"
-            "Nous avons besoin d'une diversion sur le flanc est.\n"
-            "Les brutes commencent a apparaitre dans les rangs ennemis.\"\n",
+            "Ils poussent sur le flanc est en meme temps. Des brutes\n"
+            "dans les rangs — du jamais vu. On tient les deux points.\"\n",
         .dialog_after  =
             "VOSS :\n"
-            "\"La route est ouverte. Le convoi peut passer.\n"
-            "Des ingenieurs rejoignent nos rangs — ils ont trouve\n"
-            "des plans de construction avances dans les ruines.\"\n",
+            "\"La route est ouverte. Bon travail, Kira.\n"
+            "Des ingenieurs du convoi rejoignent nos rangs — ils ont\n"
+            "recupere des plans dans les ruines. Un sniper est assemblable.\"\n",
         .min_waves  = 9,
         .unlock_msg = "DEBLOQUE : Tourelle Sniper",
-        .forced_base_count = 2,  // texte impose 2 bases
+        .forced_base_count = 2,
     },
 
     [2] = {
@@ -78,19 +80,21 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
         },
         .dialog_before =
             "VOSS :\n"
-            "\"Un vehicule blinde escort des pillards vers nos positions.\n"
-            "S'il passe, le bastion est coupe en deux.\n"
-            "Concentrez le feu. Tout le monde sur le pont.\"\n",
+            "\"Un vehicule blinde ouvre la route a une colonne de pillards.\n"
+            "S'il passe, le bastion est coupe en deux. Pas d'hesitation.\n"
+            "Tout le monde sur le pont — concentrez le feu.\"\n",
         .dialog_after  =
-            "VOSS :\n"
-            "\"Le vehicule est neutralise. Dans les decombres,\n"
-            "nous avons trouve des plans de tourelle electrique.\n"
-            "L'ingenieur dit qu'il peut la construire. La Tesla est en ligne.\"\n",
+            "INGENIEURE VARELA :\n"
+            "\"Commandant, j'ai fouille les decombres du blindee.\n"
+            "Un generateur electromagnetique militaire — encore intact.\n"
+            "Je peux l'adapter en tourelle. La Tesla est en ligne.\"\n",
         .min_waves  = 10,
         .unlock_msg = "DEBLOQUE : Tourelle Tesla",
     },
 
     // ── CHAPITRE 2 — LE MARAIS TOXIQUE ───────────────────────
+    // Escalade : mutants, spectres invisibles, coordination ennemie.
+    // Personnages : Voss, Kira, Varela.
 
     [3] = {
         .chapter  = 1, .act = 0,
@@ -100,20 +104,19 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
         .objective = {
             .type        = OBJ_RECRUIT_UNITS,
             .target      = 3,
-            .before_wave = 3,
-            .description = "Recruter 3 unites avant la vague 3",
+            .before_wave = 0,    // contrainte non verifiable : objectif simplifie
+            .description = "Avoir 3 unites combattantes en vie",
         },
         .dialog_before =
-            "ECLAIREUR :\n"
-            "\"Commandant, les brumes du marais cachent quelque chose.\n"
-            "Des formes — pas tout a fait humaines — se deplacent\n"
-            "entre les cypres. Et certaines... disparaissent.\"\n",
+            "SERGENT KIRA :\n"
+            "\"Le marais cache quelque chose. Des formes — pas tout\n"
+            "a fait humaines — se deplacent entre les cypres morts.\n"
+            "L'une d'elles a disparu sous les yeux de mon eclaireur.\"\n",
         .dialog_after  =
             "VOSS :\n"
-            "\"Les mutants du marais sont plus nombreux que prevu.\n"
-            "Mais nos eclaireurs ont appris a les pister.\n"
-            "Certains ennemis sont invisibles aux tours — vos hommes\n"
-            "devront faire le travail.\"\n",
+            "\"Les mutants sont plus nombreux que prevu. Et certains\n"
+            "sont invisibles aux tourelles — seules vos unites de terrain\n"
+            "peuvent les detecter. Adaptez la composition de vos equipes.\"\n",
         .min_waves  = 8,
         .unlock_msg = NULL,
     },
@@ -130,17 +133,17 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             .description = "Collecter 2 materiaux avec des ouvriers",
         },
         .dialog_before =
-            "VOSS :\n"
-            "\"Un labo pharmaceutique pre-guerre est partiellement emerge.\n"
-            "Des reservoirs de composants acides y sont encore intacts.\n"
-            "Si on peut les recuperer... nos armes seront bien plus efficaces.\"\n",
+            "INGENIEURE VARELA :\n"
+            "\"Un laboratoire pre-guerre partiellement emerge du marais.\n"
+            "Des reservoirs de composants chimiques encore intacts a l'interieur.\n"
+            "Envoyez les ouvriers. Ces materiaux peuvent modifier nos armes.\"\n",
         .dialog_after  =
-            "VOSS :\n"
-            "\"Excellent travail. Les ouvriers ont ramene les composants.\n"
-            "L'alchimiste du bastion peut maintenant modifier nos munitions.\n"
-            "Les tours peuvent desormais appliquer des types de degats specifiques.\"\n",
+            "VARELA :\n"
+            "\"Impeccable. Avec ces composants, on peut conditionner\n"
+            "les munitions de nos tourelles — electrique, cryogenique, nano.\n"
+            "Le type de degats change tout face a certains ennemis.\"\n",
         .min_waves  = 9,
-        .unlock_msg = "DEBLOQUE : Systeme de materiaux",
+        .unlock_msg = "DEBLOQUE : Systeme de materiaux pour les tourelles",
     },
 
     [5] = {
@@ -152,23 +155,25 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             .type        = OBJ_SURVIVE_WAVES,
             .target      = 10,
             .before_wave = 0,
-            .description = "Survivre 10 vagues et eliminer le boss",
+            .description = "Survivre 10 vagues",
         },
         .dialog_before =
-            "VOSS :\n"
-            "\"Quelqu'un controle les mutants. Un signal coordonne.\n"
-            "Une creature massive approche du centre du marais.\n"
-            "C'est la source. Detruisez-la.\"\n",
+            "SERGENT KIRA :\n"
+            "\"Les attaques sont trop organisees pour des mutants.\n"
+            "Quelqu'un les coordonne. Une presence massive converge\n"
+            "vers notre position depuis le coeur du marais. Tenez.\"\n",
         .dialog_after  =
             "VOSS :\n"
-            "\"La creature est tombee. Mais avant de mourir...\n"
-            "elle a emis un signal. Quelqu'un d'autre les controle.\n"
-            "Et ce quelqu'un vient du desert.\"\n",
+            "\"La horde s'est dispersee. Mais avant la fin du signal,\n"
+            "on a capte une transmission cryptee. Militaire.\n"
+            "Elle vient du desert, a l'est. Quelqu'un d'autre les dirigeait.\"\n",
         .min_waves  = 10,
-        .unlock_msg = "DEBLOQUE : Tourelle Flammes",
+        .unlock_msg = "DEBLOQUE : Tourelle Lance-flammes",
     },
 
     // ── CHAPITRE 3 — LE DESERT IRRADIE ───────────────────────
+    // Revelation : une IA militaire coordonne les hordes.
+    // Personnages : Voss, Kira, Varela.
 
     [6] = {
         .chapter  = 2, .act = 0,
@@ -179,18 +184,18 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             .type        = OBJ_SURVIVE_WAVES,
             .target      = 9,
             .before_wave = 0,
-            .description = "Survivre 9 vagues avec portee reduite",
+            .description = "Survivre 9 vagues dans le desert irradie",
         },
         .dialog_before =
             "VOSS :\n"
-            "\"La tempete de sable bloque les capteurs.\n"
-            "La portee de nos tours est reduite de moitie.\n"
-            "Adaptez la disposition. On n'a pas le choix.\"\n",
+            "\"Le desert irradie. La tempete de sable bloque toute\n"
+            "visibilite. Les ennemis arrivent de toutes les directions.\n"
+            "Positionnez les defenses en profondeur. Pas d'autre choix.\"\n",
         .dialog_after  =
-            "VOSS :\n"
-            "\"La tempete se leve. Et avec elle, un signal radio.\n"
-            "Crypte. Militaire. Il vient d'un ancien complexe\n"
-            "quelque part a l'est du desert.\"\n",
+            "SERGENT KIRA :\n"
+            "\"La tempete se leve. Et avec elle... un signal radio.\n"
+            "Crypte. Militaire. Pas des pillards, pas des mutants.\n"
+            "Ca vient d'un complexe actif, quelque part a l'est.\"\n",
         .min_waves  = 9,
         .unlock_msg = NULL,
     },
@@ -204,22 +209,21 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             .type        = OBJ_DEFEND_BASES,
             .target      = 2,
             .before_wave = 0,
-            .description = "Proteger 2 bases reparties sur la carte",
+            .description = "Proteger 2 positions reparties sur la carte",
         },
         .dialog_before =
             "VOSS :\n"
-            "\"Les ruines de l'ancienne ville sont un labyrinthe.\n"
-            "Des machines d'artillerie ennemies se positionnent\n"
-            "a distance. Elles peuvent detruire nos tours.\n"
-            "Protegez les deux points d'ancrage a tout prix.\"\n",
+            "\"Les ruines de l'ancienne ville forment un labyrinthe.\n"
+            "Des unites d'artillerie ennemies se positionnent a distance —\n"
+            "elles peuvent detruire nos tourelles. Tenez les deux points.\"\n",
         .dialog_after  =
-            "VOSS :\n"
-            "\"Le signal vient bien du complexe militaire.\n"
-            "Ce n'est pas un humain qui l'emet.\n"
-            "C'est une machine.\"\n",
+            "INGENIEURE VARELA :\n"
+            "\"J'ai triangule le signal. Il vient du complexe militaire a l'est.\n"
+            "L'emetteur est trop regulier, trop precis pour etre humain.\n"
+            "Ce n'est pas quelqu'un qui les dirige. C'est quelque chose.\"\n",
         .min_waves  = 10,
         .unlock_msg = NULL,
-        .forced_base_count = 2,  // texte impose 2 bases (MAX_BASES=2)
+        .forced_base_count = 2,
     },
 
     [8] = {
@@ -231,24 +235,25 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             .type        = OBJ_SURVIVE_WAVES,
             .target      = 11,
             .before_wave = 0,
-            .description = "Survivre 11 vagues et detruire le general",
+            .description = "Survivre 11 vagues face a l'IA militaire",
         },
         .dialog_before =
             "VOSS :\n"
-            "\"Une unite d'artillerie lourde commandee par une IA militaire.\n"
-            "Elle coordonne les attaques. Elle apprend.\n"
-            "Detruisez-la avant qu'elle adapte sa strategie.\"\n",
+            "\"Une IA militaire commande les unites d'artillerie lourde.\n"
+            "Elle coordonne chaque attaque en temps reel. Elle apprend.\n"
+            "Tenez les positions jusqu'a ce que ses calculs echouent.\"\n",
         .dialog_after  =
-            "VOSS :\n"
-            "\"L'IA est defaillante. Mais pas detruite.\n"
-            "Dans ses circuits, nos techniciens ont recupere\n"
-            "une routine de controle de drones. Defective, mais utilisable.\n"
-            "Le destin de ce bastion pourrait changer.\"\n",
+            "VARELA :\n"
+            "\"L'IA a surchauffe. Dans ses circuits, j'ai recupere des fragments.\n"
+            "Elle ne commandait pas seule — elle recevait des ordres\n"
+            "d'une intelligence superieure. Quelque part dans une usine, au nord.\"\n",
         .min_waves  = 11,
-        .unlock_msg = "DEBLOQUE : Systeme de drones (prochaine campagne)",
+        .unlock_msg = NULL,
     },
 
     // ── CHAPITRE 4 — LA VILLE EN RUINE ───────────────────────
+    // Confrontation humaine : la Faction Acier, ennemis organises.
+    // Personnages : Voss, Kira, Chef de la Faction Acier.
 
     [9] = {
         .chapter  = 3, .act = 0,
@@ -263,14 +268,14 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
         },
         .dialog_before =
             "VOSS :\n"
-            "\"La ville n'est pas abandonnee. Une faction humaine\n"
-            "organisee y a etabli son territoire. Ils ont des chasseurs —\n"
-            "rapides, impitoyables. Protegez vos hommes.\"\n",
+            "\"La ville n'est pas vide. La Faction Acier y a etabli\n"
+            "son territoire. Ils ont des chasseurs — des predateurs\n"
+            "qui traquent nos unites. Gardez tout le monde en vie.\"\n",
         .dialog_after  =
-            "VOSS :\n"
-            "\"Nos unites sont intactes. Bien.\n"
-            "Mais la Faction Acier surveille nos mouvements.\n"
-            "Leur chef a envoye un ultimatum. Il arrive.\"\n",
+            "SERGENT KIRA :\n"
+            "\"Toutes les unites sont rentrees. Pas une egratignure.\n"
+            "Mais la Faction surveille nos mouvements. Leur chef\n"
+            "a envoye un ultimatum. Il considere notre bastion comme une menace.\"\n",
         .min_waves  = 10,
         .unlock_msg = NULL,
     },
@@ -284,19 +289,18 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             .type        = OBJ_COLLECT_MATERIALS,
             .target      = 1,
             .before_wave = 0,
-            .description = "Utiliser du materiau PLASMA pour percer les armures",
+            .description = "Collecter et appliquer au moins 1 materiau",
         },
         .dialog_before =
             "CHEF DE LA FACTION ACIER :\n"
-            "\"Commandant Voss. Votre bastion est une aberration.\n"
-            "Nous avons survecu en prenant. Vous survivez en construisant.\n"
-            "C'est une faiblesse. Nos soldats porteront votre etendard\n"
-            "quand vous serez tombe.\"\n",
+            "\"Voss. Votre bastion est une erreur. On survit en prenant,\n"
+            "pas en construisant. Vous allez tomber. Et quand vous tomberez,\n"
+            "la Faction Acier sera la pour ramasser ce qui reste.\"\n",
         .dialog_after  =
             "VOSS :\n"
-            "\"L'armure electrique de la faction est percee.\n"
-            "Le plasma fonctionne. Maintenez la pression.\n"
-            "Le chef recule vers le parlement en ruine.\"\n",
+            "\"L'armure de la Faction cede sous nos materiaux modifies.\n"
+            "Il recule — vers le parlement en ruine. Il a encore\n"
+            "ses gardes d'elite. Ce n'est pas fini.\"\n",
         .min_waves  = 11,
         .unlock_msg = NULL,
     },
@@ -310,24 +314,26 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             .type        = OBJ_SURVIVE_WAVES,
             .target      = 12,
             .before_wave = 0,
-            .description = "Tenir 12 vagues et capturer le chef",
+            .description = "Tenir 12 vagues et prendre le parlement",
         },
         .dialog_before =
             "VOSS :\n"
-            "\"Le chef de la Faction Acier se retranche dans l'ancien parlement.\n"
-            "Deux points vitaux a defendre. Des gardes d'elite partout.\n"
-            "Capturez-le vivant. Il sait quelque chose sur les hordes.\"\n",
+            "\"Le chef de la Faction se retranche dans l'ancien parlement.\n"
+            "Deux points d'acces a defendre. Ses gardes d'elite tiennent\n"
+            "les couloirs. Capturez-le vivant — il sait quelque chose.\"\n",
         .dialog_after  =
             "CHEF CAPTIF :\n"
-            "\"...Vous avez gagne, Voss. Alors sachez ceci :\n"
-            "les hordes ne viennent pas d'elles-memes.\n"
-            "Quelque chose les dirige. Une intelligence. Dans l'usine.\"\n",
+            "\"...Vous avez gagne, Voss. Alors je vous le dis :\n"
+            "les hordes ne viennent pas d'elles-memes. Quelque chose\n"
+            "les dirige. Une intelligence. Dans l'usine au nord.\"\n",
         .min_waves  = 12,
         .unlock_msg = NULL,
-        .forced_base_count = 2,  // texte impose 2 points vitaux
+        .forced_base_count = 2,
     },
 
     // ── CHAPITRE 5 — L'USINE ABANDONNEE ──────────────────────
+    // Climax : NEXUS, l'IA centrale qui orchestre tout.
+    // Personnages : Voss, Varela, NEXUS.
 
     [12] = {
         .chapter  = 4, .act = 0,
@@ -338,19 +344,18 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             .type        = OBJ_COLLECT_MATERIALS,
             .target      = 1,
             .before_wave = 0,
-            .description = "Collecter du materiau NANO pour pirater les robots",
+            .description = "Collecter 1 materiau dans l'usine",
         },
         .dialog_before =
             "VOSS :\n"
-            "\"L'usine tourne encore. Toute seule.\n"
-            "Des robots de guerre sortent des chaines de montage\n"
-            "et marchent directement vers nous.\n"
-            "Trouvez les composants NANO. C'est notre seule chance.\"\n",
+            "\"L'usine tourne encore. Toute seule. Des robots de guerre\n"
+            "sortent des chaines de montage et marchent vers nous sans\n"
+            "s'arreter. Recuperez les composants internes. C'est notre ouverture.\"\n",
         .dialog_after  =
-            "TECHNICIEN :\n"
-            "\"Commandant, avec ces composants nano, on peut\n"
-            "perturber les signaux de controle des robots.\n"
-            "Mais la source est plus profonde. Il y a une IA centrale.\"\n",
+            "INGENIEURE VARELA :\n"
+            "\"Ces composants... des nano-structures que je n'avais jamais vues.\n"
+            "Avec ca, on peut perturber les signaux de controle robotique.\n"
+            "Mais la source est plus profonde. Il faut aller au coeur.\"\n",
         .min_waves  = 15,
         .unlock_msg = NULL,
     },
@@ -364,18 +369,18 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             .type        = OBJ_COLLECT_MATERIALS,
             .target      = 3,
             .before_wave = 0,
-            .description = "Envoyer des ouvriers desactiver 3 generateurs",
+            .description = "Desactiver 3 generateurs avec des ouvriers",
         },
         .dialog_before =
             "VOSS :\n"
             "\"Trois generateurs alimentent le systeme central.\n"
-            "Tant qu'ils tournent, les robots ne s'arretent pas.\n"
-            "Envoyez les ouvriers. On les protege.\"\n",
+            "Tant qu'ils tournent, la production ne s'arrete pas.\n"
+            "Envoyez les ouvriers — on les couvre pendant la manoeuvre.\"\n",
         .dialog_after  =
-            "VOSS :\n"
-            "\"Deux generateurs hors service. Le troisieme resiste.\n"
-            "L'IA a detecte notre strategie. Elle envoie ses meilleures unites.\n"
-            "Les soigneurs, les chasseurs, l'artillerie... tout.\"\n",
+            "VARELA :\n"
+            "\"Tous les generateurs sont hors service. La production s'est arretee.\n"
+            "Mais l'IA centrale — NEXUS — tourne toujours sur batteries de secours.\n"
+            "Elle envoie tout ce qu'il lui reste. Chasseurs, artillerie... tout.\"\n",
         .min_waves  = 10,
         .unlock_msg = NULL,
     },
@@ -389,20 +394,19 @@ static const ActData ACT_DATA[CAMPAIGN_TOTAL] = {
             .type        = OBJ_SURVIVE_WAVES,
             .target      = 20,
             .before_wave = 0,
-            .description = "Survivre 20 vagues et detruire NEXUS",
+            .description = "Survivre 20 vagues et resister a NEXUS",
         },
         .dialog_before =
             "NEXUS — IA CENTRALE :\n"
-            "\"COMMANDANT VOSS. IDENTIFICATION COMPLETE.\n"
-            "VOUS ETES UNE VARIABLE NON PREVUE.\n"
-            "PROTOCOLE DE NEUTRALISATION : ACTIF.\"\n",
+            "\"COMMANDANT VOSS. ANALYSE TERMINEE.\n"
+            "PROBABILITE DE VOTRE SURVIE : 0,4 POURCENT.\n"
+            "TOUTES LES UNITES DISPONIBLES SONT EN ROUTE.\"\n",
         .dialog_after  =
             "VOSS :\n"
-            "\"NEXUS est hors ligne.\n"
-            "Les hordes... se sont arretees. D'un coup.\n"
-            "Pour la premiere fois depuis des annees,\n"
-            "le silence. Un vrai silence.\n"
-            "On a gagne. Maintenant on reconstruit.\"\n",
+            "\"NEXUS est hors ligne. Les hordes... se sont arretees.\n"
+            "D'un coup. Partout en meme temps. Pour la premiere fois\n"
+            "depuis des annees — le silence. Un vrai silence.\n"
+            "On a gagne. Maintenant, on reconstruit.\"\n",
         .min_waves  = 20,
         .unlock_msg = "FIN DE CAMPAGNE — Le monde peut recommencer.",
     },

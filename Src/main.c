@@ -62,12 +62,28 @@ int main(void) {
         float dt = GetFrameTime();
         audio_update();
 
-        /* Canvas dynamique : hauteur = g_canvas_virt_h, largeur adaptée au ratio fenêtre */
+        /* ── Échelle UNIFORME (pixels carrés quelle que soit la fenêtre) ──
+           • Fenêtre assez large  → on cale sur la hauteur, la largeur
+             virtuelle s'étend pour remplir les côtés (pas de bandes).
+           • Fenêtre trop étroite → on cale sur la largeur (carte entière
+             visible) et on centre verticalement (bandes noires).
+           Dans les deux cas l'échelle X = échelle Y : aucune déformation,
+           et la carte, les unités et les tours suivent exactement.        */
         int sw = GetScreenWidth(), sh = GetScreenHeight();
+        if (sw < 1) sw = 1;
         if (sh < 1) sh = 1;
-        float scale  = (float)sh / g_canvas_virt_h;
-        int   virt_w = (int)ceilf((float)sw / scale);
-        if (virt_w < g_canvas_virt_w_base) virt_w = g_canvas_virt_w_base;
+
+        float scale;
+        int   virt_w;
+        float fit_h = (float)sh / (float)g_canvas_virt_h;
+        int   wfit  = (int)ceilf((float)sw / fit_h);
+        if (wfit >= g_canvas_virt_w_base) {
+            scale  = fit_h;          /* large : cale sur la hauteur  */
+            virt_w = wfit;
+        } else {
+            scale  = (float)sw / (float)g_canvas_virt_w_base;  /* étroit : cale sur la largeur */
+            virt_w = g_canvas_virt_w_base;
+        }
 
         g_map_x_off     = (virt_w - g_canvas_virt_w_base) / 2;
         g_canvas_virt_w = virt_w;
@@ -80,9 +96,15 @@ int main(void) {
             SetTextureFilter(canvas.texture, TEXTURE_FILTER_BILINEAR);
         }
 
-        /* Transformation souris : même échelle x et y (uniforme) */
-        canvas_set_mouse_offset(0.0f, 0.0f, scale, scale);
-        menu_set_mouse_offset  (0.0f, 0.0f, scale, scale);
+        /* Rectangle de présentation centré, échelle uniforme */
+        float pres_w = (float)virt_w * scale;
+        float pres_h = (float)g_canvas_virt_h * scale;
+        float pres_x = ((float)sw - pres_w) * 0.5f;
+        float pres_y = ((float)sh - pres_h) * 0.5f;
+
+        /* Transformation souris : décalage de présentation + échelle uniforme */
+        canvas_set_mouse_offset(pres_x, pres_y, scale, scale);
+        menu_set_mouse_offset  (pres_x, pres_y, scale, scale);
 
         /* Frame */
         BeginTextureMode(canvas);
@@ -91,14 +113,14 @@ int main(void) {
 
         if (!keep_running) break;
 
-        /* Présentation canvas → écran physique (remplit toute la fenêtre) */
+        /* Présentation canvas → écran physique (centré, sans déformation) */
         BeginDrawing();
         ClearBackground(BLACK);
         DrawTexturePro(canvas.texture,
             (Rectangle){0, 0,
                         (float) canvas.texture.width,
                         -(float)canvas.texture.height},
-            (Rectangle){0, 0, (float)sw, (float)sh},
+            (Rectangle){pres_x, pres_y, pres_w, pres_h},
             (Vector2){0, 0}, 0.0f, WHITE);
         EndDrawing();
     }

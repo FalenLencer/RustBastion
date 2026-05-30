@@ -44,6 +44,7 @@ extern const char      *TOWER_LORE      [TOWER_TYPE_COUNT];  // description long
 // ── Améliorations par tour ───────────────────────────────────
 #define TOWER_UPG_MAX          5       /* paliers max par catégorie          */
 #define TOWER_REPAIR_COST      20      /* coût fixe de réparation (or)       */
+#define TOWER_SELL_REFUND      0.6f    /* fraction du coût remboursée à la vente */
 #define TOWER_MAX_HP          100.0f   /* HP maximum après réparation        */
 #define TOWER_UPG_DMG_MULT      0.10f  /* bonus dégâts par palier (+10%/pal) */
 #define TOWER_UPG_RANGE_MULT    0.10f  /* bonus portée par palier (+10%/pal) */

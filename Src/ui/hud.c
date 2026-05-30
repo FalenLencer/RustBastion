@@ -124,14 +124,14 @@ const int TOWER_UNLOCK_AT[TOWER_TYPE_COUNT] = {
     [TOWER_GUN]    = -1,  // toujours disponible
     [TOWER_SNIPER] =  1,  // après avoir complété l'acte index 1 (acte 2)
     [TOWER_TESLA]  =  2,  // après avoir complété l'acte index 2 (acte 3)
-    [TOWER_FLAME]  =  3,  // après avoir complété l'acte index 3 (acte 4)
+    [TOWER_FLAME]  =  5,  // après avoir complété l'acte index 5 (Ch.2-Act.3)
 };
 
 const char *TOWER_UNLOCK_ACT_NAME[TOWER_TYPE_COUNT] = {
     [TOWER_GUN]    = NULL,
     [TOWER_SNIPER] = "Ch.1 — Acte 2",
     [TOWER_TESLA]  = "Ch.1 — Acte 3",
-    [TOWER_FLAME]  = "Ch.2 — Acte 1",
+    [TOWER_FLAME]  = "Ch.2 — Acte 3",
 };
 
 int tool_is_unlocked(ToolID id, const GameState *gs) {

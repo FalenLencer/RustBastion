@@ -59,8 +59,9 @@ typedef struct {
     float target_x;
     float target_y;
 
-    // Combat mêlée
-    float melee_range;
+    // Combat contre les unités alliées
+    float melee_range;      /* portée de contact mêlée (px) — inchangée, utilisée en dernier recours */
+    float unit_atk_range;   /* portée d'attaque effective sur unités (px) — peut être > melee_range  */
     float engage_timer;
     float atk_timer;
 
@@ -146,8 +147,12 @@ extern const char *ENEMY_SPEC[ENEMY_TYPE_COUNT];
 #define ENEMY_HEALER_HEAL_AMOUNT    15.0f  /* PV/s restaurés aux alliés    */
 
 // ── Hunter ────────────────────────────────────────────────────
-#define ENEMY_HUNTER_HUNT_RANGE      6.0f  /* portée de détection unités (en tiles) */
-#define ENEMY_HUNTER_ATK_TIMER       0.4f  /* cooldown d'attaque Hunter (s)         */
+#define ENEMY_HUNTER_HUNT_RANGE       6.0f  /* portée de détection unités (en tiles)          */
+#define ENEMY_HUNTER_ATK_TIMER        0.4f  /* cooldown d'attaque Hunter (s)                   */
+#define ENEMY_HUNTER_UNIT_ATK_RANGE   3.0f  /* portée de tir sur unités (tiles) — longue portée*/
+
+// ── Artillerie — attaque secondaire sur unités ────────────────
+#define ENEMY_ARTY_UNIT_ATK_RANGE     3.5f  /* portée de tir sur unités (tiles)               */
 
 // ── Artillerie ────────────────────────────────────────────────
 #define ENEMY_ARTY_RANGE             4.0f  /* portée de tir (en tiles)     */

@@ -5,15 +5,10 @@
  */
 
 #include "projectile.h"
+#include "combat_math.h"
 #include "../engine/audio.h"
 #include <math.h>
 #include <stddef.h>
-
-static float dist2(float ax, float ay, float bx, float by) {
-    float dx = ax - bx;
-    float dy = ay - by;
-    return dx*dx + dy*dy;
-}
 
 static void apply_damage(Enemy *e, float dmg, DamageType dtype) {
     if (!e->active || e->dead) return;
@@ -102,7 +97,7 @@ void projectile_update(TowerPool *tp, EnemyPool *ep, float dt) {
                 for (int j = 0; j < MAX_ENEMIES; j++) {
                     Enemy *e = &ep->enemies[j];
                     if (!e->active || e->dead) continue;
-                    float d2 = dist2(p->tx, p->ty, e->x, e->y);
+                    float d2 = gdist2(p->tx, p->ty, e->x, e->y);
                     if (d2 <= p->splash_radius * p->splash_radius) {
                         apply_damage(e, p->damage, p->dmg_type);
                         if (p->slow_duration > 0.0f &&
@@ -132,7 +127,7 @@ void projectile_update(TowerPool *tp, EnemyPool *ep, float dt) {
                 for (int j = 0; j < MAX_ENEMIES && !chained; j++) {
                     Enemy *e = &ep->enemies[j];
                     if (!e->active || e->dead || j == p->target_idx) continue;
-                    if (dist2(p->tx, p->ty, e->x, e->y) <= chain_rng2) {
+                    if (gdist2(p->tx, p->ty, e->x, e->y) <= chain_rng2) {
                         p->x          = p->tx;
                         p->y          = p->ty;
                         p->tx         = e->x;

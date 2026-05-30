@@ -58,6 +58,12 @@ static void game_redirect_paths_for_base(GameState *gs, int destroyed_base_id) {
             /* Clamp path_index dans les limites du nouveau chemin */
             if (en->path_index >= rebuilt.len)
                 en->path_index = rebuilt.len > 0 ? rebuilt.len - 1 : 0;
+            /* Pathbreaker : recale sa cible en ligne droite vers la nouvelle base
+               (sinon il continue de foncer vers les décombres de l'ancienne). */
+            if (en->type == ENEMY_PATHBREAKER) {
+                en->target_x = new_base_pos.x * TILE_SIZE + TILE_SIZE / 2.0f;
+                en->target_y = new_base_pos.y * TILE_SIZE + TILE_SIZE / 2.0f;
+            }
         }
 
         /* Écrase le chemin en place dans le PathSet */
@@ -194,12 +200,26 @@ void game_state_update(GameState *gs, float dt) {
         wsnap[_w].y       = u->y;
     }
 
+    // Snapshot de l'état des bases AVANT l'update ennemis : permet de détecter
+    // celles qui tombent ce frame (les ennemis les désactivent directement).
+    int _base_was_active[MAX_BASES];
+    for (int _b = 0; _b < gs->map.base_count && _b < MAX_BASES; _b++)
+        _base_was_active[_b] = gs->map.bases[_b].active;
+
     // Mise à jour ennemis — passe towers pour Artillery
     enemy_pool_update(&gs->enemies, &gs->enemy_paths,
                       &gs->units, &gs->towers,
                       &gs->map,
                       effective_dt,
                       &gs->lives, &gs->gold, &gs->kills);
+
+    // Une base est-elle tombée ce frame ? → redirige immédiatement les chemins
+    // (et les ennemis déjà en route) vers une base encore vivante, pour ne pas
+    // laisser les ennemis converger vers une base détruite pendant la vague.
+    for (int _b = 0; _b < gs->map.base_count && _b < MAX_BASES; _b++) {
+        if (_base_was_active[_b] && !gs->map.bases[_b].active)
+            game_redirect_paths_for_base(gs, _b);
+    }
 
     // Libère les tuiles des tours détruites par Artillery
     for (int i = 0; i < MAX_TOWERS; i++) {
@@ -215,9 +235,16 @@ void game_state_update(GameState *gs, float dt) {
     }
 
     tower_pool_update(&gs->towers, &gs->enemies, effective_dt);
+    int _inv_before = gs->inventory_count;
     unit_pool_update(&gs->units, &gs->enemies, &gs->map,
                      effective_dt, gs->inventory, &gs->inventory_count,
                      &gs->towers);
+    /* Récompense or pour chaque matériau livré ce frame */
+    {
+        int _delivered = gs->inventory_count - _inv_before;
+        if (_delivered > 0)
+            gs->gold += _delivered * 20;
+    }
 
     // ── Ouvriers tués en portant → lâchent le matériau ───────────
     for (int _w = 0; _w < MAX_UNITS; _w++) {

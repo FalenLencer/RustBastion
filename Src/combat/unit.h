@@ -20,9 +20,10 @@
 #define UNIT_MEDIC_HEAL_AMOUNT        20.0f  /* PV restaurés par soin               */
 #define UNIT_MEDIC_HEAL_TIMER          1.5f  /* cooldown entre soins (s)            */
 #define UNIT_MEDIC_HEAL_RANGE          3.0f  /* portée de soin (en tiles)           */
+#define MAX_MEDICS_PER_BASE            4     /* médics max par base                 */
 
 // ── Ouvrier ───────────────────────────────────────────────────
-#define UNIT_WORKER_COLLECT_DURATION   8.0f  /* durée de collecte au dépôt (s)      */
+#define UNIT_WORKER_COLLECT_DURATION   5.0f  /* durée de collecte au dépôt (s)      */
 #define UNIT_WORKER_ENEMY_SLOW_RANGE   3.5f  /* ennemis dans ce rayon = collecte slow*/
 #define UNIT_WORKER_ENEMY_SLOW_FACTOR  0.35f /* facteur de vitesse collecte ralentie */
 #define UNIT_DEPOSIT_ARRIVE_DIST       0.8f  /* seuil d'arrivée au dépôt (en tiles) */
@@ -32,7 +33,8 @@
 #define UNIT_WORKER_PATROL_SPEED_FRAC  0.5f  /* fraction de vitesse en patrouille   */
 
 // ── Combat ────────────────────────────────────────────────────
-#define UNIT_COUNTER_DMG_MULT          2.0f  /* multiplicateur riposte ennemie      */
+#define UNIT_COUNTER_DMG_MULT          2.0f  /* multiplicateur riposte ennemie (corps à corps) */
+#define UNIT_MELEE_ATK_THRESHOLD       1.5f  /* atk_range (tiles) ≤ seuil → mêlée → contre-dégâts */
 #define UNIT_PATROL_ANGLE_SPEED        0.5f  /* vitesse angulaire patrouille (rad/s)*/
 #define UNIT_PATROL_SPEED_FRAC         0.6f  /* fraction de vitesse en patrouille   */
 #define UNIT_PATROL_SLACK              2.0f  /* seuil min déplacement patrouille (px)*/

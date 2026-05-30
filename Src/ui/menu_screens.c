@@ -25,6 +25,7 @@ MenuAction draw_title(MenuState *m, int vw, int vh) {
     MenuAction act = {0};
     int cx = vw/2;
     draw_bg(m, vw, vh);
+    menu_anim_render(&m->anim, vw, vh);
 
     txt_c_boxed("RUST BASTION", cx, vh/2 - 170, 46, C_GOLD);
     txt_c_boxed("Tower Defense Post-Apocalyptique", cx, vh/2 - 114, 13, C_DIM);
@@ -87,7 +88,7 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     }
     by += bh + gap;
 
-    if (draw_nav_btn("X", "PERSONNALISE",
+    if (draw_nav_btn("X", "CUSTOM GAME",
                      "Carte, spawns, bases, terrain et difficulte sur mesure.",
                      C_ORANGE, bx, by, bw, bh)) {
         push_back_screen(m);

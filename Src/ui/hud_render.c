@@ -173,6 +173,39 @@ static void draw_tool_btn(const Rectangle *r, ToolID id,
             (Color){col.r, col.g, col.b, 60});
 }
 
+// ── Chrome partagé des panneaux flottants (identité « métal militaire ») ──
+// Cadre métal sombre + dégradé de volume, liseré d'accent, équerres d'angle,
+// poignée teintée. Ne décale AUCUN contenu : remplace seulement le fond, le
+// bord et la poignée d'origine — donc aucun hitbox n'est modifié.
+static void draw_overlay_frame(int ox, int oy, int ow, int oh,
+                               int dragging, Color accent) {
+    Rectangle r = {(float)ox, (float)oy, (float)ow, (float)oh};
+    const float rnd = 0.16f;
+    // Corps métal + dégradé vertical
+    DrawRectangleRounded(r, rnd, 5, (Color){9, 6, 3, 240});
+    DrawRectangle(ox + 2, oy + 2,      ow - 4, (oh - 4)/2, (Color){255,255,255,7});
+    DrawRectangle(ox + 2, oy + oh/2,   ow - 4, oh/2 - 2,   (Color){0,0,0,38});
+    // Liseré d'accent sous la poignée (sépare en-tête / contenu)
+    DrawRectangle(ox + 5, oy + 9, ow - 10, 1, (Color){accent.r, accent.g, accent.b, 130});
+    // Bordure (vive pendant le glissement)
+    Color bd = dragging
+        ? (Color){accent.r, accent.g, accent.b, 255}
+        : (Color){(unsigned char)(accent.r*0.5f), (unsigned char)(accent.g*0.5f),
+                  (unsigned char)(accent.b*0.5f), 210};
+    DrawRectangleRoundedLinesEx(r, rnd, 5, dragging ? 2.0f : 1.3f, bd);
+    // Équerres d'angle
+    const int L = 6;
+    Color cc = {accent.r, accent.g, accent.b, 200};
+    DrawRectangle(ox+3,      oy+3,      L, 2, cc); DrawRectangle(ox+3,      oy+3,      2, L, cc);
+    DrawRectangle(ox+ow-3-L, oy+3,      L, 2, cc); DrawRectangle(ox+ow-5,   oy+3,      2, L, cc);
+    DrawRectangle(ox+3,      oy+oh-5,   L, 2, cc); DrawRectangle(ox+3,      oy+oh-3-L, 2, L, cc);
+    DrawRectangle(ox+ow-3-L, oy+oh-5,   L, 2, cc); DrawRectangle(ox+ow-5,   oy+oh-3-L, 2, L, cc);
+    // Poignée de déplacement (3 points teintés accent)
+    for (int d = 0; d < 3; d++)
+        DrawRectangle(ox + ow/2 - 9 + d*9, oy + 3, 5, 2,
+                      (Color){accent.r, accent.g, accent.b, 165});
+}
+
 // ════════════════════════════════════════════════════
 // RENDU
 // ════════════════════════════════════════════════════
@@ -185,16 +218,23 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
     const Theme *th = theme_get(gs->map.theme);
 
-    // ── Fond HUD ──────────────────────────────────────────────
-    DrawRectangle(0, HUD_Y, VIRT_W, HUD_H, (Color){10, 6, 2, 255});
-    DrawLine(0, HUD_Y, VIRT_W, HUD_Y, (Color){70, 44, 0, 200});
+    // ── Fond HUD — plaque métal militaire ─────────────────────
+    DrawRectangle(0, HUD_Y, VIRT_W, HUD_H, (Color){12, 8, 4, 255});
+    // Ombrage interne (haut + bas) pour le volume
+    DrawRectangle(0, HUD_Y + 2, VIRT_W, 16, (Color){0, 0, 0, 55});
+    DrawRectangle(0, HUD_Y + HUD_H - 8, VIRT_W, 8, (Color){0, 0, 0, 70});
+    // Filet d'accent supérieur (2 px) + ligne sombre dessous
+    DrawRectangle(0, HUD_Y, VIRT_W, 2, (Color){150, 96, 20, 255});
+    DrawLine(0, HUD_Y + 2, VIRT_W, HUD_Y + 2, (Color){70, 44, 0, 220});
+    // Rivets le long de l'arête supérieure
+    for (int rvx = 14; rvx < VIRT_W - 8; rvx += 48)
+        DrawRectangle(rvx, HUD_Y + 5, 2, 2, (Color){95, 70, 26, 200});
 
-    DrawRectangle(0,                   HUD_Y, UI_LEFT_PANEL_W, HUD_H, (Color){15, 8, 3, 235});
-    DrawRectangle(VIRT_W - UI_PANEL_W, HUD_Y, UI_PANEL_W,      HUD_H, (Color){15, 8, 3, 235});
-    DrawLine(UI_LEFT_PANEL_W,     HUD_Y, UI_LEFT_PANEL_W,
-             HUD_Y + HUD_H, (Color){50, 32, 8, 160});
-    DrawLine(VIRT_W - UI_PANEL_W, HUD_Y, VIRT_W - UI_PANEL_W,
-             HUD_Y + HUD_H, (Color){50, 32, 8, 160});
+    // Panneaux latéraux (légèrement détachés) + séparateurs d'accent
+    DrawRectangle(0,                   HUD_Y, UI_LEFT_PANEL_W, HUD_H, (Color){17, 10, 4, 235});
+    DrawRectangle(VIRT_W - UI_PANEL_W, HUD_Y, UI_PANEL_W,      HUD_H, (Color){17, 10, 4, 235});
+    DrawRectangle(UI_LEFT_PANEL_W - 1,     HUD_Y + 4, 2, HUD_H - 8, (Color){62, 42, 12, 190});
+    DrawRectangle(VIRT_W - UI_PANEL_W - 1, HUD_Y + 4, 2, HUD_H - 8, (Color){62, 42, 12, 190});
 
     // ════════════════════════════════════════════════
     // PANNEAU GAUCHE — vies, ferraille, thème, inventaire
@@ -418,11 +458,10 @@ void ui_render(const UIState *ui, const GameState *gs) {
             const TowerStats *st = &TOWER_BASE_STATS[tw->type];
             Color col = TOWER_FILL[tw->type];
 
-            // Portrait 82×82
-            const int PSZ = 82;
+            // Portrait splash
             int pdone = draw_portrait(g_tower_splash[tw->type],
-                                      rx + max_w - PSZ, HUD_Y + M, PSZ, col);
-            int text_w = pdone ? max_w - PSZ - 6 : max_w;
+                                      rx + max_w - PORTRAIT_SZ, HUD_Y + M, PORTRAIT_SZ, col);
+            int text_w = pdone ? max_w - PORTRAIT_SZ - 6 : max_w;
 
             // Nom (fs=16)
             clip_text(st->name, text_w, 16, buf, sizeof(buf));
@@ -459,12 +498,11 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 py += 16;
             }
 
-            /* ── Boutons d'amélioration (sous le portrait 82×82) ─ */
+            /* ── Boutons d'amélioration (sous le portrait) ─ */
             {
-                const int PSZ2 = 82;
                 const int GAP2 = 6;
                 const int ubw  = (max_w - GAP2 * 2) / 3;
-                int uy = HUD_Y + M + PSZ2 + GAP2;
+                int uy = HUD_Y + M + PORTRAIT_SZ + GAP2;
 
                 DrawLine(rx, uy - 3, rx + max_w, uy - 3, (Color){40, 25, 6, 120});
 
@@ -578,7 +616,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 DrawRectangleRoundedLinesEx(sb, srnd, 6, 1.5f,
                     hov ? (Color){192,48,48,255} : (Color){90,18,18,255});
                 int refund = (int)(tower_cost_on_tile(tw->type, &gs->map,
-                                       tw->tile_x, tw->tile_y) * 0.6f);
+                                       tw->tile_x, tw->tile_y) * TOWER_SELL_REFUND);
                 snprintf(buf, sizeof(buf), "Vendre  +%d or", refund);
                 int bw = mtxt(buf, 13);
                 dtxt(buf, (int)(sb.x + sb.width/2 - bw/2),
@@ -780,13 +818,12 @@ void ui_render(const UIState *ui, const GameState *gs) {
             const ToolInfo *info = &TOOL_INFO[ui->selected_tool];
             Color col = TOOL_COLORS[ui->selected_tool];
 
-            // Portrait 82×82
-            const int PSZ = 82;
+            // Portrait splash
             Texture2D ptex = ui_tool_is_tower(ui->selected_tool)
                 ? g_tower_splash[ui_tool_to_tower(ui->selected_tool)]
                 : g_unit_splash [ui_tool_to_unit (ui->selected_tool)];
-            int pdone = draw_portrait(ptex, rx + max_w - PSZ, HUD_Y + M, PSZ, col);
-            int text_w = pdone ? max_w - PSZ - 6 : max_w;
+            int pdone = draw_portrait(ptex, rx + max_w - PORTRAIT_SZ, HUD_Y + M, PORTRAIT_SZ, col);
+            int text_w = pdone ? max_w - PORTRAIT_SZ - 6 : max_w;
 
             clip_text(info->name, text_w, 16, buf, sizeof(buf));
             dtxt(buf, rx, py, 16, col);
@@ -854,18 +891,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
                          ? (int)ui->overlay_tl_pos.y : 8;
 
             int dragging_tl = (ui->dragging_overlay == 0);
-            Color border_tl = dragging_tl ? (Color){140, 100, 30, 255}
-                                          : (Color){65, 46, 14, 200};
-            DrawRectangleRounded(
-                (Rectangle){ox, oy, ow, oh}, 0.2f, 4,
-                (Color){4, 3, 1, 235});
-            DrawRectangleRoundedLinesEx(
-                (Rectangle){ox, oy, ow, oh}, 0.2f, 4,
-                dragging_tl ? 1.8f : 1.2f, border_tl);
-            // Poignée de déplacement (3 points)
-            for (int d = 0; d < 3; d++)
-                DrawRectangle(ox + ow/2 - 9 + d*9, oy + 3, 5, 2,
-                              (Color){80, 58, 20, 160});
+            draw_overlay_frame(ox, oy, ow, oh, dragging_tl,
+                               (Color){239, 170, 60, 255});   // accent or = ressources
 
             int tx = ox + OV_P;
             int ty = oy + OV_P + 4;  // +4 pour la poignée
@@ -878,6 +905,26 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 snprintf(gbuf, sizeof(gbuf), "%d", gs->gold);
             draw_icon(g_icon_gold, tx, ty, fh(12), WHITE);
             dtxt(gbuf, tx + fh(12) + 2, ty, 12, (Color){230, 155, 35, 255});
+            ty += line1_h + 3;
+
+            // Vies — couleur et pulsation selon niveau critique
+            {
+                float _tp = (float)GetTime();
+                float _pp = (sinf(_tp * 5.0f) + 1.0f) * 0.5f;
+                Color lc;
+                if (gs->lives > 40) {
+                    lc = (Color){46, 204, 113, 255};
+                } else if (gs->lives > 15) {
+                    lc = (Color){243, 156, 18, 255};
+                } else {
+                    unsigned char _lcr = (unsigned char)(160 + (int)(71.0f * _pp));
+                    unsigned char _lcg = (unsigned char)(30  + (int)(46.0f * _pp));
+                    lc = (Color){_lcr, _lcg, 40, 255};
+                }
+                draw_icon(g_icon_heart, tx, ty, fh(12), lc);
+                dtxt(TextFormat("%d", gs->lives),
+                     tx + fh(12) + 2, ty, 12, lc);
+            }
             ty += line1_h + 3;
 
             // Tours
@@ -918,18 +965,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
                          ? (int)ui->overlay_tr_pos.y : 8;
 
             int dragging_tr = (ui->dragging_overlay == 1);
-            Color border_tr = dragging_tr ? (Color){140, 100, 30, 255}
-                                          : (Color){65, 46, 14, 200};
-            DrawRectangleRounded(
-                (Rectangle){ox, oy, ow, oh}, 0.2f, 4,
-                (Color){4, 3, 1, 235});
-            DrawRectangleRoundedLinesEx(
-                (Rectangle){ox, oy, ow, oh}, 0.2f, 4,
-                dragging_tr ? 1.8f : 1.2f, border_tr);
-            // Poignée de déplacement (3 points)
-            for (int d = 0; d < 3; d++)
-                DrawRectangle(ox + ow/2 - 9 + d*9, oy + 3, 5, 2,
-                              (Color){80, 58, 20, 160});
+            draw_overlay_frame(ox, oy, ow, oh, dragging_tr,
+                               (Color){231, 76, 60, 255});    // accent rouge = menace
 
             int tx = ox + OV_P, ty = oy + OV_P + 4;
             int inner_w = ow - OV_P * 2;
@@ -1021,18 +1058,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
             const int _oy = (int)ui->overlay_bl_pos.y;
 
             int dragging_bl = (ui->dragging_overlay == 2);
-            Color border_bl = dragging_bl ? (Color){140, 100, 30, 255}
-                                          : (Color){65, 46, 14, 200};
-            DrawRectangleRounded(
-                (Rectangle){(float)_ox, (float)_oy, (float)_ow, (float)_bh},
-                0.2f, 4, (Color){4, 3, 1, 235});
-            DrawRectangleRoundedLinesEx(
-                (Rectangle){(float)_ox, (float)_oy, (float)_ow, (float)_bh},
-                0.2f, 4, dragging_bl ? 1.8f : 1.2f, border_bl);
-            /* Poignée de déplacement */
-            for (int _d = 0; _d < 3; _d++)
-                DrawRectangle(_ox + _ow/2 - 9 + _d*9, _oy + 3, 5, 2,
-                              (Color){80, 58, 20, 160});
+            draw_overlay_frame(_ox, _oy, _ow, _bh, dragging_bl,
+                               (Color){110, 200, 130, 255});  // accent vert = bases
 
             const int OV_P = OVERLAY_OV_P;   /* alias local (hors portée du bloc parent) */
             const int _px  = _ox + OV_P;
@@ -1079,7 +1106,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 };
                 DrawRectangle(_px - 2, _py - 1, _iw + 4, 9, _bg_line);
 
-                dtxt(bname, _px, _py, 8, bc);
+                draw_icon(g_icon_heart, _px, _py - 2, 14, bc);
+                dtxt(bname, _px + 16, _py, 8, bc);
                 int _hw = mtxt(hp_str, 8);
                 dtxt(hp_str, _px + _iw - _hw, _py, 8, bc);
 

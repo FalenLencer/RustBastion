@@ -6,6 +6,7 @@
 
 #include "tower.h"
 #include "projectile.h"
+#include "combat_math.h"
 _Static_assert(META_TOWER_COUNT == TOWER_TYPE_COUNT,
                "META_TOWER_COUNT dans meta.h ne correspond pas a TOWER_TYPE_COUNT");
 #include "../engine/audio.h"
@@ -82,11 +83,6 @@ const int TOWER_UPG_COST_RATE [TOWER_UPG_MAX] = { 30,  55,  90, 140, 210 };
 /* ════════════════════════════════════════════════════
    UTILITAIRES
    ════════════════════════════════════════════════════ */
-static float dist2(float ax, float ay, float bx, float by) {
-    float dx = ax-bx, dy = ay-by;
-    return dx*dx + dy*dy;
-}
-
 static float px_of(int tile) {
     return tile * TILE_SIZE + TILE_SIZE * 0.5f;
 }
@@ -256,7 +252,7 @@ static int find_target(const Tower *tw, const EnemyPool *ep) {
         if (!e->active || e->dead || e->spawn_delay > 0.0f) continue;
         if (e->invisible) continue;
 
-        float d2 = dist2(tw->cx, tw->cy, e->x, e->y);
+        float d2 = gdist2(tw->cx, tw->cy, e->x, e->y);
         if (d2 > rng2) continue;
 
         float score;

@@ -6,6 +6,7 @@
 
 #include "unit.h"
 #include "tower.h"
+#include "combat_math.h"
 #include "../engine/audio.h"
 #include <string.h>
 #include <math.h>
@@ -24,11 +25,11 @@ const UnitStats UNIT_BASE_STATS[UNIT_TYPE_COUNT] = {
         .hp              = 80.0f,
         .damage          = 25.0f,
         .speed           = 2.5f,
-        .atk_range       = 1.2f,
+        .atk_range       = 4.5f,   /* longue portée — tir depuis la distance */
         .atk_rate        = 1.2f,
-        .intercept_range = 6.0f,
+        .intercept_range = 7.0f,   /* détecte les ennemis plus tôt */
         .size            = 5.0f,
-        .description     = "Infanterie polyvalente.",
+        .description     = "Infanterie longue portee. Tire depuis la distance.",
     },
     [UNIT_HEAVY] = {
         .name            = "Lourd",
@@ -36,11 +37,11 @@ const UnitStats UNIT_BASE_STATS[UNIT_TYPE_COUNT] = {
         .hp              = 220.0f,
         .damage          = 50.0f,
         .speed           = 1.2f,
-        .atk_range       = 1.0f,
+        .atk_range       = 1.5f,   /* corps à corps — courte portée comme le chien */
         .atk_rate        = 0.6f,
         .intercept_range = 4.0f,
         .size            = 7.0f,
-        .description     = "Tank. Protege les autres unites.",
+        .description     = "Tank corps a corps. Bouclier vivant pour les allies.",
     },
     [UNIT_MEDIC] = {
         .name            = "Medic",
@@ -48,11 +49,11 @@ const UnitStats UNIT_BASE_STATS[UNIT_TYPE_COUNT] = {
         .hp              = 60.0f,
         .damage          = 8.0f,
         .speed           = 2.0f,
-        .atk_range       = 1.0f,
+        .atk_range       = 1.0f,   /* mêlée, uniquement si seul */
         .atk_rate        = 0.5f,
         .intercept_range = 3.0f,
         .size            = 5.0f,
-        .description     = "Soigne les unites alliees.",
+        .description     = "Soigne les allies. N'attaque qu'en dernier recours.",
     },
     [UNIT_DOG] = {
         .name            = "Chien",
@@ -82,9 +83,10 @@ const UnitStats UNIT_BASE_STATS[UNIT_TYPE_COUNT] = {
 
 const char *UNIT_LORE[UNIT_TYPE_COUNT] = {
     [UNIT_SOLDIER] =
-        "Infanterie standard reconstituee depuis les milices locales.\n"
-        "Peu couteux, rapide a deployer, efficace en nombre. Attaque\n"
-        "le premier ennemi en portee et tient une ligne avec ses allies.",
+        "Infanterie equipee de fusils de recuperation.\n"
+        "Engage les ennemis depuis la distance (4-5 tiles) sans\n"
+        "prendre de degats en retour. Efficace en nombre sur les couloirs\n"
+        "ouverts. Fragile au corps a corps — gardez-les derriere un Lourd.",
 
     [UNIT_HEAVY] =
         "Combattant blinde en armure de recuperation. Tres lent mais\n"
@@ -93,8 +95,9 @@ const char *UNIT_LORE[UNIT_TYPE_COUNT] = {
 
     [UNIT_MEDIC] =
         "Ancien infirmier militaire reconverti. Soigne automatiquement\n"
-        "les allies proches entre ses propres attaques. Sa presence\n"
-        "peut doubler la duree de vie de votre ligne de front.",
+        "les allies proches. Ne combat pas tant que d'autres unites\n"
+        "de combat sont presentes — mais se defend au corps a corps\n"
+        "s'il se retrouve seul face aux ennemis.",
 
     [UNIT_DOG] =
         "Chien de combat mutant eleve dans les ruines. Extremement rapide\n"
@@ -110,11 +113,6 @@ const char *UNIT_LORE[UNIT_TYPE_COUNT] = {
 /* ════════════════════════════════════════════════════
    UTILITAIRES
    ════════════════════════════════════════════════════ */
-static float udist(float ax, float ay, float bx, float by) {
-    float dx = ax-bx, dy = ay-by;
-    return sqrtf(dx*dx + dy*dy);
-}
-
 int unit_active_limit(const MetaBonuses *bonuses, int base_count) {
     int extra = bonuses ? bonuses->unit_limit_bonus : 0;
     int base  = base_count * MAX_UNITS_PER_BASE;    // 4 par base
@@ -154,6 +152,18 @@ int unit_spawn_at(UnitPool *up, UnitType type, int *gold, const MetaBonuses *bon
 
     const UnitStats *st = &UNIT_BASE_STATS[type];
     if (*gold < st->cost) return 0;
+
+    /* Limite de médics par base */
+    if (type == UNIT_MEDIC) {
+        int mc = 0;
+        for (int i = 0; i < MAX_UNITS; i++) {
+            const Unit *u = &up->units[i];
+            if (u->active && u->type == UNIT_MEDIC &&
+                u->home_base_px == bpx && u->home_base_py == bpy)
+                mc++;
+        }
+        if (mc >= MAX_MEDICS_PER_BASE) return 0;
+    }
 
     Unit *u = NULL;
     int slot = 0;
@@ -249,8 +259,8 @@ static int find_enemy_target(const Unit *u, const EnemyPool *ep,
         const Enemy *e = &ep->enemies[i];
         if (!e->active || e->dead || e->spawn_delay > 0.0f) continue;
 
-        float d_base = udist(e->x, e->y, base_px, base_py);
-        float d_unit = udist(e->x, e->y, u->x,    u->y);
+        float d_base = gdist(e->x, e->y, base_px, base_py);
+        float d_unit = gdist(e->x, e->y, u->x,    u->y);
 
         if (d_base > intercept_px && d_unit > u->atk_range * TILE_SIZE * 3.0f)
             continue;
@@ -270,7 +280,7 @@ static int find_heal_target(const Unit *medic, const UnitPool *up) {
         const Unit *a = &up->units[i];
         if (!a->active || a == medic) continue;
         if (a->hp >= a->max_hp)       continue;
-        float d = udist(medic->x, medic->y, a->x, a->y);
+        float d = gdist(medic->x, medic->y, a->x, a->y);
         if (d > heal_range)           continue;
         if (a->hp < worst_hp) { worst_hp = a->hp; best = i; }
     }
@@ -322,7 +332,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 MaterialDeposit *dep = &map->deposits[u->deposit_idx];
                 float dep_x = dep->tile_x * TILE_SIZE + TILE_SIZE / 2.0f;
                 float dep_y = dep->tile_y * TILE_SIZE + TILE_SIZE / 2.0f;
-                float dist  = udist(u->x, u->y, dep_x, dep_y);
+                float dist  = gdist(u->x, u->y, dep_x, dep_y);
                 if (dist <= TILE_SIZE * UNIT_DEPOSIT_ARRIVE_DIST) {
                     u->state            = USTATE_COLLECT;
                     u->collect_duration = UNIT_WORKER_COLLECT_DURATION;
@@ -355,7 +365,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     for (int j = 0; j < MAX_ENEMIES; j++) {
                         const Enemy *e = &ep->enemies[j];
                         if (!e->active || e->dead || e->spawn_delay > 0.0f) continue;
-                        if (udist(u->x, u->y, e->x, e->y) <= slow_px) {
+                        if (gdist(u->x, u->y, e->x, e->y) <= slow_px) {
                             collect_rate = UNIT_WORKER_ENEMY_SLOW_FACTOR;
                             break;
                         }
@@ -375,7 +385,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
 
             case USTATE_GOTO_BASE: {
                 // Retour à la base autorisé même en PHASE_PREP
-                float dist = udist(u->x, u->y, u->home_base_px, u->home_base_py);
+                float dist = gdist(u->x, u->y, u->home_base_px, u->home_base_py);
                 if (dist <= TILE_SIZE * UNIT_BASE_ARRIVE_DIST) {
                     if (u->has_material && inv_count &&
                         *inv_count < MAX_INVENTORY) {
@@ -405,7 +415,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                                  + cosf(u->patrol_angle) * (TILE_SIZE * UNIT_WORKER_PATROL_RADIUS);
                     float ty   = u->home_base_py
                                  + sinf(u->patrol_angle) * (TILE_SIZE * UNIT_WORKER_PATROL_RADIUS);
-                    float dist = udist(u->x, u->y, tx, ty);
+                    float dist = gdist(u->x, u->y, tx, ty);
                     if (dist > UNIT_PATROL_SLACK) {
                         float dx   = tx - u->x;
                         float dy   = ty - u->y;
@@ -477,7 +487,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             eff_hy = u->manual_y;
             // Déplacement vers la destination manuelle
             if (u->manual_moving) {
-                float dist = udist(u->x, u->y, u->manual_x, u->manual_y);
+                float dist = gdist(u->x, u->y, u->manual_x, u->manual_y);
                 if (dist <= TILE_SIZE * 0.5f) {
                     u->manual_moving = 0;
                     u->state = USTATE_PATROL;
@@ -508,19 +518,34 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
         }
 
         // ── Cherche cible ennemie ─────────────────────────────────
-        int tgt = find_enemy_target(u, ep, eff_hx, eff_hy);
+        // Médic : n'attaque que s'il est la seule unité de combat active.
+        // Dès qu'un Soldat, Lourd ou Chien est présent, il se consacre aux soins.
+        int can_attack = 1;
+        if (u->type == UNIT_MEDIC) {
+            for (int j = 0; j < MAX_UNITS; j++) {
+                if (j == i || !up->units[j].active) continue;
+                UnitType jt = up->units[j].type;
+                if (jt != UNIT_MEDIC && jt != UNIT_WORKER) { can_attack = 0; break; }
+            }
+        }
+
+        int tgt = can_attack ? find_enemy_target(u, ep, eff_hx, eff_hy) : -1;
         u->target_idx = tgt;
 
         if (tgt != -1) {
             Enemy *e    = &ep->enemies[tgt];
-            float  dist = udist(u->x, u->y, e->x, e->y);
+            float  dist = gdist(u->x, u->y, e->x, e->y);
             float  atk  = u->atk_range * TILE_SIZE;
             if (dist <= atk) {
                 u->state = USTATE_ATTACK;
                 if (u->atk_timer <= 0.0f) {
                     enemy_damage(e, u->damage);
                     u->atk_timer = 1.0f / u->atk_rate;
-                    unit_damage(u, (float)e->damage * UNIT_COUNTER_DMG_MULT);
+                    /* Contre-dégâts seulement en corps à corps :
+                       une unité à longue portée ne prend pas de coups en retour
+                       — c'est l'ennemi qui appliquera ses dégâts en s'approchant. */
+                    if (u->atk_range <= UNIT_MELEE_ATK_THRESHOLD)
+                        unit_damage(u, (float)e->damage * UNIT_COUNTER_DMG_MULT);
                 }
             } else {
                 u->state = USTATE_CHASE;
@@ -535,7 +560,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             u->state = USTATE_PATROL;
             if (u->behavior == UBEH_MANUAL) {
                 // En mode manuel : rester au point de destination (pas d'orbite)
-                float dist = udist(u->x, u->y, eff_hx, eff_hy);
+                float dist = gdist(u->x, u->y, eff_hx, eff_hy);
                 if (dist > UNIT_PATROL_SLACK) {
                     float dx   = eff_hx - u->x;
                     float dy   = eff_hy - u->y;
@@ -548,7 +573,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 u->patrol_angle += UNIT_PATROL_ANGLE_SPEED * dt;
                 float target_x = eff_hx + cosf(u->patrol_angle) * u->patrol_radius;
                 float target_y = eff_hy + sinf(u->patrol_angle) * u->patrol_radius;
-                float dist     = udist(u->x, u->y, target_x, target_y);
+                float dist     = gdist(u->x, u->y, target_x, target_y);
                 if (dist > UNIT_PATROL_SLACK) {
                     float dx   = target_x - u->x;
                     float dy   = target_y - u->y;
@@ -562,7 +587,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
         // ── Rappel si trop loin du point home (sauf mode MANUEL) ──
         if (u->behavior != UBEH_MANUAL) {
             float max_dist = (u->intercept_range + 2.0f) * TILE_SIZE;
-            float d_base   = udist(u->x, u->y, eff_hx, eff_hy);
+            float d_base   = gdist(u->x, u->y, eff_hx, eff_hy);
             if (d_base > max_dist && u->target_idx == -1) {
                 float dx   = eff_hx - u->x;
                 float dy   = eff_hy - u->y;
