@@ -7,6 +7,7 @@
 #include "tower.h"
 #include "projectile.h"
 #include "combat_math.h"
+#include "../game/runperks.h"   // g_run_mods (build de run)
 _Static_assert(META_TOWER_COUNT == TOWER_TYPE_COUNT,
                "META_TOWER_COUNT dans meta.h ne correspond pas a TOWER_TYPE_COUNT");
 #include "../engine/audio.h"
@@ -174,9 +175,12 @@ int tower_place(TowerPool *tp, TowerType type,
     tw->angle     = 0.0f;
     tw->hp        = TOWER_MAX_HP;
 
-    tw->damage    = TOWER_BASE_STATS[type].damage    * (bonuses ? bonuses->tower_dmg_mult   : 1.0f);
-    tw->range     = TOWER_BASE_STATS[type].range     * (bonuses ? bonuses->tower_range_mult : 1.0f);
-    tw->fire_rate = TOWER_BASE_STATS[type].fire_rate * (bonuses ? bonuses->tower_rate_mult  : 1.0f);
+    // Modificateurs rogue-lite (build de run) appliqués par-dessus le meta.
+    float rl_dmg   = g_run_mods.tdmg_all *
+                     (type < TOWER_TYPE_COUNT ? g_run_mods.tdmg_type[type] : 1.0f);
+    tw->damage    = TOWER_BASE_STATS[type].damage    * (bonuses ? bonuses->tower_dmg_mult   : 1.0f) * rl_dmg;
+    tw->range     = TOWER_BASE_STATS[type].range     * (bonuses ? bonuses->tower_range_mult : 1.0f) * g_run_mods.trange_all;
+    tw->fire_rate = TOWER_BASE_STATS[type].fire_rate * (bonuses ? bonuses->tower_rate_mult  : 1.0f) * g_run_mods.trate_all;
 
     // Sauvegarde des stats de base (avant upgrades individuels)
     tw->base_damage    = tw->damage;

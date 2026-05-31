@@ -29,6 +29,9 @@ typedef struct {
     // Multiplicateur du nombre d'ennemis par vague (défaut 1.0).
     // Mode custom : 0.5 (lente) à 3.0 (extreme).
     float      count_mult;
+    // Multiplicateur de vitesse des ennemis (défaut 1.0).
+    // Utilisé par les mutateurs de campagne (ex : tempête de sable).
+    float      speed_mult;
 
     int        total_spawned;
     int        total_to_spawn;

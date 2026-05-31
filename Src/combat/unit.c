@@ -7,6 +7,7 @@
 #include "unit.h"
 #include "tower.h"
 #include "combat_math.h"
+#include "../game/runperks.h"   // g_run_mods (build de run)
 #include "../engine/audio.h"
 #include <string.h>
 #include <math.h>
@@ -177,9 +178,9 @@ int unit_spawn_at(UnitPool *up, UnitType type, int *gold, const MetaBonuses *bon
 
     u->type            = type;
     u->state           = USTATE_PATROL;
-    u->max_hp          = st->hp     * (bonuses ? bonuses->unit_hp_mult  : 1.0f);
+    u->max_hp          = st->hp     * (bonuses ? bonuses->unit_hp_mult  : 1.0f) * g_run_mods.unit_hp;
     u->hp              = u->max_hp;
-    u->damage          = st->damage * (bonuses ? bonuses->unit_dmg_mult : 1.0f);
+    u->damage          = st->damage * (bonuses ? bonuses->unit_dmg_mult : 1.0f) * g_run_mods.unit_dmg;
     u->speed           = st->speed;
     u->atk_range       = st->atk_range;
     u->atk_rate        = st->atk_rate;
@@ -376,7 +377,13 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     MaterialDeposit *dep = &map->deposits[u->deposit_idx];
                     u->carried_mat  = dep->type;
                     u->has_material = 1;
-                    dep->active     = 0; // dépôt épuisé
+                    dep->active     = 0;   // filon épuisé
+                    dep->mined      = 1;   // laisse une roche minée
+                    /* La roche minée redevient constructible mais difficile :
+                       la tuile sous-jacente est une ruine (coût x2). */
+                    if (dep->tile_x >= 0 && dep->tile_x < map->w &&
+                        dep->tile_y >= 0 && dep->tile_y < map->h)
+                        map->tiles[dep->tile_y][dep->tile_x].buildable = 1;
                     u->deposit_idx  = -1;
                     u->state        = USTATE_GOTO_BASE;
                 }
@@ -509,7 +516,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
         if (u->type == UNIT_MEDIC && u->heal_timer <= 0.0f) {
             int heal_tgt = find_heal_target(u, up);
             if (heal_tgt != -1) {
-                up->units[heal_tgt].hp += UNIT_MEDIC_HEAL_AMOUNT;
+                up->units[heal_tgt].hp += UNIT_MEDIC_HEAL_AMOUNT * g_run_mods.medic_heal;
                 if (up->units[heal_tgt].hp > up->units[heal_tgt].max_hp)
                     up->units[heal_tgt].hp = up->units[heal_tgt].max_hp;
                 u->heal_timer = UNIT_MEDIC_HEAL_TIMER;

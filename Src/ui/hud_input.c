@@ -547,7 +547,9 @@ void ui_update(UIState *ui, GameState *gs) {
             if (tw->active) {
                 int real_cost = tower_cost_on_tile(tw->type, &gs->map,
                                                    tw->tile_x, tw->tile_y);
-                int refund = (int)(real_cost * 0.6f);
+                float rfrac = TOWER_SELL_REFUND + g_run_mods.sell_refund_add;
+                if (rfrac > 1.0f) rfrac = 1.0f;   // perk Recyclage (cap 100 %)
+                int refund = (int)(real_cost * rfrac);
                 gs->gold += refund;
                 gs->map.tiles[tw->tile_y][tw->tile_x].buildable = 1;
                 tw->active = 0;

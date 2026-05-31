@@ -206,6 +206,45 @@ static void draw_overlay_frame(int ox, int oy, int ow, int oh,
                       (Color){accent.r, accent.g, accent.b, 165});
 }
 
+// ── Texte replié sur la largeur (word-wrap) ───────────────────
+// Découpe `txt` en mots (les '\n' sont traités comme des espaces) et
+// rend des lignes qui tiennent dans `maxw`. Avance *py ; s'arrête à y_limit.
+// Évite la troncature mot-au-milieu de l'ancien clip ligne-par-ligne.
+static void draw_wrapped(const char *txt, int x, int *py, int maxw,
+                         int fs, Color col, int y_limit) {
+    if (!txt) return;
+    char line[192]; line[0] = '\0'; int ll = 0;
+    char word[96];
+    const char *p = txt;
+    while (1) {
+        while (*p == ' ' || *p == '\n' || *p == '\t') p++;   // saute séparateurs
+        int wl = 0;
+        while (*p && *p != ' ' && *p != '\n' && *p != '\t' && wl < 95)
+            word[wl++] = *p++;
+        word[wl] = '\0';
+        if (wl == 0) break;   // fin de texte
+
+        char test[192];
+        if (ll > 0) snprintf(test, sizeof(test), "%s %s", line, word);
+        else        snprintf(test, sizeof(test), "%s", word);
+
+        if (ll > 0 && mtxt(test, fs) > maxw) {
+            if (*py > y_limit) return;
+            dtxt(line, x, *py, fs, col);
+            *py += fh(fs) + 3;
+            snprintf(line, sizeof(line), "%s", word);
+            ll = (int)strlen(line);
+        } else {
+            snprintf(line, sizeof(line), "%s", test);
+            ll = (int)strlen(line);
+        }
+    }
+    if (ll > 0 && *py <= y_limit) {
+        dtxt(line, x, *py, fs, col);
+        *py += fh(fs) + 3;
+    }
+}
+
 // ════════════════════════════════════════════════════
 // RENDU
 // ════════════════════════════════════════════════════
@@ -615,8 +654,10 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     hov ? (Color){48,8,8,255} : (Color){20,4,4,255});
                 DrawRectangleRoundedLinesEx(sb, srnd, 6, 1.5f,
                     hov ? (Color){192,48,48,255} : (Color){90,18,18,255});
+                float _rfrac = TOWER_SELL_REFUND + g_run_mods.sell_refund_add;
+                if (_rfrac > 1.0f) _rfrac = 1.0f;
                 int refund = (int)(tower_cost_on_tile(tw->type, &gs->map,
-                                       tw->tile_x, tw->tile_y) * TOWER_SELL_REFUND);
+                                       tw->tile_x, tw->tile_y) * _rfrac);
                 snprintf(buf, sizeof(buf), "Vendre  +%d or", refund);
                 int bw = mtxt(buf, 13);
                 dtxt(buf, (int)(sb.x + sb.width/2 - bw/2),
@@ -1074,22 +1115,11 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 float ratio = (base->max_hp > 0)
                     ? (float)base->hp / (float)base->max_hp : 0.0f;
 
-                /* Code couleur */
-                Color bc;
-                if (!base->active || base->hp <= 0) {
-                    bc = (Color){100, 35, 35, 255};
-                } else if (ratio > 0.60f) {
-                    bc = (Color){46, 204, 113, 255};
-                } else if (ratio > 0.30f) {
-                    bc = (Color){243, 156,  18, 255};
-                } else {
-                    bc = (Color){231,  76,  60, 255};
-                }
-                if (ratio > 0.0f && ratio <= 0.30f && base->active) {
-                    unsigned char _cr = (unsigned char)(140 + (int)(91.0f * _pu));
-                    unsigned char _cg = (unsigned char)(20  + (int)(56.0f * _pu));
-                    bc = (Color){_cr, _cg, 40, 255};
-                }
+                /* Couleur = identité de la base (différencie les bases entre elles,
+                   et correspond au bunker + à l'onde de repérage sur la carte). */
+                Color bc = (!base->active || base->hp <= 0)
+                         ? (Color){100, 35, 35, 255}
+                         : renderer_base_color(b, base->is_primary);
 
                 /* Étiquette base + HP fraction */
                 const char *bname = base->is_primary
@@ -1113,6 +1143,13 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
                 draw_bar(_px, _py + 10, _iw, 6, fmaxf(ratio, 0.0f), bc,
                          (Color){18, 10, 4, 200});
+
+                /* PV critiques : cadre rouge clignotant (sans masquer l'identité) */
+                if (base->active && ratio > 0.0f && ratio <= 0.30f) {
+                    unsigned char _fa = (unsigned char)(80 + _pu * 130);
+                    DrawRectangleLines(_px - 2, _py - 1, _iw + 4, 18,
+                                       (Color){231, 60, 40, _fa});
+                }
 
                 if (!base->active || base->hp <= 0)
                     dtxt("DETRUITE", _px + _iw/2 - 22, _py + 10, 7,
@@ -1253,6 +1290,64 @@ void ui_render(const UIState *ui, const GameState *gs) {
         }
 
         EndMode2D();
+    }
+
+    // ════════════════════════════════════════════════
+    // BUILD ROGUE-LITE ACTIF (campagne) — ruban haut-centre
+    // ════════════════════════════════════════════════
+    if (gs->is_campaign) {
+        const RunBuild *rb = &gs->run;
+        int ids[PERK_COUNT], nt = 0;
+        for (int i = 0; i < PERK_COUNT; i++)
+            if (rb->count[i] > 0) ids[nt++] = i;
+
+        if (nt > 0 || rb->renfort > 0) {
+            const int FS = 9, PAD = 7, GAP = 9, CHIP = 4;
+            char rbuf[24];
+            snprintf(rbuf, sizeof(rbuf), "RNF %d", rb->renfort);
+
+            // Mesure de la largeur totale
+            char tags[PERK_COUNT][16];
+            int  total = mtxt(rbuf, FS) + GAP;
+            for (int k = 0; k < nt; k++) {
+                int id = ids[k];
+                if (rb->count[id] > 1)
+                    snprintf(tags[k], sizeof(tags[k]), "%s x%d",
+                             RUN_PERKS[id].tag, rb->count[id]);
+                else
+                    snprintf(tags[k], sizeof(tags[k]), "%s", RUN_PERKS[id].tag);
+                total += mtxt(tags[k], FS) + CHIP*2 + GAP;
+            }
+
+            int ph  = fh(FS) + 8;
+            int pw  = total + PAD*2;
+            int px0 = g_map_x_off + g_canvas_virt_w_base/2 - pw/2;
+            int py0 = 6;
+
+            DrawRectangleRounded((Rectangle){(float)px0,(float)py0,(float)pw,(float)ph},
+                                 0.5f, 6, (Color){8, 6, 2, 215});
+            DrawRectangleRoundedLinesEx((Rectangle){(float)px0,(float)py0,(float)pw,(float)ph},
+                                 0.5f, 6, 1.2f, (Color){90, 78, 44, 190});
+
+            int x  = px0 + PAD;
+            int ty = py0 + (ph - fh(FS))/2;
+            dtxt(rbuf, x, ty, FS, (Color){232, 200, 80, 255});
+            x += mtxt(rbuf, FS) + GAP;
+
+            for (int k = 0; k < nt; k++) {
+                int id = ids[k];
+                RunColor rc = runperk_rarity_color(RUN_PERKS[id].rarity);
+                int tw = mtxt(tags[k], FS);
+                // Puce colorée selon la rareté
+                DrawRectangleRounded(
+                    (Rectangle){(float)(x - CHIP), (float)(py0+2),
+                                (float)(tw + CHIP*2), (float)(ph-4)},
+                    0.5f, 4,
+                    (Color){(unsigned char)(rc.r/5),(unsigned char)(rc.g/5),(unsigned char)(rc.b/5),230});
+                dtxt(tags[k], x, ty, FS, (Color){rc.r, rc.g, rc.b, 255});
+                x += tw + CHIP*2 + GAP;
+            }
+        }
     }
 
     // ════════════════════════════════════════════════
@@ -1421,7 +1516,6 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
         // Corps de la fiche
         int body_y = card_y + hdr_h + 12;
-        int body_h = ch - hdr_h - 12 - 14 - 34 - 14;
         int pad = 14;
 
         // Splash art
@@ -1512,50 +1606,27 @@ void ui_render(const UIState *ui, const GameState *gs) {
                    1.0f, (Color){cat_col.r/4,cat_col.g/4,cat_col.b/4,180});
         txt_y += 6;
 
-        // Description (rendu multiligne pour éviter tout chevauchement)
+        // ── Description + lore : PLEINE LARGEUR sous le splash ─────
+        // Word-wrap sur toute la largeur de la fiche (≈512 px) au lieu de
+        // tronquer chaque ligne dans la colonne étroite → plus de mots coupés.
+        int desc_y = body_y + splash_sz + 12;
+        if (desc_y < txt_y) desc_y = txt_y;          // si la colonne droite déborde
+        int fx    = card_x + pad;
+        int fw    = cw - pad*2;
+        int y_lim = card_y + ch - 14 - 34 - 12;      // au-dessus du bouton CONTINUER
+
         const char *desc = NULL;
         if      (de->type == DISC_ENEMY) desc = ENEMY_DESC[de->idx];
         else if (de->type == DISC_TOWER) desc = TOWER_BASE_STATS[de->idx].description;
         else                              desc = UNIT_BASE_STATS [de->idx].description;
-        if (desc && txt_y < body_y + body_h) {
-            char _dl[128]; int _dlen = 0;
-            for (const char *_dp = desc; txt_y < body_y + body_h; _dp++) {
-                if (*_dp == '\n' || *_dp == '\0') {
-                    _dl[_dlen] = '\0';
-                    if (_dlen > 0) {
-                        char _dc[128];
-                        ui_clip_text(_dl, txt_w, 10, _dc, sizeof(_dc));
-                        dtxt(_dc, txt_x, txt_y, 10, (Color){190,170,120,255});
-                        txt_y += fh(10) + 4;
-                    }
-                    _dlen = 0;
-                    if (*_dp == '\0') break;
-                } else if (_dlen < 127) _dl[_dlen++] = *_dp;
-            }
-            txt_y += 2;
-        }
+        draw_wrapped(desc, fx, &desc_y, fw, 11, (Color){190,170,120,255}, y_lim);
+        desc_y += 5;
 
-        // Lore (multiline, séparées par \n)
         const char *lore = NULL;
         if      (de->type == DISC_ENEMY) lore = ENEMY_SPEC[de->idx];
         else if (de->type == DISC_TOWER) lore = TOWER_LORE[de->idx];
         else                              lore = UNIT_LORE [de->idx];
-        if (lore) {
-            char line[128]; int llen = 0;
-            for (const char *p = lore; txt_y < body_y + body_h; p++) {
-                if (*p == '\n' || *p == '\0') {
-                    line[llen] = '\0';
-                    if (llen > 0) {
-                        char clip[128];
-                        ui_clip_text(line, txt_w, 9, clip, sizeof(clip));
-                        dtxt(clip, txt_x, txt_y, 9, (Color){145,130,95,200});
-                        txt_y += fh(9) + 3;
-                    }
-                    llen = 0;
-                    if (*p == '\0') break;
-                } else if (llen < 127) line[llen++] = *p;
-            }
-        }
+        draw_wrapped(lore, fx, &desc_y, fw, 9, (Color){145,130,95,200}, y_lim);
 
         // Compteur si plusieurs fiches en attente
         if (ui->disc_count > 1) {

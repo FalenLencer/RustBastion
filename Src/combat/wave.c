@@ -28,6 +28,7 @@ void wave_init(WaveManager *wm) {
     wm->scale      = 1.0f;
     wm->scale_cap  = WAVE_SCALE_CAP;
     wm->count_mult = 1.0f;
+    wm->speed_mult = 1.0f;
     for (int i = 0; i < ENEMY_TYPE_COUNT; i++)
         wm->arcade_bias[i] = 1.0f;   // neutre par défaut (campagne)
 }
@@ -301,7 +302,8 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
                                                      is_campaign, max_stage,
                                                      wm->arcade_bias);
                     enemy_spawn(pool, type, path_id, paths,
-                                delay, wm->scale, theme->enemy_speed_mult);
+                                delay, wm->scale,
+                                theme->enemy_speed_mult * wm->speed_mult);
                     wm->total_spawned++;
                 }
                 wm->total_to_spawn = count;

@@ -39,3 +39,12 @@ void tile_art_draw_spawns(const Map *map);
 //   destroyed : 1 = base tombée (ruine + croix)
 void tile_art_draw_base(int px, int py, ThemeID theme,
                         Color accent, int destroyed);
+
+// Filon de minerai actif : remplit toute la tuile (matrice rocheuse opaque
+// + amas de cristaux + halo animé). Remplace visuellement la tuile.
+//   mat_type : MaterialType (0=fer … 4=nano).  t : GetTime() pour l'animation.
+void tile_art_draw_deposit(int px, int py, int mat_type, float t);
+
+// Roche minée (filon épuisé) : cratère + éboulis. Signale une tuile
+// difficilement constructible (la ruine sous-jacente applique le coût x2).
+void tile_art_draw_mined_rock(int px, int py);

@@ -20,7 +20,7 @@
 #include "../ui/tile_art.h"
 #include "../ui/hud.h"
 #include "../ui/interlude.h"
-#include "../ui/campaign_data.h"
+#include "campaign_data.h"
 #include "../ui/ui_utils.h"   // DrawText/MeasureText → g_font (support accents)
 #include "../map/theme.h"
 #include "raylib.h"
@@ -158,6 +158,23 @@ static int handle_menu(AppContext *ctx) {
                 ctx->menu.screen     = MENU_TITLE;
                 ctx->screen          = SCREEN_GAME;
                 ctx->banner_timer    = 5.0f;
+
+                /* L'état du boss n'est pas sérialisé : on le recalcule depuis
+                   le nœud chargé. Pending uniquement si l'acte est une finale
+                   ET que la vague du boss n'est pas encore atteinte (un boss
+                   déjà apparu est, lui, restauré dans le pool d'ennemis). */
+                {
+                    int dstage = campaign_difficulty_stage(ctx->gs.campaign_stage);
+                    const ActData *na = campaign_act_get(ctx->gs.campaign_stage);
+                    if ((dstage % CAMPAIGN_ACTS) == (CAMPAIGN_ACTS - 1)) {
+                        ctx->gs.boss_chapter = dstage / CAMPAIGN_ACTS;
+                        ctx->gs.boss_wave    = na->min_waves;
+                        ctx->gs.boss_pending =
+                            (ctx->gs.wave_manager.number < na->min_waves);
+                    } else {
+                        ctx->gs.boss_pending = 0;
+                    }
+                }
             } else {
                 /* Fichier campagne illisible — repart de l'acte 0 */
                 ctx->active_slot  = slot;
@@ -244,6 +261,48 @@ static void game_handle_gameover(AppContext *ctx) {
         menu_refresh_slots(&ctx->menu);
         ctx->gameover_meta_done = 1;
     }
+
+    /* ── Campagne : la défaite peut bifurquer selon le nœud ──────
+       ESPACE = continuer (repli / reprise affaiblie), ECHAP = abandonner.
+       Sur un nœud critique (DEFEAT_GAMEOVER), on tombe dans le flux
+       classique ci-dessous (retour à la carte).                       */
+    if (ctx->gs.is_campaign && ctx->active_slot >= 0) {
+        DefeatMode dm = campaign_defeat_mode(ctx->gs.campaign_stage);
+        if (dm != DEFEAT_GAMEOVER) {
+            if (IsKeyPressed(KEY_SPACE)) {
+                int stage = ctx->gs.campaign_stage;
+                if (dm == DEFEAT_RETREAT) {
+                    /* Trace narrative de la défaite (avant transition → préservée). */
+                    if (stage == 5) ctx->gs.campaign_flags |= CFLAG_LOST_QUEEN;
+                    if (stage == 8) ctx->gs.campaign_flags |= CFLAG_LOST_GENERAL;
+                    int rn = campaign_defeat_node(stage);
+                    game_goto_campaign_node(&ctx->gs, rn >= 0 ? rn : stage);
+                    ui_push_notif(&ctx->gs.ui, "Repli strategique...",
+                                  (Color){239, 159, 39, 255});
+                } else {   /* DEFEAT_RETRY_WEAK */
+                    game_goto_campaign_node(&ctx->gs, stage);
+                    ctx->gs.gold = (int)((float)ctx->gs.gold * 0.7f);  /* handicap */
+                    ui_push_notif(&ctx->gs.ui, "Reprise affaiblie — tenez bon !",
+                                  (Color){239, 159, 39, 255});
+                }
+                ctx->interlude    = INTER_NONE;
+                ctx->banner_timer = 5.0f;
+                campaign_save_write(&ctx->gs, ctx->active_slot,
+                                    INTER_NONE, 0, 0, 0);
+                audio_play_theme_music(ctx->gs.map.theme);
+            } else if (IsKeyPressed(KEY_ESCAPE)) {
+                campaign_save_delete(ctx->active_slot);
+                ctx->active_slot = -1;
+                menu_refresh_slots(&ctx->menu);
+                ctx->menu.paused = 0;
+                ctx->menu.screen = MENU_WORLD_MAP;
+                ctx->screen      = SCREEN_MENU;
+                audio_play_menu_music();
+            }
+            return;   /* attend le choix du joueur */
+        }
+    }
+
     if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         if (ctx->active_slot >= 0) {
             if (ctx->gs.is_campaign)
@@ -270,25 +329,25 @@ static void game_handle_campaign_end(AppContext *ctx) {
         ctx->interlude  != INTER_NONE)
         return;
 
-    const ActData *_ad_check = campaign_act_get(ctx->gs.campaign_stage);
-    int _wave_done = (ctx->gs.wave_manager.number >= _ad_check->min_waves);
+    const ActData *ad = campaign_act_get(ctx->gs.campaign_stage);
+    int _wave_done = (ctx->gs.wave_manager.number >= ad->min_waves);
+    if (!_wave_done) return;   /* quota de vagues pas encore atteint */
 
-    /* Déclenche automatiquement quand le quota est atteint,
-       ou sur TAB si le quota est déjà atteint (sortie manuelle). */
-    if (!_wave_done && !IsKeyPressed(KEY_TAB)) return;
-    if (!_wave_done) return; /* TAB avant le quota : ignoré */
+    /* L'acte se termine au quota de vagues. L'objectif n'est plus bloquant :
+       le réussir ou non ORIENTE la suite du parcours (graphe de branches).
+       Échouer une quête devient une bifurcation, pas une impasse. */
+    int obj_ok = campaign_objective_check(
+                     ad, ctx->gs.wave_manager.number,
+                     ctx->gs.kills, ctx->gs.units.count,
+                     ctx->gs.act_materials_collected,
+                     ctx->gs.act_no_unit_lost);
 
     int stage_idx       = ctx->gs.campaign_stage;
-    const ActData *ad   = campaign_act_get(stage_idx);
-    int last            = (stage_idx == CAMPAIGN_TOTAL - 1);
+    int next_node       = campaign_next_node(stage_idx, obj_ok, 0);
+    int last            = (next_node < 0);
     int earned          = meta_end_of_campaign_stage(
                               &ctx->gs.meta, ctx->gs.wave_manager.number,
                               ctx->gs.kills, ctx->gs.gold, stage_idx);
-    int obj_ok          = campaign_objective_check(
-                              ad, ctx->gs.wave_manager.number,
-                              ctx->gs.kills, ctx->gs.units.count,
-                              ctx->gs.act_materials_collected,
-                              ctx->gs.act_no_unit_lost);
     int stars           = meta_record_act(&ctx->gs.meta, stage_idx, obj_ok, 0);
 
     audio_play_sfx(AUDIO_SFX_VICTORY);
@@ -303,10 +362,12 @@ static void game_handle_campaign_end(AppContext *ctx) {
 
 static void game_handle_dialog_after(AppContext *ctx) {
     if (ctx->interlude != INTER_DIALOG_AFTER) return;
-    if (!IsKeyPressed(KEY_SPACE) && !IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
-        return;
+    if (ctx->interlude != ctx->interlude_prev) return;   // ignore le frame d'entrée
+
+    /* Fin de campagne : un simple ESPACE/clic ramène à la carte. */
     if (ctx->interlude_last) {
-        /* Dernière étape terminée : supprime la save campagne et retour menu */
+        if (!IsKeyPressed(KEY_SPACE) && !IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+            return;
         if (ctx->active_slot >= 0) campaign_save_delete(ctx->active_slot);
         ctx->active_slot  = -1;
         menu_refresh_slots(&ctx->menu);
@@ -315,14 +376,168 @@ static void game_handle_dialog_after(AppContext *ctx) {
         ctx->screen       = SCREEN_MENU;
         ctx->interlude    = INTER_NONE;
         audio_play_menu_music();
+        return;
+    }
+
+    int stage  = ctx->gs.campaign_stage;
+    int choice = 0;
+
+    if (campaign_has_choice(stage)) {
+        /* Bifurcation pilotée par le joueur : touches 1 / 2. */
+        if      (IsKeyPressed(KEY_ONE) || IsKeyPressed(KEY_KP_1)) choice = 0;
+        else if (IsKeyPressed(KEY_TWO) || IsKeyPressed(KEY_KP_2)) choice = 1;
+        else return;   /* on attend que le joueur tranche */
     } else {
-        /* Passe à l'acte suivant — sauvegarde en état DIALOG_BEFORE */
-        game_next_campaign_stage(&ctx->gs);
-        campaign_save_write(&ctx->gs, ctx->active_slot,
-                            INTER_DIALOG_BEFORE, 0, 0, 0);
-        audio_play_theme_music(ctx->gs.map.theme);
+        if (!IsKeyPressed(KEY_SPACE) && !IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+            return;
+    }
+
+    /* Route vers le nœud suivant selon l'issue + le choix.
+       obj_ok recalculé depuis les étoiles (>0 ⇒ objectif réussi) → fiable
+       même après rechargement d'une sauvegarde en état DIALOG_AFTER. */
+    int next_node = campaign_next_node(stage, ctx->interlude_stars > 0, choice);
+
+    /* Trace narrative : le choix laisse un drapeau persistant (callbacks + épilogue). */
+    ctx->gs.campaign_flags |= campaign_choice_flag(stage, choice);
+
+    /* Sécurité : un branchement menant à -1 = fin de campagne. */
+    if (next_node < 0) {
+        if (ctx->active_slot >= 0) campaign_save_delete(ctx->active_slot);
+        ctx->active_slot = -1;
+        menu_refresh_slots(&ctx->menu);
+        ctx->menu.paused = 0;
+        ctx->menu.screen = MENU_WORLD_MAP;
+        ctx->screen      = SCREEN_MENU;
+        ctx->interlude   = INTER_NONE;
+        audio_play_menu_music();
+        return;
+    }
+
+    /* ── Rogue-lite : Renfort gagné + transition + tirage du butin ── */
+    int obj_ok      = (ctx->interlude_stars > 0);
+    int cur_ch      = campaign_difficulty_stage(stage)     / CAMPAIGN_ACTS;
+    int next_ch     = campaign_difficulty_stage(next_node) / CAMPAIGN_ACTS;
+    int new_chapter = (next_ch > cur_ch);
+
+    /* Renfort de l'acte accompli (ajouté AVANT la transition → préservé).
+       ~75-110 par acte → ~2-3 achats communs (ou 1 épique) par chapitre. */
+    int gain = 25 + ctx->gs.wave_manager.number * 3 + (obj_ok ? 25 : 0);
+    ctx->gs.run.renfort += gain;
+
+    game_goto_campaign_node(&ctx->gs, next_node);
+
+    /* Butin : 3 offres (2 si objectif raté), rareté biaisée par la voie. */
+    int draft_count = obj_ok ? 3 : 2;
+    int bias        = (choice == 1) ? 1 : 0;
+    ctx->gs.run.draft_n = runbuild_roll_offers(&ctx->gs.run,
+                              ctx->gs.run.draft_offer, draft_count, bias, 0);
+    ctx->gs.run.shop_pending = new_chapter ? 1 : 0;
+
+    ctx->interlude = INTER_DRAFT;
+    campaign_save_write(&ctx->gs, ctx->active_slot, INTER_DRAFT, 0, 0, 0);
+}
+
+#define SHOP_REROLL_COST 25
+
+/* Butin : choisir 1 perk parmi N (touches 1..N). Enchaîne sur la boutique
+   (si on entre dans un nouveau chapitre) ou directement sur l'acte. */
+static void game_handle_draft(AppContext *ctx) {
+    if (ctx->interlude != INTER_DRAFT) return;
+    if (ctx->interlude != ctx->interlude_prev && ctx->gs.run.draft_n > 0)
+        return;   // ignore le frame d'entrée (sauf s'il n'y a rien à choisir)
+    RunBuild *rb = &ctx->gs.run;
+    int pick = -1;
+
+    if (rb->draft_n <= 0) {
+        pick = -2;   // rien à proposer → on enchaîne directement
+    } else {
+        if      (IsKeyPressed(KEY_ONE)   || IsKeyPressed(KEY_KP_1)) pick = 0;
+        else if (rb->draft_n > 1 && (IsKeyPressed(KEY_TWO)  || IsKeyPressed(KEY_KP_2))) pick = 1;
+        else if (rb->draft_n > 2 && (IsKeyPressed(KEY_THREE)|| IsKeyPressed(KEY_KP_3))) pick = 2;
+        else if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            int p = interlude_draft_pick_at(rb, virt_mouse(),
+                                            g_canvas_virt_w, g_canvas_virt_h);
+            if (p >= 0 && p < rb->draft_n) pick = p;
+            else return;
+        }
+        else return;   // attend le choix
+    }
+
+    if (pick >= 0) {
+        runbuild_add(rb, rb->draft_offer[pick]);
+        ui_push_notif(&ctx->gs.ui, "Renfort acquis !", (Color){232, 200, 80, 255});
+    }
+    rb->draft_n = 0;
+
+    if (rb->shop_pending) {
+        rb->shop_n = runbuild_roll_offers(rb, rb->shop_offer, MAX_SHOP_OFFER, 0, 1);
+        ctx->interlude = INTER_SHOP;
+        campaign_save_write(&ctx->gs, ctx->active_slot, INTER_SHOP, 0, 0, 0);
+    } else {
         ctx->interlude    = INTER_DIALOG_BEFORE;
         ctx->banner_timer = 5.0f;
+        campaign_save_write(&ctx->gs, ctx->active_slot, INTER_DIALOG_BEFORE, 0, 0, 0);
+        audio_play_theme_music(ctx->gs.map.theme);
+    }
+}
+
+/* Boutique : acheter des perks en Renfort (1..4), relancer [R], partir [ESPACE]. */
+static void game_handle_shop(AppContext *ctx) {
+    if (ctx->interlude != INTER_SHOP) return;
+    if (ctx->interlude != ctx->interlude_prev) return;   // ignore le frame d'entrée
+    RunBuild *rb = &ctx->gs.run;
+
+    int buy = -1, do_reroll = 0, do_done = 0;
+    if      (IsKeyPressed(KEY_ONE)   || IsKeyPressed(KEY_KP_1)) buy = 0;
+    else if (IsKeyPressed(KEY_TWO)   || IsKeyPressed(KEY_KP_2)) buy = 1;
+    else if (IsKeyPressed(KEY_THREE) || IsKeyPressed(KEY_KP_3)) buy = 2;
+    else if (IsKeyPressed(KEY_FOUR)  || IsKeyPressed(KEY_KP_4)) buy = 3;
+    else if (IsKeyPressed(KEY_R))     do_reroll = 1;
+    else if (IsKeyPressed(KEY_SPACE)) do_done   = 1;
+    else if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        int r = interlude_shop_pick_at(rb, virt_mouse(),
+                                       g_canvas_virt_w, g_canvas_virt_h);
+        if      (r >= 0)  buy = r;
+        else if (r == -2) do_reroll = 1;
+        else if (r == -3) do_done   = 1;
+        else return;
+    }
+    else return;
+
+    if (buy >= 0 && buy < rb->shop_n) {
+        int id = rb->shop_offer[buy];
+        if (id >= 0 && id < PERK_COUNT) {
+            const PerkDef *pd = &RUN_PERKS[id];
+            if (rb->count[id] < pd->max_stack && rb->renfort >= pd->shop_cost) {
+                rb->renfort -= pd->shop_cost;
+                runbuild_add(rb, id);
+                ui_push_notif(&ctx->gs.ui, "Achat effectue !", (Color){120, 210, 120, 255});
+                campaign_save_write(&ctx->gs, ctx->active_slot, INTER_SHOP, 0, 0, 0);
+            } else {
+                ui_push_notif(&ctx->gs.ui, "Indisponible (Renfort ou max)",
+                              (Color){231, 76, 60, 255});
+            }
+        }
+        return;
+    }
+
+    if (do_reroll) {
+        if (rb->renfort >= SHOP_REROLL_COST) {
+            rb->renfort -= SHOP_REROLL_COST;
+            rb->shop_n = runbuild_roll_offers(rb, rb->shop_offer, MAX_SHOP_OFFER, 0, 1);
+            campaign_save_write(&ctx->gs, ctx->active_slot, INTER_SHOP, 0, 0, 0);
+        } else {
+            ui_push_notif(&ctx->gs.ui, "Renfort insuffisant", (Color){231, 76, 60, 255});
+        }
+        return;
+    }
+
+    if (do_done) {
+        rb->shop_pending  = 0;
+        ctx->interlude    = INTER_DIALOG_BEFORE;
+        ctx->banner_timer = 5.0f;
+        campaign_save_write(&ctx->gs, ctx->active_slot, INTER_DIALOG_BEFORE, 0, 0, 0);
+        audio_play_theme_music(ctx->gs.map.theme);
     }
 }
 
@@ -420,12 +635,18 @@ static int game_do_render(AppContext *ctx) {
     {
         if (gs->is_campaign && ctx->interlude == INTER_NONE) {
             const ActData *ad = campaign_act_get(gs->campaign_stage);
+            const char *mut = campaign_mutator_name(campaign_mutator_for_stage(
+                                  campaign_difficulty_stage(gs->campaign_stage)));
             snprintf(big_title, sizeof(big_title), "%s", ad->title);
-            snprintf(line1, sizeof(line1), "Campagne  —  Ch.%d  Acte %d",
-                     ad->chapter + 1, ad->act + 1);
-            if (gs->wave_manager.number >= 1)
-                snprintf(line2, sizeof(line2), "Objectif : %d vague(s)  |  %s",
-                         ad->min_waves, ad->objective.description);
+            /* line1 : chapitre/acte + mutateur signature s'il y en a un */
+            if (mut)
+                snprintf(line1, sizeof(line1), "Ch.%d Acte %d   ·   %s",
+                         ad->chapter + 1, ad->act + 1, mut);
+            else
+                snprintf(line1, sizeof(line1), "Campagne  —  Ch.%d  Acte %d",
+                         ad->chapter + 1, ad->act + 1);
+            snprintf(line2, sizeof(line2), "Objectif : %s",
+                     ad->objective.description);
             ctitle = (Color){255, 220, 100, 255};
             c1     = (Color){180, 160,  80, 255};
         } else if (gs->is_endless) {
@@ -555,20 +776,30 @@ static int game_do_render(AppContext *ctx) {
 
     if (ctx->interlude == INTER_DIALOG_BEFORE) {
         interlude_render_dialog_before(campaign_act_get(gs->campaign_stage),
+                                       gs->campaign_stage, gs->campaign_flags,
                                        g_canvas_virt_w, g_canvas_virt_h);
-        if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+        /* Input ignoré le frame d'entrée (anti-bleed depuis butin/boutique). */
+        if (ctx->interlude == ctx->interlude_prev &&
+            (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON)))
             ctx->interlude = INTER_NONE;
     }
     if (ctx->interlude == INTER_DIALOG_AFTER) {
         interlude_render_dialog_after(campaign_act_get(gs->campaign_stage),
                                       ctx->interlude_stars,
-                                      ctx->interlude_scrap, g_canvas_virt_w, g_canvas_virt_h);
+                                      ctx->interlude_scrap, g_canvas_virt_w, g_canvas_virt_h,
+                                      gs->campaign_stage, gs->campaign_flags);
     }
     if (ctx->interlude == INTER_EXTRACT) {
         /* Souris en coordonnées virtuelles (offset + échelle uniforme) */
         Vector2 vm = virt_mouse();
         interlude_render_extract(gs, g_canvas_virt_w, g_canvas_virt_h, vm);
     }
+    if (ctx->interlude == INTER_DRAFT)
+        interlude_render_draft(&gs->run, virt_mouse(),
+                               g_canvas_virt_w, g_canvas_virt_h);
+    if (ctx->interlude == INTER_SHOP)
+        interlude_render_shop(&gs->run, SHOP_REROLL_COST, virt_mouse(),
+                              g_canvas_virt_w, g_canvas_virt_h);
 
     /* ── Menu pause superposé ─────────────────────────────────── */
     if (ctx->menu.paused) {
@@ -714,6 +945,11 @@ int app_update(AppContext *ctx, float dt) {
     game_handle_gameover(ctx);
     game_handle_campaign_end(ctx);
     game_handle_dialog_after(ctx);
+    game_handle_draft(ctx);
+    game_handle_shop(ctx);
     game_handle_extract(ctx);
-    return game_do_render(ctx);
+    int keep = game_do_render(ctx);
+    /* Mémorise l'interlude pour le frame suivant (garde anti-bleed d'input). */
+    ctx->interlude_prev = ctx->interlude;
+    return keep;
 }

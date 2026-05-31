@@ -20,7 +20,7 @@
 #include "menu.h"
 #include "renderer.h"
 #include "ui_utils.h"
-#include "campaign_data.h"
+#include "../game/campaign_data.h"
 #include "../engine/audio.h"
 #include "../engine/assets.h"
 #include "../game/meta.h"

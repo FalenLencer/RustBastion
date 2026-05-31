@@ -171,7 +171,10 @@ int meta_end_of_campaign_stage(MetaProgress *meta, int wave_reached,
                                 int stage_index)
 {
     // Nouvelle formule : vague*5 + kills/3 + or/10
-    float stage_mult = 1.0f + stage_index * 0.25f;
+    // Le multiplicateur suit la POSITION NARRATIVE (pas l'index brut du nœud) :
+    // un nœud de branche au gros index ne doit pas surpayer en ferraille.
+    int   dstage     = campaign_difficulty_stage(stage_index);
+    float stage_mult = 1.0f + dstage * 0.25f;
     float base_scrap = (wave_reached  *  5.0f
                       + kills         /  3.0f
                       + gold_remaining / 10.0f) * stage_mult;

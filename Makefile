@@ -8,7 +8,8 @@ SRC = Src/main.c                                                              \
       Src/engine/audio.c       Src/engine/canvas.c    Src/engine/window.c   \
       Src/engine/assets.c      Src/engine/paths.c                            \
       Src/game/game_state.c    Src/game/game_init.c   Src/game/save.c       \
-      Src/game/meta.c          Src/game/app.c                                \
+      Src/game/meta.c          Src/game/app.c         Src/game/runperks.c   \
+      Src/game/campaign_data.c                                              \
       Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c       \
       Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c    \
       Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
@@ -18,7 +19,7 @@ SRC = Src/main.c                                                              \
       Src/ui/menu_anim.c                                                     \
       Src/ui/menu_options.c    Src/ui/menu_upgrades.c Src/ui/menu_bestiary.c \
       Src/ui/menu_custom_config.c                                             \
-      Src/ui/interlude.c       Src/ui/campaign_data.c                        \
+      Src/ui/interlude.c                                                     \
 
 # ── Dossiers ────────────────────────────────────────────────────
 ASSETS_DIR   = assets

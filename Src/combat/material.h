@@ -34,7 +34,8 @@ typedef enum {
 typedef struct {
     int          tile_x, tile_y;  // position sur la carte
     MaterialType type;
-    int          active;          // 1 = disponible, 0 = collecté
+    int          active;          // 1 = filon disponible (minable), 0 = sinon
+    int          mined;           // 1 = épuisé (roche minée, constructible mais x2)
     int          spawn_wave;      // 0 = dispo dès le début, >0 = s'active à la vague N
 } MaterialDeposit;
 

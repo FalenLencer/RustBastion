@@ -50,7 +50,7 @@ void save_scan  (SaveInfo infos[SAVE_SLOT_COUNT]);
 //   Magic et version propres pour éviter toute confusion
 // ════════════════════════════════════════════════════
 #define SAVE_CAMPAIGN_MAGIC    0x52424343u   // "RBCC"
-#define SAVE_CAMPAIGN_VERSION  4       /* bump : slots_tower_bought / slots_unit_bought persistés */
+#define SAVE_CAMPAIGN_VERSION  6       /* bump : campaign_flags (narratif) persisté */
 
 // Écriture avec état interlude inclus (évite le bug double-ferraille)
 int  campaign_save_write (const GameState *gs, int slot,

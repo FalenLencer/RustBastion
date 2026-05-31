@@ -12,6 +12,7 @@
 #include "../combat/tower.h"
 #include "../combat/unit.h"
 #include "meta.h"
+#include "runperks.h"
 #include "../ui/hud.h"
 
 typedef enum { PHASE_PREP, PHASE_WAVE, PHASE_GAMEOVER } GamePhase;
@@ -36,6 +37,7 @@ struct GameState {
     int campaign_num;
     int campaign_stage;
     int campaign_order_seed;
+    int campaign_flags;   // drapeaux narratifs (choix/événements) — persistent la run
     int is_custom;  // 1 = partie personnalisée (pas de save)
 
     // ── Inventaire matériaux ──────────────────────────────────
@@ -50,6 +52,14 @@ struct GameState {
     int act_objective_done;      // 1 = objectif accompli ce stage
     int act_no_unit_lost;        // 1 = aucune unité perdue (pour OBJ_NO_UNIT_LOST)
     int act_materials_collected; // compteur matériaux collectés ce stages
+
+    // ── Rogue-lite : build de run (persiste toute la campagne) ─
+    RunBuild run;
+
+    // ── Boss de fin de chapitre ───────────────────────────────
+    int boss_pending;   // 1 = un boss doit apparaître cet acte (pas encore spawné)
+    int boss_wave;      // numéro de vague d'apparition du boss
+    int boss_chapter;   // chapitre 0-4 → échelle de PV du boss
 
     // ── Achats de slots en jeu (or) ───────────────────────────
     int slots_tower_bought;      // slots tours achetés en cours de partie

@@ -358,6 +358,10 @@ int campaign_save_write(const GameState *gs, int slot,
                   sizeof(gs->slots_tower_bought), 1, f) == 1);
     ok &= (fwrite(&gs->slots_unit_bought,
                   sizeof(gs->slots_unit_bought), 1, f) == 1);
+    /* Build de run rogue-lite (SAVE_CAMPAIGN_VERSION 5) */
+    ok &= (fwrite(&gs->run, sizeof(gs->run), 1, f) == 1);
+    /* Drapeaux narratifs (SAVE_CAMPAIGN_VERSION 6) */
+    ok &= (fwrite(&gs->campaign_flags, sizeof(gs->campaign_flags), 1, f) == 1);
     fclose(f);
     return ok;
 }
@@ -421,6 +425,10 @@ int campaign_save_read(GameState *gs, int slot,
                  sizeof(gs->slots_tower_bought), 1, f) == 1);
     ok &= (fread(&gs->slots_unit_bought,
                  sizeof(gs->slots_unit_bought), 1, f) == 1);
+    /* Build de run rogue-lite (SAVE_CAMPAIGN_VERSION 5) */
+    ok &= (fread(&gs->run, sizeof(gs->run), 1, f) == 1);
+    /* Drapeaux narratifs (SAVE_CAMPAIGN_VERSION 6) */
+    ok &= (fread(&gs->campaign_flags, sizeof(gs->campaign_flags), 1, f) == 1);
     fclose(f);
     if (!ok) return 0;
 

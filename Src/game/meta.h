@@ -5,7 +5,7 @@
  */
 
 #pragma once
-#include "../ui/campaign_data.h"   // CAMPAIGN_TOTAL = 15
+#include "campaign_data.h"   // CAMPAIGN_TOTAL = 15
 #include "../combat/enemy.h"       // ENEMY_TYPE_COUNT (bestiaire)
 #include "../combat/material.h"    // MAT_COUNT (bestiaire minerais)
 

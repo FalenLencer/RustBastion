@@ -8,6 +8,7 @@
 #include "unit.h"
 #include "tower.h"
 #include "combat_math.h"
+#include "../game/runperks.h"   // g_run_mods (build de run)
 #include "../engine/audio.h"
 #include "raylib.h"
 #include <string.h>
@@ -172,6 +173,56 @@ void enemy_spawn(EnemyPool *pool, EnemyType type,
 }
 
 /* ════════════════════════════════════════════════════
+   BOSS DE FIN DE CHAPITRE
+   Réutilise les résistances/comportement mêlée du Brute comme base,
+   mais avec des stats massives, des PV scalés par chapitre, et un
+   marqueur is_boss qui active phases (enrage) + rendu spécial.
+   ════════════════════════════════════════════════════ */
+void enemy_spawn_boss(EnemyPool *pool, int path_id, const PathSet *paths,
+                      float hp_scale)
+{
+    if (pool->count >= MAX_ENEMIES) return;
+    if (path_id < 0 || path_id >= paths->count) return;
+    const Path *path = &paths->paths[path_id];
+    if (!path->found || path->len == 0) return;
+
+    Enemy *e = NULL;
+    for (int i = 0; i < MAX_ENEMIES; i++)
+        if (!pool->enemies[i].active) { e = &pool->enemies[i]; break; }
+    if (!e) return;
+
+    memset(e, 0, sizeof(Enemy));
+    e->x           = path->steps[0].x * TILE_SIZE + TILE_SIZE / 2.0f;
+    e->y           = path->steps[0].y * TILE_SIZE + TILE_SIZE / 2.0f;
+    e->type        = ENEMY_BRUTE;                 // base résistances + mêlée
+    e->is_boss     = 1;
+    e->max_hp      = 1200.0f * (hp_scale > 0.0f ? hp_scale : 1.0f);
+    e->hp          = e->max_hp;
+    e->speed       = 0.85f;
+    e->size        = 18.0f;
+    e->reward      = 250;
+    e->damage      = 12;
+    e->melee_range    = 40.0f;
+    e->unit_atk_range = 40.0f;   // sans ça, le boss ignorerait les unités (memset → 0)
+    e->path_id     = path_id;
+    e->path_index  = 0;
+    e->spawn_delay = 0.0f;
+    e->active      = 1;
+    e->hunt_target = -1;
+    e->arty_target = -1;
+    e->raid_target = -1;
+    pool->count++;
+}
+
+/* Multiplicateur de vitesse selon la phase (enrage à bas PV). */
+static float boss_enrage_mult(const Enemy *e) {
+    float r = (e->max_hp > 0.0f) ? e->hp / e->max_hp : 1.0f;
+    if (r < 0.33f) return 1.6f;   // phase 3 : furie
+    if (r < 0.66f) return 1.3f;   // phase 2 : accélération
+    return 1.0f;                  // phase 1
+}
+
+/* ════════════════════════════════════════════════════
    DÉGÂTS
    ════════════════════════════════════════════════════ */
 void enemy_damage(Enemy *e, float dmg) {
@@ -215,7 +266,7 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
         // ── Mort ─────────────────────────────────────────────
         if (e->dead) {
             audio_play_sfx(AUDIO_SFX_ENEMY_DEATH);
-            *gold  += e->reward;
+            *gold  += e->reward + g_run_mods.gold_per_kill;   // + perk Pillage/Fortune
             *kills += 1;
             e->active = 0;
             if (pool->count > 0) pool->count--;
@@ -553,6 +604,8 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
             float speed = e->speed;
             if (e->slow_timer > 0.0f && e->type != ENEMY_VEHICLE)
                 speed *= ENEMY_SLOW_SPEED_MULT;
+            if (e->is_boss)
+                speed *= boss_enrage_mult(e);   // accélère à bas PV (phases)
 
             Point next = path->steps[e->path_index + 1];
             float tx   = next.x * TILE_SIZE + TILE_SIZE / 2.0f;

@@ -369,6 +369,18 @@ static void draw_spawn_tile(const Map *map, int tx, int ty) {
     float t     = (float)GetTime();
     float pulse = (sinf(t * 3.0f) + 1.0f) * 0.5f;   // 0..1
 
+    // ── Onde de repérage : large vague rouge foncé émise par le spawn ──
+    // Rend l'emplacement d'invasion hyper visible dès l'arrivée sur la carte.
+    {
+        float maxR = TILE_SIZE * 4.2f;
+        for (int k = 0; k < 2; k++) {
+            float ph = fmodf(t/2.0f + (float)(tx*7 + ty)*0.13f + k*0.5f, 1.0f);
+            unsigned char a = (unsigned char)((1.0f - ph) * 130);
+            DrawCircleLines(cx, cy, ph*maxR,     (Color){180, 30, 30, a});
+            DrawCircleLines(cx, cy, ph*maxR + 1, (Color){120, 16, 16, (unsigned char)(a/2)});
+        }
+    }
+
     // Raccord à la route sous le portail
     draw_road_tile(map, tx, ty);
 
@@ -451,4 +463,96 @@ void tile_art_draw_base(int px, int py, ThemeID theme,
         DrawLine(px + TILE_SIZE - 6, py + 6, px + 6, py + TILE_SIZE - 6,
                  (Color){190, 50, 50, 220});
     }
+}
+
+// ════════════════════════════════════════════════════
+// MINERAI — filon de cristaux (remplace la tuile) + roche minée
+// ════════════════════════════════════════════════════
+typedef struct { Color core, glow; } OrePalette;
+
+// Palette par type de matériau (MaterialType : 0=fer … 4=nano).
+static OrePalette ore_palette(int mat) {
+    switch (mat) {
+        case 0:  return (OrePalette){{182, 188, 202, 255}, {150, 160, 185, 255}}; // FER  (acier)
+        case 1:  return (OrePalette){{122, 214,  72, 255}, { 90, 200,  50, 255}}; // ACIDE
+        case 2:  return (OrePalette){{ 98, 170, 255, 255}, { 70, 150, 255, 255}}; // PLASMA
+        case 3:  return (OrePalette){{158, 228, 255, 255}, {120, 210, 255, 255}}; // CRYO
+        case 4:  return (OrePalette){{206, 116, 255, 255}, {180,  90, 255, 255}}; // NANO
+        default: return (OrePalette){{200, 200, 210, 255}, {170, 170, 185, 255}};
+    }
+}
+
+// Un cristal hexagonal facetté (volume par 3 polygones + arêtes + étincelle).
+static void draw_crystal(float cx, float cy, float rad, float rot, Color c) {
+    Color lite = shade(c,  55);
+    Color dark = shade(c, -55);
+    Color edge = shade(c,  95);
+    DrawPoly((Vector2){cx, cy}, 6, rad,         rot, dark);   // base ombrée
+    DrawPoly((Vector2){cx, cy}, 6, rad * 0.82f, rot, c);      // corps
+    DrawPoly((Vector2){cx - rad*0.18f, cy - rad*0.18f},
+             6, rad * 0.40f, rot, lite);                       // facette éclairée
+    DrawPolyLines((Vector2){cx, cy}, 6, rad, rot,
+                  (Color){edge.r, edge.g, edge.b, 200});       // arêtes
+    DrawRectangle((int)(cx - rad*0.30f), (int)(cy - rad*0.42f),
+                  2, 2, (Color){255, 255, 255, 210});          // étincelle
+}
+
+void tile_art_draw_deposit(int px, int py, int mat_type, float t) {
+    const int cx = px + TILE_SIZE / 2, cy = py + TILE_SIZE / 2;
+    OrePalette op = ore_palette(mat_type);
+
+    // 1) Matrice rocheuse minéralisée — opaque : remplace la tuile.
+    Color matrix_d = {28, 25, 34, 255};
+    DrawRectangle(px, py, TILE_SIZE, TILE_SIZE, (Color){44, 39, 50, 255});
+    DrawRectangle(px, py, TILE_SIZE, TILE_SIZE / 2, (Color){255, 255, 255, 8});
+    DrawRectangle(px, py + TILE_SIZE / 2, TILE_SIZE, TILE_SIZE / 2, (Color){0, 0, 0, 30});
+    DrawLine(px + 5, py + TILE_SIZE - 7, px + 15, py + 10, matrix_d);    // veines sombres
+    DrawLine(px + TILE_SIZE - 6, py + TILE_SIZE - 9, px + 24, py + 12, matrix_d);
+    DrawRectangle(px, py + TILE_SIZE - 1, TILE_SIZE, 1, (Color){0, 0, 0, 60});  // bord
+    DrawRectangle(px + TILE_SIZE - 1, py, 1, TILE_SIZE, (Color){0, 0, 0, 60});
+
+    // 2) Halo lumineux pulsant (couleur du minerai).
+    float pulse = (sinf(t * 2.2f + (float)(px * 3 + py) * 0.05f) + 1.0f) * 0.5f;
+    unsigned char ga = (unsigned char)(38 + pulse * 70);
+    DrawCircle(cx, cy, TILE_SIZE * 0.42f, (Color){op.glow.r, op.glow.g, op.glow.b, ga});
+
+    // 3) Amas de cristaux (le filon proprement dit).
+    draw_crystal((float)cx - 9, (float)cy + 6, 6.0f, -8.0f,             op.core);
+    draw_crystal((float)cx + 9, (float)cy + 5, 6.5f, 18.0f,             op.core);
+    draw_crystal((float)cx - 3, (float)cy - 8, 5.0f,  4.0f,             op.core);
+    draw_crystal((float)cx + 6, (float)cy - 5, 4.0f, 24.0f,             op.core);
+    draw_crystal((float)cx,     (float)cy + 3, 9.0f, 10.0f + pulse*4.0f, op.core);
+}
+
+void tile_art_draw_mined_rock(int px, int py) {
+    const int cx = px + TILE_SIZE / 2, cy = py + TILE_SIZE / 2;
+    unsigned int h = tile_hash(px / TILE_SIZE, py / TILE_SIZE);
+
+    // Roche épuisée, terne — laissée après extraction du filon.
+    Color rock_d = {36, 32, 29, 255};
+    Color rock_l = {78, 72, 66, 255};
+    DrawRectangle(px, py, TILE_SIZE, TILE_SIZE, (Color){58, 53, 49, 255});
+    DrawRectangle(px, py, TILE_SIZE, TILE_SIZE / 2, (Color){255, 255, 255, 6});
+    DrawRectangle(px, py + TILE_SIZE / 2, TILE_SIZE, TILE_SIZE / 2, (Color){0, 0, 0, 34});
+
+    // Cratère creusé au centre → signale une tuile difficile à bâtir.
+    DrawCircle(cx, cy + 1, TILE_SIZE * 0.30f, rock_d);
+    DrawCircle(cx, cy + 2, TILE_SIZE * 0.20f, (Color){20, 17, 15, 255});
+    DrawCircleLines(cx, cy + 1, TILE_SIZE * 0.30f, (Color){18, 15, 13, 220});
+
+    // Éboulis + fissures.
+    DrawRectangle(px + 5, py + 6, 4, 3, rock_l);
+    DrawRectangle(px + TILE_SIZE - 9, py + 8, 4, 3, rock_d);
+    DrawRectangle(px + 7, py + TILE_SIZE - 9, 3, 3, rock_d);
+    DrawRectangle(px + TILE_SIZE - 10, py + TILE_SIZE - 8, 4, 3, rock_l);
+    DrawLine(cx, cy, px + 6, py + 7, (Color){22, 19, 17, 200});
+    DrawLine(cx, cy, px + TILE_SIZE - 7, py + 9, (Color){22, 19, 17, 180});
+    speck(px, py, h, 2, 2, rock_l);
+
+    // Quelques résidus de minerai ternes au fond du cratère.
+    DrawRectangle(cx - 2, cy - 1, 2, 2, (Color){120, 116, 110, 200});
+    DrawRectangle(cx + 3, cy + 2, 1, 1, (Color){120, 116, 110, 160});
+
+    DrawRectangle(px, py + TILE_SIZE - 1, TILE_SIZE, 1, (Color){0, 0, 0, 60});
+    DrawRectangle(px + TILE_SIZE - 1, py, 1, TILE_SIZE, (Color){0, 0, 0, 60});
 }

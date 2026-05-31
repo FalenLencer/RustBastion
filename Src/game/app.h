@@ -32,6 +32,8 @@ typedef struct {
 
     Screen         screen;
     InterludeState interlude;
+    InterludeState interlude_prev;   /* interlude du frame précédent : évite que
+                                        l'input traverse une transition (anti-bleed) */
 
     int            active_slot;
 

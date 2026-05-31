@@ -641,7 +641,8 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
             map->deposits[placed].type      = (MaterialType)rng_int(MAT_COUNT);
             map->deposits[placed].spawn_wave = sw;
             map->deposits[placed].active    = (sw == 0) ? 1 : 0;
-            map->tiles[dy][dx].buildable = 0;   // pas de tour sur un dépôt
+            map->deposits[placed].mined     = 0;
+            map->tiles[dy][dx].buildable = 0;   // filon : pas de tour tant qu'il n'est pas miné
             placed++;
         }
         map->deposit_count = placed;

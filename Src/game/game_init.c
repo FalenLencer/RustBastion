@@ -12,7 +12,7 @@
 #include "../combat/wave.h"
 #include "../ui/hud.h"
 #include "../ui/renderer.h"
-#include "../ui/campaign_data.h"
+#include "campaign_data.h"
 #include "meta.h"
 #include <stdio.h>
 
@@ -137,6 +137,48 @@ void game_init_arcade(GameState *gs, ThemeID theme, int slot) {
     printf("Arcade slot=%d theme=%d\n", slot, (int)theme);
 }
 
+// ════════════════════════════════════════════════════
+// DIFFICULTÉ DE CAMPAGNE — intensification + mutateur de chapitre
+// Appelée après game_init_map() au début de chaque acte. Règle les
+// multiplicateurs de vague selon l'avancement (stage 0..14) et le
+// mutateur signature du chapitre courant.
+// ════════════════════════════════════════════════════
+static void apply_campaign_difficulty(GameState *gs) {
+    int node   = gs->campaign_stage;
+    if (node < 0) node = 0;
+    /* Difficulté pilotée par la POSITION NARRATIVE (chapitre×3+acte), pas par
+       l'index brut : un nœud de branche a un index élevé mais peut appartenir
+       à un chapitre antérieur — il ne doit pas hériter d'une difficulté de fin. */
+    int dstage = campaign_difficulty_stage(node);
+    WaveManager *wm = &gs->wave_manager;
+
+    /* Intensification croissante : chaque acte monte d'un cran. */
+    wm->count_mult = 1.0f + 0.04f * (float)dstage;   // +4 % d'ennemis / acte
+    wm->scale      = 1.0f + 0.05f * (float)dstage;   // PV de départ plus hauts tard
+    wm->scale_cap  = 6.0f + 0.30f * (float)dstage;   // plafond relevé tard
+    wm->speed_mult = 1.0f;
+
+    /* Mutateur signature du chapitre. */
+    switch (campaign_mutator_for_stage(dstage)) {
+        case MUT_TOXIC:     wm->scale *= 1.20f; wm->scale_cap *= 1.15f;     break;
+        case MUT_SANDSTORM: wm->speed_mult *= 1.20f; wm->count_mult *= 1.10f; break;
+        case MUT_AMBUSH:    wm->count_mult *= 1.25f;                        break;
+        case MUT_OVERLOAD:  wm->speed_mult *= 1.15f; wm->scale *= 1.15f;     break;
+        case MUT_NONE:
+        default: break;
+    }
+
+    /* Boss : dernier acte de chaque chapitre (acte narratif 2).
+       Il apparaît à la vague finale du nœud courant et doit être vaincu. */
+    gs->boss_pending = 0;
+    if ((dstage % CAMPAIGN_ACTS) == (CAMPAIGN_ACTS - 1)) {
+        const ActData *fa = campaign_act_get(node);
+        gs->boss_pending = 1;
+        gs->boss_wave    = fa->min_waves;
+        gs->boss_chapter = dstage / CAMPAIGN_ACTS;
+    }
+}
+
 void game_init_campaign(GameState *gs, int campaign_num, int slot,
                         int seed, int start_stage) {
     if (start_stage < 0 || start_stage >= CAMPAIGN_TOTAL) start_stage = 0;
@@ -149,34 +191,55 @@ void game_init_campaign(GameState *gs, int campaign_num, int slot,
 
     const ActData *act = campaign_act_get(start_stage);
     ThemeID theme = act->theme;
-    game_init_map(gs, theme, act->forced_base_count);
+    /* Campagne : 1 seule base par défaut ; seuls les actes qui l'imposent
+       (forced_base_count > 0) en demandent plusieurs. */
+    game_init_map(gs, theme, act->forced_base_count > 0 ? act->forced_base_count : 1);
+    apply_campaign_difficulty(gs);
 
     printf("Campagne %d acte %d slot=%d theme=%d bases=%d\n",
            campaign_num, start_stage, slot, (int)theme, act->forced_base_count);
 }
 
-void game_next_campaign_stage(GameState *gs) {
+void game_goto_campaign_node(GameState *gs, int node_id) {
     int camp_num   = gs->campaign_num;
-    int camp_stage = gs->campaign_stage + 1;
     int camp_seed  = gs->campaign_order_seed;
+    int camp_flags = gs->campaign_flags;   // les drapeaux narratifs persistent
     MetaProgress meta_bak = gs->meta;
+    RunBuild     run_bak  = gs->run;   // le build de run persiste entre les actes
+
+    if (node_id < 0)               node_id = 0;
+    if (node_id >= CAMPAIGN_NODES) node_id = CAMPAIGN_NODES - 1;
 
     game_state_init(gs);
     gs->is_campaign         = 1;
     gs->campaign_num        = camp_num;
-    gs->campaign_stage      = camp_stage;
+    gs->campaign_stage      = node_id;
     gs->campaign_order_seed = camp_seed;
+    gs->campaign_flags      = camp_flags;   // restaure les drapeaux narratifs
     gs->meta                = meta_bak;
+    gs->run                 = run_bak;   // restaure le build (perks + Renfort)
 
     meta_compute(&gs->meta, &gs->bonuses);
     gs->gold = gs->bonuses.start_gold;
 
-    const ActData *act = campaign_act_get(camp_stage);
+    const ActData *act = campaign_act_get(node_id);
     ThemeID theme = act->theme;
-    game_init_map(gs, theme, act->forced_base_count);
+    /* 1 base par défaut ; seuls les actes imposant un nombre en demandent plus. */
+    game_init_map(gs, theme, act->forced_base_count > 0 ? act->forced_base_count : 1);
+    apply_campaign_difficulty(gs);
 
-    printf("Campagne %d acte %d theme=%d bases=%d\n",
-           camp_num, camp_stage, (int)theme, act->forced_base_count);
+    /* Bonus de build à l'entrée de l'acte (perks économie / survie). */
+    runbuild_compute(&gs->run, &g_run_mods, gs->gold);
+    gs->gold  += g_run_mods.act_gold;
+    gs->lives += g_run_mods.act_lives;
+    runbuild_compute(&gs->run, &g_run_mods, gs->gold);   // re-calc (Capitaliste ∝ or)
+
+    printf("Campagne %d noeud %d theme=%d bases=%d\n",
+           camp_num, node_id, (int)theme, act->forced_base_count);
+}
+
+void game_next_campaign_stage(GameState *gs) {
+    game_goto_campaign_node(gs, gs->campaign_stage + 1);
 }
 
 // ════════════════════════════════════════════════════

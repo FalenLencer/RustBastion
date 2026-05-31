@@ -34,6 +34,9 @@ extern float g_map_render_scale;
 
 Color renderer_tower_color(TowerType type);
 Color renderer_unit_color (UnitType  type);
+// Couleur d'identité d'une base (distincte par index) — partagée entre le
+// bunker, l'onde de repérage et la barre de vie pour différencier les bases.
+Color renderer_base_color (int base_idx, int is_primary);
 
 void render_map          (const Map *map);
 void render_bases        (const Map *map);

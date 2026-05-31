@@ -28,8 +28,12 @@ void game_init_arcade(GameState *gs, ThemeID theme, int slot);
 void game_init_campaign(GameState *gs, int campaign_num, int slot,
                         int seed, int start_stage);
 
-/* Passe au stage suivant de la campagne */
+/* Passe au stage suivant de la campagne (trame linéaire : stage+1). */
 void game_next_campaign_stage(GameState *gs);
+
+/* Route la campagne vers un nœud arbitraire du graphe (branche / repli).
+   node_id est borné à [0, CAMPAIGN_NODES-1]. */
+void game_goto_campaign_node(GameState *gs, int node_id);
 
 /* Démarre une partie personnalisée selon la configuration donnée. */
 void game_init_custom(GameState *gs, const CustomConfig *cfg);

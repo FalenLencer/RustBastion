@@ -42,6 +42,7 @@ typedef struct {
     int   active;
     int   dead;
     int   reached_base;
+    int   is_boss;        // 1 = boss de fin de chapitre (PV massifs, phases, rendu spécial)
 
     // Effets de statut
     float slow_timer;
@@ -177,5 +178,9 @@ void  enemy_spawn      (EnemyPool *pool, EnemyType type,
                         int path_id, const PathSet *paths,
                         float spawn_delay, float wave_scale,
                         float speed_mult);
+// Fait apparaître un boss de fin de chapitre sur un chemin donné.
+// hp_scale module ses PV selon le chapitre (croissance de campagne).
+void  enemy_spawn_boss (EnemyPool *pool, int path_id, const PathSet *paths,
+                        float hp_scale);
 int   enemy_pool_alive (const EnemyPool *pool);
 void  enemy_damage     (Enemy *e, float dmg);

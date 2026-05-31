@@ -191,29 +191,58 @@ void draw_bg(const MenuState *m, int vw, int vh) {
         return;
     }
     ClearBackground(C_BG);
+    /* Grille technique discrète */
     for (int x = 0; x < vw; x += 72)
-        DrawLine(x, 0, x, vh, (Color){18, 12, 5, 50});
+        DrawLine(x, 0, x, vh, (Color){18, 12, 5, 45});
     for (int y = 0; y < vh; y += 72)
-        DrawLine(0, y, vw, y, (Color){18, 12, 5, 50});
+        DrawLine(0, y, vw, y, (Color){18, 12, 5, 45});
+    /* Ambiance : assombrissement haut/bas (vignette) + liseré d'accent */
+    DrawRectangleGradientV(0, 0,          vw, vh/3, (Color){0,0,0,70}, (Color){0,0,0,0});
+    DrawRectangleGradientV(0, vh - vh/3,  vw, vh/3, (Color){0,0,0,0},  (Color){0,0,0,95});
+    DrawRectangle(0, 0, vw, 2, (Color){120, 70, 16, 130});
+}
+
+// Équerres d'angle (identité « métal militaire ») — partagé.
+static void draw_corner_brackets(Rectangle r, Color c, int L) {
+    int x0 = (int)r.x + 4, y0 = (int)r.y + 4;
+    int x1 = (int)(r.x + r.width) - 4, y1 = (int)(r.y + r.height) - 4;
+    Color cc = {c.r, c.g, c.b, 220};
+    DrawRectangle(x0,     y0,     L, 2, cc); DrawRectangle(x0,     y0,     2, L, cc);
+    DrawRectangle(x1 - L, y0,     L, 2, cc); DrawRectangle(x1 - 2, y0,     2, L, cc);
+    DrawRectangle(x0,     y1 - 2, L, 2, cc); DrawRectangle(x0,     y1 - L, 2, L, cc);
+    DrawRectangle(x1 - L, y1 - 2, L, 2, cc); DrawRectangle(x1 - 2, y1 - L, 2, L, cc);
 }
 
 // En-tête commune : titre RUST BASTION + sous-titre + séparateur
 void draw_header(const char *subtitle, int vw) {
     int cx = vw/2;
     txt_c_boxed("RUST BASTION", cx, M_PAD, 28, C_GOLD);
+    /* Traits d'accent de part et d'autre du titre */
+    int tw = mtxt("RUST BASTION", 28);
+    int ly = M_PAD + fh(28)/2;
+    Color acc = {C_GOLD.r, C_GOLD.g, C_GOLD.b, 150};
+    DrawRectangle(cx - tw/2 - 44, ly, 30, 2, acc);
+    DrawRectangle(cx + tw/2 + 14, ly, 30, 2, acc);
     if (subtitle && subtitle[0])
         txt_c_boxed(subtitle, cx, M_PAD + 44, 13, C_TEXT);
+    /* Séparateur double (accent + ombre) */
     draw_sep(M_PAD*2, M_PAD + 66, vw - M_PAD*4, C_BORDER);
+    DrawRectangle(M_PAD*2, M_PAD + 68, vw - M_PAD*4, 1,
+                  (Color){C_GOLD.r/3, C_GOLD.g/3, C_GOLD.b/3, 110});
 }
 
 // Panneau centré avec fond et bordure arrondis
 void draw_panel(int cx, int cy, int pw, int ph, Color border) {
-    DrawRectangleRounded(
-        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        (float)PANEL_R/ph, 8, (Color){10, 6, 2, 250});
-    DrawRectangleRoundedLinesEx(
-        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        (float)PANEL_R/ph, 8, 2.0f, border);
+    Rectangle r = {cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph};
+    DrawRectangleRounded(r, (float)PANEL_R/ph, 8, (Color){10, 6, 2, 250});
+    /* Volume : léger reflet haut + ombre basse */
+    DrawRectangle((int)r.x+2, (int)r.y+2,        pw-4, ph/3,     (Color){255,255,255,6});
+    DrawRectangle((int)r.x+2, (int)r.y+ph-ph/4,  pw-4, ph/4 - 2, (Color){0,0,0,45});
+    DrawRectangleRoundedLinesEx(r, (float)PANEL_R/ph, 8, 2.0f, border);
+    /* Filet d'accent supérieur + équerres d'angle */
+    DrawRectangle((int)r.x+10, (int)r.y+5, pw-20, 1,
+                  (Color){border.r, border.g, border.b, 160});
+    draw_corner_brackets(r, border, 12);
 }
 
 // Bouton rectangulaire arrondi — retourne 1 si cliqué
@@ -230,6 +259,11 @@ int draw_btn(const char *label, int x, int y, int w, int h,
     Color bc = (active || hov) ? col : C_BORDER;
     DrawRectangleRounded(r, rnd, 6, bg);
     DrawRectangleRoundedLinesEx(r, rnd, 6, bw, bc);
+    if (active || hov) {
+        /* Tick d'accent à gauche + reflet supérieur (tactile) */
+        DrawRectangle(x + 3, y + 4, 3, h - 8, col);
+        DrawRectangle(x + 7, y + 3, w - 14, 1, (Color){col.r, col.g, col.b, 90});
+    }
     int fs = 14;
     int tw = mtxt(label, fs);
     dtxt(label, x + w/2 - tw/2, y + h/2 - fh(fs)/2, fs, col);

@@ -51,7 +51,7 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
     // ═══════════════════════════════════════════════
     // COLONNE GAUCHE — Chapitres et actes
     // ═══════════════════════════════════════════════
-    int chapter_h = 72;
+    int chapter_h = 90;   /* + place pour la ligne "voies alternatives" */
     int chapter_y = content_y;
     int gap       = M_IN;
     int sel_ch    = (m->selected_campaign_act >= 0)
@@ -98,7 +98,7 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
 
             int ax = left_x + M_IN + a * (act_w + M_IN);
             int ay = chapter_y + 28;
-            int ah = chapter_h - 32;
+            int ah = 40;   /* hauteur fixe ; la ligne "voies alt." passe dessous */
 
             Rectangle ar = {(float)ax, (float)ay, (float)act_w, (float)ah};
             int hov_act = unlocked && vhov_r(ar);
@@ -130,6 +130,19 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                 dtxt("*", ax + 3 + s*12, ay + ah - 14, 12, sc);
             }
 
+            // Badges de graphe : CHOIX (bifurcation) / REPLI (repli à la défaite)
+            if (unlocked) {
+                if (campaign_has_choice(stage_idx)) {
+                    int bw = mtxt("CHOIX", 7);
+                    dtxt("CHOIX", ax + act_w - bw - 4, ay + 3, 7,
+                         (Color){232, 200, 120, 230});
+                } else if (campaign_defeat_mode(stage_idx) == DEFEAT_RETREAT) {
+                    int bw = mtxt("REPLI", 7);
+                    dtxt("REPLI", ax + act_w - bw - 4, ay + 3, 7,
+                         (Color){120, 200, 140, 230});
+                }
+            }
+
             if (!unlocked)
                 dtxt("---", ax + act_w/2 - 8, ay + ah/2 - 5, 10, C_DIM);
 
@@ -137,6 +150,30 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
             if (unlocked && vclick_r(ar)) {
                 m->selected_campaign_act = stage_idx;
                 act_clicked = 1;
+            }
+        }
+
+        // ── Voies alternatives du chapitre (nœuds de branche / repli) ──
+        // Listées en clair pour montrer que le chapitre recèle d'autres
+        // routes que la trame principale.
+        {
+            int axp = left_x + M_IN;
+            int ayp = chapter_y + 28 + 40 + 4;   // sous les boîtes d'acte
+            int shown = 0;
+            for (int bn = CAMPAIGN_TOTAL; bn < CAMPAIGN_NODES; bn++) {
+                const ActData *bd = campaign_act_get(bn);
+                if (!bd->title || !bd->title[0] || bd->chapter != ch) continue;
+                if (shown == 0) {
+                    dtxt("Voies alt.:", axp, ayp, 8, (Color){100, 85, 60, 220});
+                    axp += mtxt("Voies alt.: ", 8);
+                }
+                char t[40];
+                clip_text(bd->title, 150, 8, t, sizeof(t));
+                dtxt(t, axp, ayp, 8,
+                     ch_unlocked ? (Color){col.r, col.g, col.b, 210}
+                                 : (Color){70, 58, 36, 200});
+                axp += mtxt(t, 8) + 10;
+                shown++;
             }
         }
 
@@ -198,6 +235,21 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                 char sclip[64];
                 clip_text(sel_ad->subtitle, right_w - M_IN*2, 9, sclip, sizeof(sclip));
                 dtxt(sclip, px, py, 9, C_DIM);
+            }
+
+            // Aperçu du routage de graphe pour cet acte
+            {
+                const char *rt =
+                    campaign_has_choice(sel)    ? "Bifurcation : choix en fin d'acte"
+                  : (sel >= CAMPAIGN_TOTAL - 1) ? "Defaite ici : fin de campagne"
+                  : (campaign_defeat_mode(sel) == DEFEAT_RETREAT)
+                                                ? "Defaite ici : repli vers une autre voie"
+                                                : "Defaite ici : reprise affaiblie";
+                char rclip[72];
+                clip_text(rt, right_w - M_IN*2, 8, rclip, sizeof(rclip));
+                dtxt(rclip, right_x + M_IN + 2,
+                     ry + info_h - M_IN - fh(9) - 14, 8,
+                     (Color){150, 130, 95, 220});
             }
 
             // Étoiles éventuelles
@@ -275,8 +327,8 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
 
             const ActData *sad = campaign_act_get(si->campaign_stage);
             char hdr[64];
-            snprintf(hdr, sizeof(hdr), "Partie %d  —  Acte %d / %d",
-                     si->campaign_num+1, si->campaign_stage+1, CAMPAIGN_TOTAL);
+            snprintf(hdr, sizeof(hdr), "Partie %d  —  Ch.%d Acte %d",
+                     si->campaign_num+1, sad->chapter+1, sad->act+1);
             char hclip[64];
             clip_text(hdr, txt_avail, 9, hclip, sizeof(hclip));
             dtxt(hclip, right_x + M_IN, ry + M_IN, 9, C_GOLD);

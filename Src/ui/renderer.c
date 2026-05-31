@@ -55,6 +55,22 @@ float g_map_render_scale   = 1.0f;   // zoom de la carte (1 = standard, <1 = gra
 Color renderer_tower_color(TowerType type) { return TOWER_FILL[type]; }
 Color renderer_unit_color (UnitType  type) { return UNIT_FILL[type];  }
 
+// Couleur d'identité par base : vert pour la principale, palette distincte
+// pour les secondaires (les différencie d'un coup d'œil).
+Color renderer_base_color(int base_idx, int is_primary) {
+    if (is_primary) return (Color){46, 204, 113, 255};   // vert
+    static const Color SEC[6] = {
+        { 52, 152, 219, 255},   // bleu
+        { 26, 188, 156, 255},   // turquoise
+        {155,  89, 182, 255},   // violet
+        {241, 196,  15, 255},   // or
+        {230, 126,  34, 255},   // orange
+        { 80, 200, 120, 255},   // vert-mer
+    };
+    int i = base_idx % 6; if (i < 0) i = 0;
+    return SEC[i];
+}
+
 // ── Facteurs d'échelle des sprites (× le rayon logique de l'entité) ──
 // SPRITE = côté de la box de rendu ; HALF = demi-côté (rayon visuel).
 #define UNIT_SPRITE_SCALE   4.2f
@@ -133,27 +149,29 @@ void render_spawn_exclusion_zones(const Map *map) {
 // Appelé depuis main.c après render_map()
 // ════════════════════════════════════════════════════
 void render_bases(const Map *map) {
+    float t = (float)GetTime();
     for (int b = 0; b < map->base_count; b++) {
         const BaseInfo *base = &map->bases[b];
 
         int bpx = base->pos.x * TILE_SIZE;
         int bpy = base->pos.y * TILE_SIZE;
+        int destroyed = (!base->active || base->hp <= 0);
+        Color accent = renderer_base_color(b, base->is_primary);
 
-        int   destroyed = (!base->active || base->hp <= 0);
-        float ratio = (base->max_hp > 0)
-                    ? (float)base->hp / (float)base->max_hp : 0.0f;
-
-        // Couleur d'équipe : vert (primaire) / bleu (secondaire),
-        // vire à l'orange puis au rouge quand les PV chutent.
-        Color accent;
-        if (base->is_primary) {
-            accent = ratio > 0.5f ? (Color){46, 204, 113, 255}
-                   : ratio > 0.25f ? (Color){243, 156, 18, 255}
-                                   : (Color){231, 76, 60, 255};
-        } else {
-            accent = ratio > 0.5f ? (Color){52, 152, 219, 255}
-                   : ratio > 0.25f ? (Color){155, 89, 182, 255}
-                                   : (Color){231, 76, 60, 255};
+        if (!destroyed) {
+            // ── Onde de repérage : anneaux concentriques qui s'étendent ──
+            // Rend l'emplacement de la base hyper visible (couleur d'identité).
+            int   cx   = bpx + TILE_SIZE/2, cy = bpy + TILE_SIZE/2;
+            float maxR = TILE_SIZE * 3.4f;
+            for (int k = 0; k < 2; k++) {
+                float ph = fmodf(t/2.2f + (float)b*0.31f + k*0.5f, 1.0f);
+                unsigned char a = (unsigned char)((1.0f - ph) * 115);
+                DrawCircleLines(cx, cy, ph*maxR, (Color){accent.r, accent.g, accent.b, a});
+            }
+            // Halo central doux pulsé
+            float pul = (sinf(t*3.0f) + 1.0f) * 0.5f;
+            DrawCircle(cx, cy, TILE_SIZE*0.55f + pul*4.0f,
+                       (Color){accent.r, accent.g, accent.b, (unsigned char)(22 + pul*32)});
         }
 
         // Bunker pixel-art (détail HP/labels gérés par le HUD à gauche).
@@ -209,7 +227,46 @@ void render_enemies(const EnemyPool *pool) {
         DrawEllipse((int)e->x + 2, (int)e->y + (int)e->size,
                     (int)(e->size * 0.8f), (int)(e->size * 0.3f),
                     (Color){0,0,0,80});
- 
+
+        // ════════════════════════════════════════════════
+        // BOSS — rendu dédié (corps massif, couronne, aura, grande barre)
+        // ════════════════════════════════════════════════
+        if (e->is_boss) {
+            float ratio = (e->max_hp > 0.0f) ? e->hp / e->max_hp : 1.0f;
+            float pulse = (sinf(t * 4.0f) + 1.0f) * 0.5f;
+            int   R     = (int)e->size;
+
+            // Aura pulsée (rouge intense en furie)
+            Color aura = (ratio < 0.33f) ? (Color){230, 40, 40, 0}
+                                         : (Color){150, 40, 120, 0};
+            aura.a = (unsigned char)(45 + pulse * 75);
+            DrawCircle((int)e->x, (int)e->y, R + 8 + pulse * 5.0f, aura);
+
+            // Corps : teinte selon la phase (violet → magenta → rouge)
+            Color body = (ratio < 0.33f) ? (Color){205, 40, 40, 255}
+                       : (ratio < 0.66f) ? (Color){175, 40, 95, 255}
+                                         : (Color){115, 45, 125, 255};
+            if (e->slow_timer > 0.0f) body = (Color){95, 155, 230, 255};
+            DrawCircle((int)e->x, (int)e->y, R, body);
+            DrawCircleLines((int)e->x, (int)e->y, R,     (Color){255, 255, 255, 130});
+            DrawCircleLines((int)e->x, (int)e->y, R - 3, (Color){0, 0, 0, 90});
+
+            // Couronne (3 piques dorées)
+            for (int k = -1; k <= 1; k++)
+                DrawRectangle((int)e->x + k*8 - 1, (int)e->y - R - 6, 3, 8,
+                              (Color){250, 210, 60, 255});
+            // Yeux luisants
+            DrawCircle((int)e->x - 5, (int)e->y - 2, 2.0f, (Color){255, 240, 120, 255});
+            DrawCircle((int)e->x + 5, (int)e->y - 2, 2.0f, (Color){255, 240, 120, 255});
+
+            // Grande barre de vie + label
+            int bw = R * 3, bx = (int)e->x - bw/2, by = (int)e->y - R - 18;
+            DrawRectangle(bx - 1, by - 1, bw + 2, 7, (Color){0, 0, 0, 210});
+            DrawRectangle(bx, by, (int)(bw * ratio), 5, (Color){222, 40, 40, 255});
+            dtxt("BOSS", bx, by - 12, 9, (Color){255, 210, 80, 255});
+            continue;
+        }
+
         // Couleur de base par type
         Color col;
         switch (e->type) {
@@ -595,35 +652,32 @@ void render_deposits(const Map *map) {
         const MaterialDeposit *d = &map->deposits[i];
         int px = d->tile_x * TILE_SIZE;
         int py = d->tile_y * TILE_SIZE;
-        int cx = px + TILE_SIZE / 2;
-        int cy = py + TILE_SIZE / 2;
 
-        if (!d->active) {
-            if (d->spawn_wave > 0) {
-                // Dépôt verrouillé : icône grisée + numéro de vague
-                DrawCircle(cx, cy, TILE_SIZE / 2 - 6, (Color){18,14,8,160});
-                DrawCircleLines(cx, cy, TILE_SIZE / 2 - 4, (Color){60,50,25,180});
-                char _wbuf[8];
-                snprintf(_wbuf, sizeof(_wbuf), "V%d", d->spawn_wave);
-                int _iw = mtxt(_wbuf, 9);
-                dtxt(_wbuf, cx - _iw/2, cy - 5, 9, (Color){90,75,35,200});
-            }
+        // Filon actif : pixel-art plein qui remplace la tuile.
+        if (d->active) {
+            tile_art_draw_deposit(px, py, d->type, t);
             continue;
         }
-
-        Color col = MAT_COLORS[d->type];
-
-        // Halo pulsant
-        float pulse = (sinf(t * 2.5f + (float)i) + 1.0f) * 0.5f;
-        unsigned char alpha = (unsigned char)(60 + pulse * 80);
-        DrawCircle(cx, cy, TILE_SIZE / 2 - 4,
-                   (Color){col.r, col.g, col.b, alpha});
-        DrawCircleLines(cx, cy, TILE_SIZE / 2 - 2,
-                        (Color){col.r, col.g, col.b, 200});
-
-        // Icône centré
-        int iw = mtxt(MAT_ICONS[d->type], 11);
-        dtxt(MAT_ICONS[d->type], cx - iw/2, cy - 5, 11, col);
+        // Filon épuisé : roche minée (difficile à construire).
+        if (d->mined) {
+            tile_art_draw_mined_rock(px, py);
+            continue;
+        }
+        // Filon verrouillé (apparaît à une vague future) : indicateur discret
+        // teinté de la couleur du minerai à venir, par-dessus la tuile de ruine.
+        if (d->spawn_wave > 0) {
+            int cx = px + TILE_SIZE / 2, cy = py + TILE_SIZE / 2;
+            Color mc = MAT_COLORS[d->type];
+            DrawCircle(cx, cy, TILE_SIZE / 2 - 6, (Color){18, 14, 8, 175});
+            DrawCircleLines(cx, cy, TILE_SIZE / 2 - 4, (Color){mc.r, mc.g, mc.b, 130});
+            int iw = mtxt(MAT_ICONS[d->type], 9);
+            dtxt(MAT_ICONS[d->type], cx - iw/2, cy - 9, 9,
+                 (Color){mc.r, mc.g, mc.b, 160});
+            char _wbuf[8];
+            snprintf(_wbuf, sizeof(_wbuf), "V%d", d->spawn_wave);
+            int ww = mtxt(_wbuf, 9);
+            dtxt(_wbuf, cx - ww/2, cy + 1, 9, (Color){150, 130, 70, 210});
+        }
     }
 }
 

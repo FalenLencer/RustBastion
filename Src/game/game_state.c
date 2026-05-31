@@ -135,6 +135,7 @@ void game_state_init(GameState *gs) {
     gs->campaign_num        = 0;
     gs->campaign_stage      = 0;
     gs->campaign_order_seed = 0;
+    gs->campaign_flags      = 0;
     gs->inventory_count     = 0;
     for (int i = 0; i < MAX_INVENTORY; i++)
         gs->inventory[i] = MAT_NONE;
@@ -144,6 +145,13 @@ void game_state_init(GameState *gs) {
     gs->act_objective_done      = 0;
     gs->act_no_unit_lost        = 1;
     gs->act_materials_collected = 0;
+    gs->boss_pending            = 0;
+    gs->boss_wave               = 0;
+    gs->boss_chapter            = 0;
+    /* Build de run remis à zéro ; game_goto_campaign_node() le restaure
+       entre les actes d'une même campagne (il persiste donc la run durant). */
+    runbuild_reset(&gs->run);
+    runbuild_compute(&gs->run, &g_run_mods, gs->gold);
     gs->slots_tower_bought      = 0;
     gs->slots_unit_bought       = 0;
     gs->dropped_mat_count       = 0;
@@ -152,6 +160,17 @@ void game_state_init(GameState *gs) {
 }
 
 void game_state_update(GameState *gs, float dt) {
+    // Modificateurs rogue-lite actifs (recalculés ; dépendent de l'or courant
+    // pour le perk Capitaliste). Lus par tower.c / unit.c / enemy.c.
+    // Hors campagne : modificateurs neutres (le build ne s'applique qu'en
+    // campagne — évite tout report de perks vers une partie arcade/custom).
+    if (gs->is_campaign) {
+        runbuild_compute(&gs->run, &g_run_mods, gs->gold);
+    } else {
+        RunBuild _empty = {0};
+        runbuild_compute(&_empty, &g_run_mods, gs->gold);
+    }
+
     // Mise à jour des limites actives (méta + slots achetés en jeu)
     {
         int tl = tower_active_limit(&gs->bonuses) + gs->slots_tower_bought;
@@ -290,7 +309,7 @@ void game_state_update(GameState *gs, float dt) {
     // ── Activation des dépôts selon la vague ─────────────────────
     for (int _dep = 0; _dep < gs->map.deposit_count; _dep++) {
         MaterialDeposit *dep = &gs->map.deposits[_dep];
-        if (!dep->active && dep->spawn_wave > 0 &&
+        if (!dep->active && !dep->mined && dep->spawn_wave > 0 &&
             gs->wave_manager.number >= dep->spawn_wave) {
             dep->active = 1;
             ui_push_notif(&gs->ui, "Nouveau gisement accessible !",
@@ -298,17 +317,38 @@ void game_state_update(GameState *gs, float dt) {
         }
     }
     {
-        // Campagne : on passe l'acte courant-1 comme seuil de déblocage.
+        // Campagne : seuil de déblocage = position NARRATIVE du nœud - 1.
+        // (Position narrative plutôt qu'index brut : un nœud de branche garde
+        //  le bestiaire de son chapitre, pas celui de son index élevé.)
         // Acte 0 → max_stage=-1 (seul RAIDER), acte 1 → 0 (BRUTE arrive), etc.
-        // Cela garantit une introduction progressive à chaque nouvelle run,
-        // indépendamment de la progression méta globale du joueur.
         // Arcade : max_stage ignoré (pas de filtre, biais aléatoires utilisés).
         int max_stage = gs->is_campaign
-            ? (gs->campaign_stage - 1)
+            ? (campaign_difficulty_stage(gs->campaign_stage) - 1)
             : meta_max_stage_completed(&gs->meta);
         wave_update(&gs->wave_manager, &gs->enemies,
                     &gs->enemy_paths, &gs->map, th, effective_dt,
                     gs->is_campaign, max_stage);
+    }
+
+    // ── Apparition du boss de fin de chapitre ────────────────────
+    // Au dernier acte d'un chapitre, le boss déboule pendant la vague
+    // finale (le combat ne peut s'achever tant qu'il n'est pas vaincu
+    // ou n'a pas atteint une base).
+    if (gs->is_campaign && gs->boss_pending &&
+        gs->wave_manager.number >= gs->boss_wave &&
+        (gs->wave_manager.state == WAVE_SPAWNING ||
+         gs->wave_manager.state == WAVE_ONGOING)) {
+        int bpath = -1;
+        for (int p = 0; p < gs->enemy_paths.count; p++)
+            if (gs->enemy_paths.paths[p].found) { bpath = p; break; }
+        if (bpath >= 0) {
+            float hp_scale = 1.0f + (float)gs->boss_chapter * 0.6f;
+            enemy_spawn_boss(&gs->enemies, bpath, &gs->enemy_paths, hp_scale);
+            gs->boss_pending = 0;
+            ui_push_notif(&gs->ui, "!!! BOSS EN APPROCHE !!!",
+                          (Color){231, 76, 60, 255});
+            audio_play_sfx(AUDIO_SFX_ENEMY_SPAWN);
+        }
     }
 
     // ── Découverte bestiaire & minerais — campagne uniquement ────
