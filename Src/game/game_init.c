@@ -77,6 +77,18 @@ void game_init_map_full(GameState *gs, ThemeID theme,
                 (int)theme, forced_bases, forced_spawns);
     }
 
+    /* Bonus méta de vies → PV de la base principale.
+       Indispensable : gs->lives est recalculé ci-dessous comme la somme des
+       PV de bases, ce qui écraserait sinon l'amélioration "vies" du méta
+       (start_lives) et la rendrait totalement inutile. */
+    {
+        int life_bonus = gs->bonuses.start_lives - 20;   // 0 au niveau 0
+        if (life_bonus > 0 && gs->map.base_count > 0) {
+            gs->map.bases[0].max_hp += life_bonus;
+            gs->map.bases[0].hp      = gs->map.bases[0].max_hp;
+        }
+    }
+
     // lives = somme HP de toutes les bases
     {
         int total = 0;
@@ -143,6 +155,12 @@ void game_init_arcade(GameState *gs, ThemeID theme, int slot) {
 // multiplicateurs de vague selon l'avancement (stage 0..14) et le
 // mutateur signature du chapitre courant.
 // ════════════════════════════════════════════════════
+// Intensification par acte (dstage = chapitre×3 + acte, 0..14).
+#define CAMP_COUNT_PER_STAGE  0.04f   // +4 % d'ennemis par acte
+#define CAMP_SCALE_PER_STAGE  0.05f   // +5 % de PV de départ par acte
+#define CAMP_CAP_BASE         6.0f    // plafond de scaling de base
+#define CAMP_CAP_PER_STAGE    0.30f   // relèvement du plafond par acte
+
 static void apply_campaign_difficulty(GameState *gs) {
     int node   = gs->campaign_stage;
     if (node < 0) node = 0;
@@ -153,9 +171,9 @@ static void apply_campaign_difficulty(GameState *gs) {
     WaveManager *wm = &gs->wave_manager;
 
     /* Intensification croissante : chaque acte monte d'un cran. */
-    wm->count_mult = 1.0f + 0.04f * (float)dstage;   // +4 % d'ennemis / acte
-    wm->scale      = 1.0f + 0.05f * (float)dstage;   // PV de départ plus hauts tard
-    wm->scale_cap  = 6.0f + 0.30f * (float)dstage;   // plafond relevé tard
+    wm->count_mult = 1.0f + CAMP_COUNT_PER_STAGE * (float)dstage;
+    wm->scale      = 1.0f + CAMP_SCALE_PER_STAGE * (float)dstage;
+    wm->scale_cap  = CAMP_CAP_BASE + CAMP_CAP_PER_STAGE * (float)dstage;
     wm->speed_mult = 1.0f;
 
     /* Mutateur signature du chapitre. */
@@ -193,11 +211,17 @@ void game_init_campaign(GameState *gs, int campaign_num, int slot,
     ThemeID theme = act->theme;
     /* Campagne : 1 seule base par défaut ; seuls les actes qui l'imposent
        (forced_base_count > 0) en demandent plusieurs. */
-    game_init_map(gs, theme, act->forced_base_count > 0 ? act->forced_base_count : 1);
+    int bases = act->forced_base_count > 0 ? act->forced_base_count : 1;
+    /* Les actes "collecter N matériaux" doivent garantir assez de gisements
+       (sinon, avec le 1..4 aléatoire, l'objectif peut être impossible).
+       Marge +2 car les ouvriers sont fragiles et peuvent mourir en route. */
+    int fdep = (act->objective.type == OBJ_COLLECT_MATERIALS)
+             ? act->objective.target + 2 : 0;
+    game_init_map_full(gs, theme, bases, 0, 10, fdep, 0, 0);
     apply_campaign_difficulty(gs);
 
-    printf("Campagne %d acte %d slot=%d theme=%d bases=%d\n",
-           campaign_num, start_stage, slot, (int)theme, act->forced_base_count);
+    printf("Campagne %d acte %d slot=%d theme=%d bases=%d dep=%d\n",
+           campaign_num, start_stage, slot, (int)theme, bases, fdep);
 }
 
 void game_goto_campaign_node(GameState *gs, int node_id) {
@@ -225,7 +249,11 @@ void game_goto_campaign_node(GameState *gs, int node_id) {
     const ActData *act = campaign_act_get(node_id);
     ThemeID theme = act->theme;
     /* 1 base par défaut ; seuls les actes imposant un nombre en demandent plus. */
-    game_init_map(gs, theme, act->forced_base_count > 0 ? act->forced_base_count : 1);
+    int bases = act->forced_base_count > 0 ? act->forced_base_count : 1;
+    /* Garantit assez de gisements pour les objectifs "collecter N matériaux". */
+    int fdep = (act->objective.type == OBJ_COLLECT_MATERIALS)
+             ? act->objective.target + 2 : 0;
+    game_init_map_full(gs, theme, bases, 0, 10, fdep, 0, 0);
     apply_campaign_difficulty(gs);
 
     /* Bonus de build à l'entrée de l'acte (perks économie / survie). */

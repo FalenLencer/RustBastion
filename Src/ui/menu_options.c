@@ -11,6 +11,7 @@
  */
 
 #include "menu_internal.h"
+#include "../combat/fx.h"   // g_fx.enabled (toggle effets de jus)
 
 // ════════════════════════════════════════════════════
 // OPTIONS
@@ -121,6 +122,17 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
                 if (draw_btn(fps_lbl, content_x, y, content_w, BTN_H,
                              C_BLUE, m->opts.show_fps))
                     m->opts.show_fps ^= 1;
+            }
+            y += 20;
+            draw_text_boxed("Effets visuels (jus)", content_x, y, 11, C_GOLD);
+            y += 16;
+            {
+                const char *fx_lbl = m->opts.fx_effects ? "[*] Activé" : "[ ] Désactivé";
+                if (draw_btn(fx_lbl, content_x, y, content_w, BTN_H,
+                             C_BLUE, m->opts.fx_effects)) {
+                    m->opts.fx_effects ^= 1;
+                    g_fx.enabled = m->opts.fx_effects;   // application immédiate
+                }
             }
         }
         break;

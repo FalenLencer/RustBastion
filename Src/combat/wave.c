@@ -11,7 +11,7 @@
 #include <string.h>
 
 #define PREP_TIME            20.0f
-#define BASE_ENEMIES          6
+#define BASE_ENEMIES          5
 #define SPAWN_INTERVAL        0.5f
 #define WAVE_ENEMIES_PER_WAVE 3      /* ennemis supplémentaires par vague (base linéaire) */
 #define WAVE_QUAD_DIV         3      /* diviseur terme quadratique (accélération)         */
@@ -88,9 +88,12 @@ static const int ENEMY_UNLOCK_AT[ENEMY_TYPE_COUNT] = {
    bias : tableau arcade_bias du WaveManager (1.0f en campagne)
    max_stage : campaign_stage-1 en campagne (déblocage progressif)
    ════════════════════════════════════════════════════ */
-static EnemyType pick_enemy_type(int wave_num, ThemeID theme,
-                                  int is_campaign, int max_stage,
-                                  const float *bias) {
+// Distribution de probabilité des types d'ennemis pour une vague donnée.
+// Remplit prob[ENEMY_TYPE_COUNT] (RAIDER = reliquat, fallback). Source unique
+// partagée par le tirage en jeu (pick_enemy_type) et l'aperçu (wave_preview_types).
+static void wave_type_probs(int wave_num, ThemeID theme,
+                            int is_campaign, int max_stage,
+                            const float *bias, float prob[ENEMY_TYPE_COUNT]) {
     // ── Probabilités de base (fonctions de la vague) ──────────────
     float p_vehicle     = fminf(0.05f * (wave_num / 3.0f), 0.12f);
     float p_brute       = fminf(0.10f + wave_num * 0.02f,  0.25f);
@@ -109,8 +112,6 @@ static EnemyType pick_enemy_type(int wave_num, ThemeID theme,
     if (theme == THEME_CITY)    { p_ghost  += 0.05f; p_pathbreaker += 0.05f; }
 
     // ── Campagne : annule les ennemis non encore introduits ───────
-    // max_stage = campaign_stage-1 → l'ennemi s'introduit exactement
-    // au bon acte, indépendamment de la progression méta globale.
     if (is_campaign) {
         if (ENEMY_UNLOCK_AT[ENEMY_BRUTE]       > max_stage) p_brute       = 0.0f;
         if (ENEMY_UNLOCK_AT[ENEMY_RUNNER]      > max_stage) p_runner      = 0.0f;
@@ -124,7 +125,6 @@ static EnemyType pick_enemy_type(int wave_num, ThemeID theme,
     }
 
     // ── Arcade : applique les biais aléatoires de la partie ───────
-    // Chaque run a 2 types dominants et 2 types rares tirés au sort.
     if (!is_campaign) {
         p_vehicle     *= bias[ENEMY_VEHICLE];
         p_brute       *= bias[ENEMY_BRUTE];
@@ -136,7 +136,6 @@ static EnemyType pick_enemy_type(int wave_num, ThemeID theme,
         p_hunter      *= bias[ENEMY_HUNTER];
         p_artillery   *= bias[ENEMY_ARTILLERY];
 
-        // Normalise pour que RAIDER garde ~5% de chance (fallback)
         float total = p_vehicle + p_brute + p_runner + p_mutant + p_ghost
                     + p_pathbreaker + p_healer + p_hunter + p_artillery;
         if (total > WAVE_RAIDER_RESERVE) {
@@ -149,19 +148,59 @@ static EnemyType pick_enemy_type(int wave_num, ThemeID theme,
         }
     }
 
-    // ── Sélection cumulative ──────────────────────────────────────
+    for (int i = 0; i < ENEMY_TYPE_COUNT; i++) prob[i] = 0.0f;
+    prob[ENEMY_VEHICLE]     = p_vehicle;
+    prob[ENEMY_BRUTE]       = p_brute;
+    prob[ENEMY_RUNNER]      = p_runner;
+    prob[ENEMY_MUTANT]      = p_mutant;
+    prob[ENEMY_GHOST]       = p_ghost;
+    prob[ENEMY_PATHBREAKER] = p_pathbreaker;
+    prob[ENEMY_HEALER]      = p_healer;
+    prob[ENEMY_HUNTER]      = p_hunter;
+    prob[ENEMY_ARTILLERY]   = p_artillery;
+    float sum = p_vehicle + p_brute + p_runner + p_mutant + p_ghost
+              + p_pathbreaker + p_healer + p_hunter + p_artillery;
+    prob[ENEMY_RAIDER] = (sum < 1.0f) ? (1.0f - sum) : 0.05f;
+}
+
+static EnemyType pick_enemy_type(int wave_num, ThemeID theme,
+                                  int is_campaign, int max_stage,
+                                  const float *bias) {
+    float p[ENEMY_TYPE_COUNT];
+    wave_type_probs(wave_num, theme, is_campaign, max_stage, bias, p);
+
+    // ── Sélection cumulative (même ordre qu'historiquement) ───────
     float r   = (float)GetRandomValue(0, 10000) / 10000.0f;
     float cum = 0.0f;
-    cum += p_vehicle;     if (r < cum) return ENEMY_VEHICLE;
-    cum += p_brute;       if (r < cum) return ENEMY_BRUTE;
-    cum += p_runner;      if (r < cum) return ENEMY_RUNNER;
-    cum += p_mutant;      if (r < cum) return ENEMY_MUTANT;
-    cum += p_ghost;       if (r < cum) return ENEMY_GHOST;
-    cum += p_pathbreaker; if (r < cum) return ENEMY_PATHBREAKER;
-    cum += p_healer;      if (r < cum) return ENEMY_HEALER;
-    cum += p_hunter;      if (r < cum) return ENEMY_HUNTER;
-    cum += p_artillery;   if (r < cum) return ENEMY_ARTILLERY;
+    cum += p[ENEMY_VEHICLE];     if (r < cum) return ENEMY_VEHICLE;
+    cum += p[ENEMY_BRUTE];       if (r < cum) return ENEMY_BRUTE;
+    cum += p[ENEMY_RUNNER];      if (r < cum) return ENEMY_RUNNER;
+    cum += p[ENEMY_MUTANT];      if (r < cum) return ENEMY_MUTANT;
+    cum += p[ENEMY_GHOST];       if (r < cum) return ENEMY_GHOST;
+    cum += p[ENEMY_PATHBREAKER]; if (r < cum) return ENEMY_PATHBREAKER;
+    cum += p[ENEMY_HEALER];      if (r < cum) return ENEMY_HEALER;
+    cum += p[ENEMY_HUNTER];      if (r < cum) return ENEMY_HUNTER;
+    cum += p[ENEMY_ARTILLERY];   if (r < cum) return ENEMY_ARTILLERY;
     return ENEMY_RAIDER;
+}
+
+// Aperçu : types susceptibles d'apparaître à la vague `wave_num`, triés du
+// plus probable au moins probable (seuil ~3 %). Retourne le nombre écrit.
+int wave_preview_types(int wave_num, ThemeID theme, int is_campaign,
+                       int max_stage, const float *bias,
+                       EnemyType *out, int max_out) {
+    float p[ENEMY_TYPE_COUNT];
+    wave_type_probs(wave_num, theme, is_campaign, max_stage, bias, p);
+    int idx[ENEMY_TYPE_COUNT], n = 0;
+    for (int i = 0; i < ENEMY_TYPE_COUNT; i++)
+        if (p[i] >= 0.03f) idx[n++] = i;
+    for (int a = 0; a < n; a++)        // tri décroissant par probabilité
+        for (int b = a + 1; b < n; b++)
+            if (p[idx[b]] > p[idx[a]]) { int t = idx[a]; idx[a] = idx[b]; idx[b] = t; }
+    int count = 0;
+    for (int i = 0; i < n && count < max_out; i++)
+        out[count++] = (EnemyType)idx[i];
+    return count;
 }
 
 /* ════════════════════════════════════════════════════
@@ -284,10 +323,20 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
             }
 
             int n = wm->number - 1; // vague 1 = n=0
+
+            /* Adoucissement des PREMIÈRES vagues : à chaque acte le joueur
+               repart de 100 or sans aucune tour ; les vagues 1-3 doivent
+               laisser le temps d'installer une défense. Monte vers 100 %.
+               Vague 1/2/3/4 → nombre ≈ 60/73/86/99 %, PV ≈ 72/82/92/100 %. */
+            float early_n  = 0.60f + 0.13f * (float)n;
+            if (early_n  > 1.0f) early_n  = 1.0f;
+            float early_hp = 0.72f + 0.10f * (float)n;
+            if (early_hp > 1.0f) early_hp = 1.0f;
+
             int count = (int)((BASE_ENEMIES
                       + n * WAVE_ENEMIES_PER_WAVE
                       + n * n / WAVE_QUAD_DIV)  // accélération quadratique
-                      * wm->count_mult + 0.5f);
+                      * wm->count_mult * early_n + 0.5f);
             if (count < 1)          count = 1;
             if (count > MAX_ENEMIES) count = MAX_ENEMIES;
             if (wm->total_spawned < count) {
@@ -302,7 +351,7 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
                                                      is_campaign, max_stage,
                                                      wm->arcade_bias);
                     enemy_spawn(pool, type, path_id, paths,
-                                delay, wm->scale,
+                                delay, wm->scale * early_hp,
                                 theme->enemy_speed_mult * wm->speed_mult);
                     wm->total_spawned++;
                 }

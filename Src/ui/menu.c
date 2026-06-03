@@ -24,11 +24,21 @@
 #include "menu_internal.h"
 #include "../engine/paths.h"
 
+// Couleur d'identité de chaque chapitre — source unique (était dupliquée
+// à l'identique dans menu_campaign.c et menu_screens.c).
+const Color CHAPTER_COLORS[CAMPAIGN_CHAPTERS] = {
+    {200, 150,  80, 255},  // Ch.1 Terres Brulees — ocre
+    { 60, 180,  80, 255},  // Ch.2 Marais Toxique — vert
+    {220, 180,  80, 255},  // Ch.3 Desert Irradie — jaune
+    {100, 140, 200, 255},  // Ch.4 Ville en Ruine — bleu
+    {180,  80,  80, 255},  // Ch.5 Usine Abandonnee — rouge
+};
+
 // ════════════════════════════════════════════════════
 // PERSISTANCE DES OPTIONS
 // ════════════════════════════════════════════════════
 #define OPTS_MAGIC   0x52424F50u   /* "RBOP" */
-#define OPTS_VERSION 2
+#define OPTS_VERSION 3             /* v3 : ajout de fx_effects */
 
 typedef struct { unsigned int magic; int version; AppOptions opts; } OptsFile;
 
@@ -60,6 +70,12 @@ int opts_load(AppOptions *o) {
 // ════════════════════════════════════════════════════
 static float g_ox = 0.0f, g_oy = 0.0f, g_sx = 1.0f, g_sy = 1.0f;
 
+/* Décalage horizontal de centrage du contenu de menu (écran large).
+   Le rendu est translaté de g_menu_x_off via une Camera2D ; la souris doit
+   donc soustraire ce même décalage pour rester alignée. Réglé chaque frame
+   au début de menu_render_and_act. */
+static int g_menu_x_off = 0;
+
 void menu_set_mouse_offset(float ox, float oy, float sx, float sy) {
     g_ox = ox; g_oy = oy;
     g_sx = sx > 0.001f ? sx : 1.0f;
@@ -68,7 +84,8 @@ void menu_set_mouse_offset(float ox, float oy, float sx, float sy) {
 
 Vector2 vmouse(void) {
     Vector2 r = GetMousePosition();
-    return (Vector2){(r.x - g_ox)/g_sx, (r.y - g_oy)/g_sy};
+    return (Vector2){(r.x - g_ox)/g_sx - (float)g_menu_x_off,
+                     (r.y - g_oy)/g_sy};
 }
 
 int vhov(int x, int y, int w, int h) {
@@ -452,42 +469,64 @@ MenuAction menu_render_and_act(MenuState *m, const MetaProgress *meta,
 {
     MenuAction act = {0};
 
+    /* ── Écran large : bornage + centrage du contenu ──────────────
+       Les menus sont conçus pour la largeur de base (g_canvas_virt_w_base,
+       = MAP_W×TILE). Sur un canvas plus large (16:9, 21:9…), vw dépasse
+       cette base et les menus s'étireraient. On borne donc la largeur de
+       contenu et on translate le rendu (Camera2D) pour le centrer ; la
+       souris compense via g_menu_x_off (cf. vmouse). */
+    int menu_w = (vw > g_canvas_virt_w_base) ? g_canvas_virt_w_base : vw;
+    g_menu_x_off = (vw - menu_w) / 2;
+
+    /* Bandes latérales : fond sombre uni (sinon on verrait la frame de jeu
+       derrière le menu pause, ou la grille déborder). */
+    if (g_menu_x_off > 0) {
+        DrawRectangle(0, 0, g_menu_x_off, vh, (Color){8, 5, 3, 255});
+        DrawRectangle(menu_w + g_menu_x_off, 0,
+                      vw - menu_w - g_menu_x_off, vh, (Color){8, 5, 3, 255});
+    }
+
+    Camera2D cam = { .offset   = {(float)g_menu_x_off, 0.0f},
+                     .target   = {0.0f, 0.0f},
+                     .rotation = 0.0f, .zoom = 1.0f };
+    BeginMode2D(cam);
+
     if (m->paused && m->screen == MENU_PAUSE) {
-        act = draw_pause(m, vw, vh);
-        return act;
-    }
-    if (m->paused && m->screen == MENU_OPTIONS) {
-        act = draw_options(m, vw, vh);
-        return act;
+        act = draw_pause(m, menu_w, vh);
+    } else if (m->paused && m->screen == MENU_OPTIONS) {
+        act = draw_options(m, menu_w, vh);
+    } else {
+        switch (m->screen) {
+            case MENU_TITLE:        act = draw_title(m, menu_w, vh);              break;
+            case MENU_PLAY_HUB:     act = draw_play_hub(m, meta, menu_w, vh);     break;
+            case MENU_CAMPAIGN:     act = draw_slot_list(m, menu_w, vh, 1);       break;
+            case MENU_ARCADE:       act = draw_slot_list(m, menu_w, vh, 0);       break;
+            case MENU_NEW_CAMPAIGN: act = draw_new_campaign(m, meta, menu_w, vh); break;
+            case MENU_WORLD_MAP:    act = draw_world_map(m, meta, menu_w, vh);    break;
+            case MENU_CUSTOM:       act = draw_custom_config(m, menu_w, vh);      break;
+            case MENU_NEW_ARCADE:
+                m->new_theme = (m->new_theme == (ThemeID)-1) ? THEME_COUNT : m->new_theme;
+                act = draw_new_arcade(m, menu_w, vh);
+                break;
+            case MENU_UPGRADES:     act = draw_upgrades(m, meta, menu_w, vh);     break;
+            case MENU_OPTIONS:      act = draw_options(m, menu_w, vh);            break;
+            case MENU_BESTIARY:     act = draw_bestiary(m, meta, menu_w, vh);     break;
+            case MENU_MP_HUB:       act = draw_mp_hub(m, menu_w, vh);            break;
+            case MENU_MP_LOBBY:     act = draw_mp_lobby(m, menu_w, vh);          break;
+            case MENU_CONFIRM_DEL:
+                draw_slot_list(m, menu_w, vh,
+                    m->back_screen == MENU_CAMPAIGN ||
+                    m->back_screen == MENU_WORLD_MAP);
+                act = draw_confirm_del(m, menu_w, vh);
+                break;
+            default:
+                m->screen = MENU_TITLE;
+                break;
+        }
+        draw_msg(m, menu_w, vh);
     }
 
-    switch (m->screen) {
-        case MENU_TITLE:        act = draw_title(m, vw, vh);              break;
-        case MENU_PLAY_HUB:     act = draw_play_hub(m, meta, vw, vh);     break;
-        case MENU_CAMPAIGN:     act = draw_slot_list(m, vw, vh, 1);       break;
-        case MENU_ARCADE:       act = draw_slot_list(m, vw, vh, 0);       break;
-        case MENU_NEW_CAMPAIGN: act = draw_new_campaign(m, meta, vw, vh); break;
-        case MENU_WORLD_MAP:    act = draw_world_map(m, meta, vw, vh);    break;
-        case MENU_CUSTOM:       act = draw_custom_config(m, vw, vh);      break;
-        case MENU_NEW_ARCADE:
-            m->new_theme = (m->new_theme == (ThemeID)-1) ? THEME_COUNT : m->new_theme;
-            act = draw_new_arcade(m, vw, vh);
-            break;
-        case MENU_UPGRADES:     act = draw_upgrades(m, meta, vw, vh);     break;
-        case MENU_OPTIONS:      act = draw_options(m, vw, vh);            break;
-        case MENU_BESTIARY:     act = draw_bestiary(m, meta, vw, vh);     break;
-        case MENU_CONFIRM_DEL:
-            draw_slot_list(m, vw, vh,
-                m->back_screen == MENU_CAMPAIGN ||
-                m->back_screen == MENU_WORLD_MAP);
-            act = draw_confirm_del(m, vw, vh);
-            break;
-        default:
-            m->screen = MENU_TITLE;
-            break;
-    }
-
-    draw_msg(m, vw, vh);
+    EndMode2D();
     return act;
 }
 

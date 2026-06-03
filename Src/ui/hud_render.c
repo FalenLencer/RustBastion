@@ -15,6 +15,7 @@
  */
 
 #include "hud_internal.h"
+#include "../game/campaign_data.h"   // campaign_difficulty_stage (aperçu de vague)
 
 // ════════════════════════════════════════════════════
 // HELPERS DE RENDU INTERNES
@@ -213,8 +214,9 @@ static void draw_overlay_frame(int ox, int oy, int ow, int oh,
 static void draw_wrapped(const char *txt, int x, int *py, int maxw,
                          int fs, Color col, int y_limit) {
     if (!txt) return;
-    char line[192]; line[0] = '\0'; int ll = 0;
+    char line[256]; line[0] = '\0'; int ll = 0;
     char word[96];
+    int  space_w = mtxt(" ", fs);
     const char *p = txt;
     while (1) {
         while (*p == ' ' || *p == '\n' || *p == '\t') p++;   // saute séparateurs
@@ -224,20 +226,19 @@ static void draw_wrapped(const char *txt, int x, int *py, int maxw,
         word[wl] = '\0';
         if (wl == 0) break;   // fin de texte
 
-        char test[192];
-        if (ll > 0) snprintf(test, sizeof(test), "%s %s", line, word);
-        else        snprintf(test, sizeof(test), "%s", word);
-
-        if (ll > 0 && mtxt(test, fs) > maxw) {
+        /* Le mot dépasse-t-il la largeur si on l'ajoute à la ligne courante ?
+           (mesuré sans construire de chaîne combinée → pas de troncature.) */
+        if (ll > 0 && mtxt(line, fs) + space_w + mtxt(word, fs) > maxw) {
             if (*py > y_limit) return;
             dtxt(line, x, *py, fs, col);
             *py += fh(fs) + 3;
-            snprintf(line, sizeof(line), "%s", word);
-            ll = (int)strlen(line);
-        } else {
-            snprintf(line, sizeof(line), "%s", test);
-            ll = (int)strlen(line);
+            ll = 0; line[0] = '\0';
         }
+        /* Ajoute le mot à la ligne courante (concaténation bornée). */
+        if (ll > 0 && ll < (int)sizeof(line) - 1) line[ll++] = ' ';
+        for (int k = 0; word[k] && ll < (int)sizeof(line) - 1; k++)
+            line[ll++] = word[k];
+        line[ll] = '\0';
     }
     if (ll > 0 && *py <= y_limit) {
         dtxt(line, x, *py, fs, col);
@@ -461,6 +462,57 @@ void ui_render(const UIState *ui, const GameState *gs) {
             dtxt(l1, wx - mtxt(l1,11)/2,
                      (int)(wb->y + wb->height/2 - 8), 11, wlbl);
         }
+
+        // ── Aperçu de la PROCHAINE VAGUE (pendant la prépa) ───────
+        // Montre les types susceptibles d'arriver → choix de défense
+        // éclairé. En campagne, un type non encore découvert s'affiche "?".
+        if (in_prep) {
+            EnemyType pv[ENEMY_TYPE_COUNT];
+            int max_stage = gs->is_campaign
+                ? campaign_difficulty_stage(gs->campaign_stage) - 1 : 9999;
+            int npv = wave_preview_types(gs->wave_manager.number + 1,
+                                         gs->map.theme, gs->is_campaign, max_stage,
+                                         gs->wave_manager.arcade_bias,
+                                         pv, ENEMY_TYPE_COUNT);
+            if (npv > 6) npv = 6;
+            if (npv > 0) {
+                const int ic = 22, ig = 4, ip = 7;
+                const char *hdr = "PROCHAINE VAGUE";
+                int hw     = mtxt(hdr, 8);
+                int stripw = npv*ic + (npv-1)*ig;
+                int pw     = (stripw > hw ? stripw : hw) + ip*2;
+                int ph     = ic + 16 + ip;
+                int ppx    = wx - pw/2;
+                int ppy    = (int)wb->y - ph - 6;
+                DrawRectangleRounded((Rectangle){(float)ppx,(float)ppy,(float)pw,(float)ph},
+                                     0.16f, 5, (Color){10, 7, 3, 230});
+                DrawRectangleRoundedLinesEx((Rectangle){(float)ppx,(float)ppy,(float)pw,(float)ph},
+                                            0.16f, 5, 1.2f, (Color){70, 48, 16, 210});
+                dtxt(hdr, ppx + pw/2 - hw/2, ppy + 4, 8, (Color){150, 120, 70, 255});
+                int ix = ppx + (pw - stripw)/2, iy = ppy + 15;
+                for (int k = 0; k < npv; k++) {
+                    EnemyType ty = pv[k];
+                    Color ec = renderer_enemy_color(ty);
+                    int disc = !gs->is_campaign || gs->meta.bestiary_discovered[ty];
+                    Rectangle br = {(float)ix, (float)iy, (float)ic, (float)ic};
+                    DrawRectangleRounded(br, 0.3f, 4, (Color){(unsigned char)(ec.r/5),(unsigned char)(ec.g/5),(unsigned char)(ec.b/5),255});
+                    DrawRectangleRoundedLinesEx(br, 0.3f, 4, 1.0f, (Color){ec.r, ec.g, ec.b, 220});
+                    if (disc && g_enemy_splash[ty].id != 0) {
+                        DrawTexturePro(g_enemy_splash[ty],
+                            (Rectangle){0,0,(float)g_enemy_splash[ty].width,(float)g_enemy_splash[ty].height},
+                            (Rectangle){(float)(ix+2),(float)(iy+2),(float)(ic-4),(float)(ic-4)},
+                            (Vector2){0,0}, 0.0f, WHITE);
+                    } else if (disc) {
+                        DrawCircle(ix+ic/2, iy+ic/2, ic*0.3f, ec);
+                    } else {
+                        int qw = mtxt("?", 13);
+                        dtxt("?", ix+ic/2 - qw/2, iy+ic/2 - fh(13)/2, 13,
+                             (Color){ec.r, ec.g, ec.b, 220});
+                    }
+                    ix += ic + ig;
+                }
+            }
+        }
     }
 
     // ════════════════════════════════════════════════
@@ -535,6 +587,18 @@ void ui_render(const UIState *ui, const GameState *gs) {
                           max_w, 13, buf, sizeof(buf));
                 dtxt(buf, rx, py, 13, matc);
                 py += 16;
+            }
+
+            /* ── Infobulle de synergie élémentaire ───────── */
+            {
+                const char *syn = (tw->dmg_type == DMG_CRYO)
+                    ? "Synergie: gele -> +30% degats subis"
+                    : (tw->dmg_type == DMG_POISON)
+                    ? "Synergie: corrode -> +25% phys/feu"
+                    : "Frappe + fort gele / corrode";
+                clip_text(syn, max_w, 9, buf, sizeof(buf));
+                dtxt(buf, rx, py, 9, (Color){120, 200, 140, 230});
+                py += 14;
             }
 
             /* ── Boutons d'amélioration (sous le portrait) ─ */
@@ -1289,7 +1353,39 @@ void ui_render(const UIState *ui, const GameState *gs) {
             }
         }
 
+        // Anneaux de sélection sous les unités du GROUPE (+ marqueur de destination)
+        if (ui->group_count > 0) {
+            float t   = (float)GetTime();
+            float pul = (sinf(t * 4.0f) + 1.0f) * 0.5f;
+            for (int j = 0; j < MAX_UNITS; j++) {
+                if (!ui->group_sel[j]) continue;
+                const Unit *u = &gs->units.units[j];
+                if (!u->active) continue;
+                float r = u->size + 5.0f + pul * 2.0f;
+                DrawCircleLines((int)u->x, (int)u->y, r,        (Color){120, 230, 140, 235});
+                DrawCircleLines((int)u->x, (int)u->y, r + 1.0f, (Color){ 50, 150,  85, 150});
+                if (u->behavior == UBEH_MANUAL && u->manual_moving) {
+                    DrawLine((int)u->x, (int)u->y,
+                             (int)u->manual_x, (int)u->manual_y,
+                             (Color){120, 230, 140, 70});
+                    DrawCircleLines((int)u->manual_x, (int)u->manual_y, 4,
+                                    (Color){120, 230, 140, 150});
+                }
+            }
+        }
+
         EndMode2D();
+    }
+
+    // Rectangle de sélection de groupe (glisser en cours) — espace canvas
+    if (ui->box_dragging) {
+        float x0 = fminf(ui->box_start.x, ui->box_cur.x);
+        float y0 = fminf(ui->box_start.y, ui->box_cur.y);
+        float bw = fabsf(ui->box_cur.x - ui->box_start.x);
+        float bh = fabsf(ui->box_cur.y - ui->box_start.y);
+        DrawRectangle((int)x0, (int)y0, (int)bw, (int)bh, (Color){120, 230, 140, 38});
+        DrawRectangleLinesEx((Rectangle){x0, y0, bw, bh}, 1.5f,
+                             (Color){120, 230, 140, 210});
     }
 
     // ════════════════════════════════════════════════

@@ -25,13 +25,7 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
     txt_c_boxed("Cliquez sur un acte ou un chapitre pour le selectionner.",
                 vw/2, M_PAD + 86, 10, C_TEXT);
 
-    static const Color CHAPTER_COLS[CAMPAIGN_CHAPTERS] = {
-        {200,150, 80,255},  // Wasteland — ocre
-        { 60,180, 80,255},  // Swamp     — vert
-        {220,180, 80,255},  // Desert    — jaune
-        {100,140,200,255},  // City      — bleu
-        {180, 80, 80,255},  // Factory   — rouge
-    };
+    const Color *CHAPTER_COLS = CHAPTER_COLORS;   // source unique (menu.c)
 
     static const char *CHAPTER_NAMES[CAMPAIGN_CHAPTERS] = {
         "Les Terres Brulees",
@@ -118,8 +112,25 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                           : stars > 0 ? col : (Color){60,45,18,255})
                          : (Color){30,24,10,255});
 
+            // Badge de graphe (haut-droite) : CHOIX (bifurcation) / REPLI
+            // (repli à la défaite). Déterminé d'abord pour réserver sa place
+            // et éviter que le titre ne le chevauche.
+            const char *badge     = NULL;
+            Color       badge_col = (Color){0};
+            if (unlocked) {
+                if (campaign_has_choice(stage_idx)) {
+                    badge = "CHOIX"; badge_col = (Color){232, 200, 120, 230};
+                } else if (campaign_defeat_mode(stage_idx) == DEFEAT_RETREAT) {
+                    badge = "REPLI"; badge_col = (Color){120, 200, 140, 230};
+                }
+            }
+            int badge_w = badge ? mtxt(badge, 7) + 6 : 0;   // +marge
+
+            // Titre (clippé pour laisser la place au badge à droite)
+            int title_w = act_w - 6 - badge_w;
+            if (title_w < 16) title_w = 16;
             char abuf[32];
-            clip_text(ad->title, act_w - 6, 9, abuf, sizeof(abuf));
+            clip_text(ad->title, title_w, 9, abuf, sizeof(abuf));
             dtxt(abuf, ax+3, ay+2, 9,
                  unlocked ? (stars > 0 ? col : C_TEXT) : C_DIM);
 
@@ -130,17 +141,9 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                 dtxt("*", ax + 3 + s*12, ay + ah - 14, 12, sc);
             }
 
-            // Badges de graphe : CHOIX (bifurcation) / REPLI (repli à la défaite)
-            if (unlocked) {
-                if (campaign_has_choice(stage_idx)) {
-                    int bw = mtxt("CHOIX", 7);
-                    dtxt("CHOIX", ax + act_w - bw - 4, ay + 3, 7,
-                         (Color){232, 200, 120, 230});
-                } else if (campaign_defeat_mode(stage_idx) == DEFEAT_RETREAT) {
-                    int bw = mtxt("REPLI", 7);
-                    dtxt("REPLI", ax + act_w - bw - 4, ay + 3, 7,
-                         (Color){120, 200, 140, 230});
-                }
+            if (badge) {
+                int bw = mtxt(badge, 7);
+                dtxt(badge, ax + act_w - bw - 4, ay + 3, 7, badge_col);
             }
 
             if (!unlocked)
@@ -208,36 +211,49 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
             int sch    = sel / CAMPAIGN_ACTS;
             Color col  = CHAPTER_COLS[sch];
             const ActData *sel_ad = campaign_act_get(sel);
-            int px = right_x + M_IN + 2;
-            int py = ry + M_IN;
+            int px    = right_x + M_IN + 2;
+            int py    = ry + M_IN;
+            int avail = right_w - M_IN*2 - 2;   // largeur de texte dispo
+
+            // Tout s'enchaîne en flux vertical : pas d'ancrage en bas
+            // (sinon le bas chevauche le texte qui descend du haut).
 
             // Chapitre
             char chbuf[64];
             snprintf(chbuf, sizeof(chbuf), "Ch.%d — %s", sch+1, CHAPTER_NAMES[sch]);
             char chclip[64];
-            clip_text(chbuf, right_w - M_IN*2, 9, chclip, sizeof(chclip));
+            clip_text(chbuf, avail, 9, chclip, sizeof(chclip));
             dtxt(chclip, px, py, 9,
                  (Color){(unsigned char)(col.r/2+20), (unsigned char)(col.g/2+20),
                          (unsigned char)(col.b/2+20), 200});
-            py += fh(9) + 4;
+            py += fh(9) + 2;
 
-            // Numéro d'acte
+            // Numéro d'acte (gauche) + étoiles gagnées (droite, même ligne)
             dtxt(TextFormat("Acte %d", sel + 1), px, py, 10, C_DIM);
+            int stars_earned = meta->act_stars[sel];
+            if (stars_earned > 0) {
+                char sbuf[16];
+                snprintf(sbuf, sizeof(sbuf), "%d *", stars_earned);
+                int sw = mtxt(sbuf, 10);
+                dtxt(sbuf, right_x + right_w - M_IN - sw, py, 10,
+                     (Color){232, 200, 32, 255});
+            }
             py += fh(10) + 2;
 
             if (sel_ad) {
                 // Titre
                 char tclip[64];
-                clip_text(sel_ad->title, right_w - M_IN*2, 15, tclip, sizeof(tclip));
+                clip_text(sel_ad->title, avail, 15, tclip, sizeof(tclip));
                 dtxt(tclip, px, py, 15, col);
-                py += fh(15) + 4;
+                py += fh(15) + 2;
                 // Sous-titre
                 char sclip[64];
-                clip_text(sel_ad->subtitle, right_w - M_IN*2, 9, sclip, sizeof(sclip));
+                clip_text(sel_ad->subtitle, avail, 9, sclip, sizeof(sclip));
                 dtxt(sclip, px, py, 9, C_DIM);
+                py += fh(9) + 3;
             }
 
-            // Aperçu du routage de graphe pour cet acte
+            // Aperçu du routage de graphe (sous le sous-titre)
             {
                 const char *rt =
                     campaign_has_choice(sel)    ? "Bifurcation : choix en fin d'acte"
@@ -246,20 +262,8 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                                                 ? "Defaite ici : repli vers une autre voie"
                                                 : "Defaite ici : reprise affaiblie";
                 char rclip[72];
-                clip_text(rt, right_w - M_IN*2, 8, rclip, sizeof(rclip));
-                dtxt(rclip, right_x + M_IN + 2,
-                     ry + info_h - M_IN - fh(9) - 14, 8,
-                     (Color){150, 130, 95, 220});
-            }
-
-            // Étoiles éventuelles
-            int stars_earned = meta->act_stars[sel];
-            if (stars_earned > 0) {
-                char sbuf[16];
-                snprintf(sbuf, sizeof(sbuf), "%d *", stars_earned);
-                dtxt(sbuf, right_x + M_IN + 2,
-                     ry + info_h - M_IN - fh(9), 9,
-                     (Color){232,200,32,255});
+                clip_text(rt, avail, 8, rclip, sizeof(rclip));
+                dtxt(rclip, px, py, 8, (Color){150, 130, 95, 220});
             }
         } else {
             txt_c("Selectionnez un acte ou un chapitre",

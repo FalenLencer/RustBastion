@@ -4,3 +4,4 @@ release/*.zip
 /.claude
 Game.code-workspace
 /build
+/CLAUDE.local.md

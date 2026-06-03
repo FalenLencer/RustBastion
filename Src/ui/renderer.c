@@ -44,6 +44,15 @@ Color PROJ_COLOR[TOWER_TYPE_COUNT] = {
     [TOWER_FLAME]  = {255,107, 53,  255},
     [TOWER_TESLA]  = {218,112,214,  255},
 };
+// Couleur d'identité de chaque matériau — SOURCE UNIQUE (était dupliquée et
+// incohérente entre dépôts, ouvriers, bestiaire et boutique).
+Color MATERIAL_COLORS[MAT_COUNT] = {
+    [MAT_IRON]   = {160, 160, 180, 255},  // acier
+    [MAT_ACID]   = { 80, 200,  50, 255},  // vert toxique
+    [MAT_PLASMA] = { 80, 160, 255, 255},  // bleu plasma
+    [MAT_CRYO]   = {140, 220, 255, 255},  // cyan glacial
+    [MAT_NANO]   = {200, 100, 255, 255},  // violet nano
+};
 
 
 int   g_map_x_off          = 0;
@@ -54,6 +63,24 @@ float g_map_render_scale   = 1.0f;   // zoom de la carte (1 = standard, <1 = gra
 
 Color renderer_tower_color(TowerType type) { return TOWER_FILL[type]; }
 Color renderer_unit_color (UnitType  type) { return UNIT_FILL[type];  }
+
+// Couleur d'identité par type d'ennemi (source unique : rendu + aperçu HUD).
+Color renderer_enemy_color(EnemyType type) {
+    static const Color C[ENEMY_TYPE_COUNT] = {
+        [ENEMY_RAIDER]      = {231,  76,  60, 255},
+        [ENEMY_BRUTE]       = {230, 126,  34, 255},
+        [ENEMY_RUNNER]      = {243, 156,  18, 255},
+        [ENEMY_VEHICLE]     = {127, 140, 141, 255},
+        [ENEMY_MUTANT]      = { 39, 174,  96, 255},
+        [ENEMY_GHOST]       = {180, 180, 255, 255},
+        [ENEMY_PATHBREAKER] = {255,  80, 180, 255},
+        [ENEMY_HEALER]      = {255, 100, 100, 255},
+        [ENEMY_HUNTER]      = {255, 165,   0, 255},
+        [ENEMY_ARTILLERY]   = { 90,  90, 100, 255},
+    };
+    if (type < 0 || type >= ENEMY_TYPE_COUNT) return WHITE;
+    return C[type];
+}
 
 // Couleur d'identité par base : vert pour la principale, palette distincte
 // pour les secondaires (les différencie d'un coup d'œil).
@@ -259,6 +286,38 @@ void render_enemies(const EnemyPool *pool) {
             DrawCircle((int)e->x - 5, (int)e->y - 2, 2.0f, (Color){255, 240, 120, 255});
             DrawCircle((int)e->x + 5, (int)e->y - 2, 2.0f, (Color){255, 240, 120, 255});
 
+            // Éclair blanc de dégât (feedback de jus)
+            if (e->hit_flash > 0.0f)
+                DrawCircle((int)e->x, (int)e->y, R,
+                           (Color){255, 255, 255,
+                                   (unsigned char)(e->hit_flash * 150.0f)});
+
+            // ── Bouclier actif (invulnérable) : bulle cyan ─────────
+            if (e->boss_shield > 0.0f) {
+                float sp = (sinf(t * 6.0f) + 1.0f) * 0.5f;
+                DrawCircle((int)e->x, (int)e->y, R + 10.0f,
+                           (Color){90, 200, 255, (unsigned char)(28 + sp * 34)});
+                DrawCircleLines((int)e->x, (int)e->y, R + 10.0f + sp * 3.0f,
+                                (Color){120, 215, 255, 220});
+            }
+            // ── Télégraphe de capacité : anneau d'avertissement ────
+            if (e->telegraph_timer > 0.0f) {
+                float frac = e->telegraph_timer / BOSS_TELEGRAPH_TIME;   // 1 → 0
+                Color wc = (e->boss_ability == BOSS_STUN)   ? (Color){120, 180, 255, 255}
+                         : (e->boss_ability == BOSS_SUMMON) ? (Color){120, 230, 140, 255}
+                                                            : (Color){ 90, 200, 255, 255};
+                // STUN : l'anneau montre la portée réelle de l'onde EMP
+                float rr = (e->boss_ability == BOSS_STUN)
+                         ? R + frac * (BOSS_STUN_RADIUS * TILE_SIZE)
+                         : R + 6.0f + frac * 22.0f;
+                DrawCircleLines((int)e->x, (int)e->y, rr,        (Color){wc.r, wc.g, wc.b, 230});
+                DrawCircleLines((int)e->x, (int)e->y, rr + 1.0f, (Color){wc.r, wc.g, wc.b, 110});
+                const char *al = (e->boss_ability == BOSS_STUN)   ? "EMP !"
+                               : (e->boss_ability == BOSS_SUMMON) ? "RENFORTS !"
+                                                                  : "BOUCLIER !";
+                dtxt(al, (int)e->x - mtxt(al, 8)/2, (int)e->y - R - 32, 8, wc);
+            }
+
             // Grande barre de vie + label
             int bw = R * 3, bx = (int)e->x - bw/2, by = (int)e->y - R - 18;
             DrawRectangle(bx - 1, by - 1, bw + 2, 7, (Color){0, 0, 0, 210});
@@ -267,21 +326,8 @@ void render_enemies(const EnemyPool *pool) {
             continue;
         }
 
-        // Couleur de base par type
-        Color col;
-        switch (e->type) {
-            case ENEMY_RAIDER:      col = (Color){231, 76,  60,  255}; break;
-            case ENEMY_BRUTE:       col = (Color){230, 126, 34,  255}; break;
-            case ENEMY_RUNNER:      col = (Color){243, 156, 18,  255}; break;
-            case ENEMY_VEHICLE:     col = (Color){127, 140, 141, 255}; break;
-            case ENEMY_MUTANT:      col = (Color){ 39, 174, 96,  255}; break;
-            case ENEMY_GHOST:       col = (Color){180, 180, 255, 255}; break;
-            case ENEMY_PATHBREAKER: col = (Color){255, 80,  180, 255}; break;
-            case ENEMY_HEALER:      col = (Color){255, 100, 100, 255}; break;
-            case ENEMY_HUNTER:      col = (Color){255, 165,   0, 255}; break;
-            case ENEMY_ARTILLERY:   col = (Color){ 90,  90, 100, 255}; break;
-            default:                col = WHITE;
-        }
+        // Couleur de base par type (source unique partagée avec l'aperçu HUD)
+        Color col = renderer_enemy_color(e->type);
  
         // ── Teinte du sprite ──────────────────────────────────
         // WHITE = couleurs natives ; bleutée si ralenti ; alpha réduit
@@ -325,6 +371,13 @@ void render_enemies(const EnemyPool *pool) {
                        (Color){col.r, col.g, col.b, body_alpha});
             DrawCircleLines((int)e->x, (int)e->y, (int)e->size,
                             (Color){255,255,255,60});
+        }
+
+        // ── Éclair blanc de dégât (feedback de jus) ───────────
+        if (e->hit_flash > 0.0f) {
+            unsigned char fa = (unsigned char)(e->hit_flash * 170.0f);
+            DrawCircle((int)e->x, (int)e->y, e->size + 1.0f,
+                       (Color){255, 255, 255, fa});
         }
 
         // ── Marqueurs (au-dessus du sprite) ───────────────────
@@ -406,6 +459,15 @@ void render_towers(const TowerPool *tp) {
                           ratio > 0.5f ? (Color){230,160, 20,255}
                         : ratio > 0.25f? (Color){230, 80, 20,255}
                                        : (Color){220, 30, 30,255});
+        }
+
+        // Étourdie par une onde EMP de boss : halo bleu pulsé + marqueur
+        if (tw->stun_timer > 0.0f) {
+            float sp = (sinf((float)GetTime() * 12.0f) + 1.0f) * 0.5f;
+            DrawRectangle(px+2, py+2, s-4, s-4,
+                          (Color){80, 150, 255, (unsigned char)(35 + sp * 45)});
+            DrawCircleLines((int)cx, (int)cy, s * 0.4f, (Color){130, 200, 255, 210});
+            dtxt("Z", (int)cx - 3, py + 2, 9, (Color){160, 215, 255, 235});
         }
     }
 }
@@ -538,14 +600,9 @@ void render_units(const UnitPool *up) {
 
             // Si porte un matériau : halo coloré (rayon = autour du sprite)
             if (u->has_material && u->carried_mat != MAT_NONE) {
-                static const Color MAT_COL[MAT_COUNT] = {
-                    {160,160,180,255},{80,220,60,255},
-                    {80,160,255,255},{140,220,255,255},{200,100,255,255},
-                };
+                Color mc = MATERIAL_COLORS[u->carried_mat];
                 DrawCircle((int)u->x, (int)u->y, (int)(u->size * UNIT_SPRITE_HALF + 5),
-                           (Color){MAT_COL[u->carried_mat].r,
-                                   MAT_COL[u->carried_mat].g,
-                                   MAT_COL[u->carried_mat].b, 80});
+                           (Color){mc.r, mc.g, mc.b, 80});
             }
 
             // Barre de collecte (au-dessus du sprite)
@@ -631,13 +688,6 @@ void render_units(const UnitPool *up) {
 // DÉPÔTS DE MATÉRIAUX
 // ════════════════════════════════════════════════════
 void render_deposits(const Map *map) {
-    static const Color MAT_COLORS[MAT_COUNT] = {
-        [MAT_IRON]  = {160, 160, 180, 255},
-        [MAT_ACID]  = { 80, 200,  50, 255},
-        [MAT_PLASMA]= { 80, 160, 255, 255},
-        [MAT_CRYO]  = {140, 220, 255, 255},
-        [MAT_NANO]  = {200, 100, 255, 255},
-    };
     static const char *MAT_ICONS[MAT_COUNT] = {
         [MAT_IRON]  = "Fe",
         [MAT_ACID]  = "Ac",
@@ -667,7 +717,7 @@ void render_deposits(const Map *map) {
         // teinté de la couleur du minerai à venir, par-dessus la tuile de ruine.
         if (d->spawn_wave > 0) {
             int cx = px + TILE_SIZE / 2, cy = py + TILE_SIZE / 2;
-            Color mc = MAT_COLORS[d->type];
+            Color mc = MATERIAL_COLORS[d->type];
             DrawCircle(cx, cy, TILE_SIZE / 2 - 6, (Color){18, 14, 8, 175});
             DrawCircleLines(cx, cy, TILE_SIZE / 2 - 4, (Color){mc.r, mc.g, mc.b, 130});
             int iw = mtxt(MAT_ICONS[d->type], 9);
@@ -685,13 +735,6 @@ void render_deposits(const Map *map) {
 // MATÉRIAUX LÂCHÉS AU SOL
 // ════════════════════════════════════════════════════
 void render_dropped_mats(const DroppedMat *mats, int count) {
-    static const Color MAT_COLORS[MAT_COUNT] = {
-        [MAT_IRON]  = {160, 160, 180, 255},
-        [MAT_ACID]  = { 80, 200,  50, 255},
-        [MAT_PLASMA]= { 80, 160, 255, 255},
-        [MAT_CRYO]  = {140, 220, 255, 255},
-        [MAT_NANO]  = {200, 100, 255, 255},
-    };
     static const char *MAT_ICONS[MAT_COUNT] = {
         [MAT_IRON]  = "Fe", [MAT_ACID]  = "Ac", [MAT_PLASMA]= "Pl",
         [MAT_CRYO]  = "Cr", [MAT_NANO]  = "Na",
@@ -700,7 +743,7 @@ void render_dropped_mats(const DroppedMat *mats, int count) {
     for (int i = 0; i < count; i++) {
         const DroppedMat *dm = &mats[i];
         if (!dm->active || dm->type < 0 || dm->type >= MAT_COUNT) continue;
-        Color col = MAT_COLORS[dm->type];
+        Color col = MATERIAL_COLORS[dm->type];
         // Clignotement si < 5s restantes
         float fade = (dm->lifetime < 5.0f)
                    ? (0.3f + 0.7f * ((sinf(t * 6.0f) + 1.0f) * 0.5f))

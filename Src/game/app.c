@@ -23,9 +23,14 @@
 #include "campaign_data.h"
 #include "../ui/ui_utils.h"   // DrawText/MeasureText → g_font (support accents)
 #include "../map/theme.h"
+#include "../combat/fx.h"     // effets de jus (particules, secousse, pops)
 #include "raylib.h"
 #include <string.h>
 #include <stdio.h>
+
+// Multijoueur
+#define MP_PORT             47777
+#define MP_STATUS_INTERVAL  0.4f    // période d'envoi du statut (s)
 
 // ════════════════════════════════════════════════════════════════
 // INIT
@@ -34,6 +39,7 @@ void app_init(AppContext *ctx) {
     memset(ctx, 0, sizeof(AppContext));
 
     game_state_init(&ctx->gs);
+    snprintf(ctx->mp_name, sizeof(ctx->mp_name), "Joueur");
 
     AppOptions opts = {
         .win_width     = VIRT_W,
@@ -42,11 +48,13 @@ void app_init(AppContext *ctx) {
         .master_volume = 50,
         .music_volume  = 50,
         .sfx_volume    = 50,
+        .fx_effects    = 1,
     };
     opts_load(&opts);
     audio_set_master_volume(opts.master_volume / 100.0f);
     audio_set_music_volume (opts.music_volume  / 100.0f);
     audio_set_sfx_volume   (opts.sfx_volume    / 100.0f);
+    g_fx.enabled = opts.fx_effects;
 
     menu_init(&ctx->menu, &opts);
 
@@ -84,6 +92,29 @@ void app_save_on_exit(const AppContext *ctx) {
 void app_cleanup(AppContext *ctx) {
     opts_save(&ctx->menu.opts);
     menu_cleanup(&ctx->menu);
+}
+
+// Lance la partie multijoueur (mode Course) avec le seed partagé.
+static void mp_launch_game(AppContext *ctx) {
+    NetSession *s = &ctx->session;
+    ctx->mp_in_game      = 1;
+    ctx->mp_peer_valid   = 0;
+    ctx->mp_result       = 0;
+    ctx->mp_status_timer = 0.0f;
+    memset(&ctx->mp_peer, 0, sizeof(ctx->mp_peer));
+
+    // Course : board type arcade, MÊME seed → même carte (équité).
+    unsigned int seed = s->seed ? s->seed : 1u;
+    SetRandomSeed(seed);
+    ThemeID theme = (ThemeID)(seed % THEME_COUNT);
+    ctx->active_slot = -1;                 // pas de sauvegarde en multijoueur
+    game_init_arcade(&ctx->gs, theme, -1);
+
+    ctx->menu.screen    = MENU_TITLE;
+    ctx->screen         = SCREEN_GAME;
+    ctx->banner_timer   = 5.0f;
+    ctx->gs.ui.show_fps = ctx->menu.opts.show_fps;
+    audio_play_theme_music(ctx->gs.map.theme);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -203,6 +234,58 @@ static int handle_menu(AppContext *ctx) {
         audio_play_theme_music(ctx->gs.map.theme);
     }
 
+    // ── Multijoueur : cycle de vie de la session ─────────────
+    if (act.mp_host) {
+        net_session_close(&ctx->session);
+        ctx->mp_active = 0;
+        int seed = GetRandomValue(1, 0x3FFFFFFF);
+        ctx->mp_mode = act.mp_mode ? act.mp_mode : MP_COURSE;
+        if (net_session_host(&ctx->session, MP_PORT, (uint32_t)seed,
+                             (uint8_t)ctx->mp_mode, ctx->mp_name))
+            ctx->mp_active = 1;
+    }
+    if (act.mp_join) {
+        net_session_close(&ctx->session);
+        ctx->mp_active = 0;
+        if (net_session_join(&ctx->session, act.mp_code, ctx->mp_name))
+            ctx->mp_active = 1;
+    }
+    if (ctx->mp_active && act.mp_ready)
+        net_session_set_ready(&ctx->session, !ctx->session.my_ready);
+    if (ctx->mp_active && act.mp_start)
+        net_session_start(&ctx->session);
+    if (act.mp_leave) {
+        net_session_close(&ctx->session);
+        ctx->mp_active = 0;
+        ctx->menu.mp_view.active = 0;
+    }
+
+    // ── Avance la session + remplit la vue + lance la partie ──
+    {
+        int in_mp = (ctx->menu.screen == MENU_MP_HUB ||
+                     ctx->menu.screen == MENU_MP_LOBBY);
+        if (ctx->mp_active && in_mp) {
+            net_session_update(&ctx->session);
+            NetSession  *s = &ctx->session;
+            MpLobbyView *v = &ctx->menu.mp_view;
+            v->active         = 1;
+            v->is_host        = s->is_host;
+            v->peer_connected = (s->state == SESS_LOBBY || s->state == SESS_INGAME);
+            v->my_ready       = s->my_ready;
+            v->peer_ready     = s->peer_ready;
+            v->started        = s->started;
+            v->failed         = (s->state == SESS_FAILED);
+            snprintf(v->code, sizeof(v->code), "%s", s->code);
+            snprintf(v->peer_name, sizeof(v->peer_name), "%s", s->peer_name);
+            if (s->mode) { ctx->mp_mode = s->mode; ctx->menu.mp_mode = s->mode; }
+            if (s->started) mp_launch_game(ctx);
+        } else if (ctx->mp_active && !in_mp && ctx->screen == SCREEN_MENU) {
+            net_session_close(&ctx->session);   // quitté les écrans MP → ferme
+            ctx->mp_active = 0;
+            ctx->menu.mp_view.active = 0;
+        }
+    }
+
     return 1;
 }
 
@@ -237,9 +320,11 @@ static void game_do_update(AppContext *ctx, float dt) {
     // Fiche de découverte visible → jeu gelé (ui_update gère la fermeture)
     if (ctx->gs.ui.disc_count > 0) return;
     game_state_update(&ctx->gs, dt);
+    fx_update(dt);   // particules / popups / secousse
 
-    /* Déclenchement extraction endless toutes les 10 vagues */
-    if (ctx->gs.is_endless               &&
+    /* Déclenchement extraction endless toutes les 10 vagues (désactivé en MP) */
+    if (!ctx->mp_in_game                  &&
+        ctx->gs.is_endless               &&
         !ctx->gs.endless_pending_extract  &&
         ctx->gs.phase == PHASE_PREP       &&
         ctx->gs.wave_manager.number > 0   &&
@@ -247,6 +332,58 @@ static void game_do_update(AppContext *ctx, float dt) {
     {
         ctx->gs.endless_pending_extract = 1;
         ctx->interlude = INTER_EXTRACT;
+    }
+}
+
+// Tick réseau en jeu (mode Course) : réception du statut adverse + envoi du
+// nôtre + détection de victoire/défaite. Tourne même en pause (keep-alive).
+static void mp_game_tick(AppContext *ctx, float dt) {
+    if (!ctx->mp_active || !ctx->mp_in_game) return;
+    NetSession *s = &ctx->session;
+    net_session_update(s);
+
+    NetMsgHeader h;
+    unsigned char pl[NET_MAX_PAYLOAD];
+    while (net_session_recv(s, &h, pl, sizeof(pl))) {
+        if (h.type == NMSG_STATUS && h.len >= (int)sizeof(NetStatus)) {
+            memcpy(&ctx->mp_peer, pl, sizeof(NetStatus));
+            ctx->mp_peer_valid = 1;
+        } else if (h.type == NMSG_GAMEOVER) {
+            if (ctx->mp_result == 0 && ctx->gs.lives > 0) ctx->mp_result = 1; // adversaire tombé
+        }
+    }
+    if (s->peer_gone && ctx->mp_result == 0) ctx->mp_result = 1;  // déconnexion adverse
+
+    if (!ctx->menu.paused) {
+        ctx->mp_status_timer -= dt;
+        if (ctx->mp_status_timer <= 0.0f) {
+            ctx->mp_status_timer = MP_STATUS_INTERVAL;
+            NetStatus st;
+            st.wave  = ctx->gs.wave_manager.number;
+            st.kills = ctx->gs.kills;
+            st.gold  = ctx->gs.gold;
+            st.lives = ctx->gs.lives;
+            st.alive = (ctx->gs.lives > 0) ? 1 : 0;
+            net_session_send(s, NMSG_STATUS, &st, sizeof(st));
+        }
+    }
+    if (ctx->mp_result == 0 && ctx->gs.lives <= 0) {   // défaite locale
+        net_session_send(s, NMSG_GAMEOVER, NULL, 0);
+        ctx->mp_result = 2;
+    }
+}
+
+// Résultat MP affiché → un input ramène au menu (ferme la session).
+static void mp_handle_result(AppContext *ctx) {
+    if (ctx->mp_result == 0) return;
+    if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER) ||
+        IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        net_session_close(&ctx->session);
+        ctx->mp_active   = 0;
+        ctx->mp_in_game  = 0;
+        ctx->menu.paused = 0;
+        ctx->screen      = SCREEN_MENU;
+        ctx->menu.screen = MENU_MP_HUB;
     }
 }
 
@@ -595,14 +732,63 @@ static void game_handle_extract(AppContext *ctx) {
 // ÉCRAN JEU — RENDU
 // retourne 0 si l'utilisateur demande à quitter (pause → quitter)
 // ════════════════════════════════════════════════════════════════
+// Overlay multijoueur : mini-HUD du rival + bandeau de résultat.
+static void mp_render_overlay(AppContext *ctx) {
+    if (!ctx->mp_in_game) return;
+    int base_cx = g_map_x_off + g_canvas_virt_w_base / 2;
+
+    // Mini-HUD rival (haut-centre)
+    int pw = 240, ph = 34, px = base_cx - pw/2, py = 4;
+    DrawRectangleRounded((Rectangle){(float)px,(float)py,(float)pw,(float)ph},
+                         0.22f, 5, (Color){10, 7, 3, 215});
+    DrawRectangleRoundedLinesEx((Rectangle){(float)px,(float)py,(float)pw,(float)ph},
+                         0.22f, 5, 1.2f, (Color){70, 48, 16, 210});
+    const char *nm = ctx->session.peer_name[0] ? ctx->session.peer_name : "Adversaire";
+    char top[72];
+    snprintf(top, sizeof(top), "RIVAL : %s", nm);
+    int tw0 = mtxt(top, 9);
+    dtxt(top, base_cx - tw0/2, py + 3, 9, (Color){200, 180, 120, 255});
+    char cmp[72];
+    if (ctx->mp_peer_valid)
+        snprintf(cmp, sizeof(cmp), "Vous V%d PV%d   |   Lui V%d PV%d",
+                 ctx->gs.wave_manager.number, ctx->gs.lives,
+                 ctx->mp_peer.wave, ctx->mp_peer.lives);
+    else
+        snprintf(cmp, sizeof(cmp), "Vous V%d PV%d   |   Lui (connexion...)",
+                 ctx->gs.wave_manager.number, ctx->gs.lives);
+    int cw0 = mtxt(cmp, 8);
+    dtxt(cmp, base_cx - cw0/2, py + 18, 8, (Color){150, 130, 80, 255});
+
+    // Bandeau de résultat
+    if (ctx->mp_result != 0) {
+        int cx = g_canvas_virt_w / 2, cy = g_canvas_virt_h / 2;
+        DrawRectangle(0, 0, g_canvas_virt_w, g_canvas_virt_h, (Color){0, 0, 0, 175});
+        const char *t = (ctx->mp_result == 1) ? "VICTOIRE" : "DEFAITE";
+        Color tc = (ctx->mp_result == 1) ? (Color){240, 200, 60, 255}
+                                         : (Color){220, 70, 60, 255};
+        int tw = mtxt(t, 40);
+        dtxt(t, cx - tw/2, cy - 46, 40, tc);
+        const char *sub = (ctx->mp_result == 1) ? "L'adversaire est tombe."
+                                                : "Vos bases sont tombees.";
+        int sw = mtxt(sub, 12);
+        dtxt(sub, cx - sw/2, cy + 16, 12, (Color){200, 180, 140, 255});
+        const char *hint = "Clic ou ESPACE pour revenir au menu";
+        int hw = mtxt(hint, 10);
+        dtxt(hint, cx - hw/2, cy + 44, 10, (Color){140, 120, 80, 255});
+    }
+}
+
 static int game_do_render(AppContext *ctx) {
     GameState *gs = &ctx->gs;
 
     ClearBackground(theme_get(gs->map.theme)->palette.bg);
 
-    /* Décale la carte horizontalement pour centrer dans le canvas large */
+    /* Décale la carte horizontalement pour centrer dans le canvas large.
+       + secousse caméra (jus) : décalage purement visuel (le mappage souris
+       reste sur g_map_x_off non secoué). */
     Camera2D map_cam = {0};
-    map_cam.offset = (Vector2){(float)g_map_x_off, 0.0f};
+    map_cam.offset = (Vector2){(float)g_map_x_off + fx_shake_dx(),
+                               fx_shake_dy()};
     map_cam.zoom   = g_map_render_scale;
     BeginMode2D(map_cam);
         render_map(&gs->map);
@@ -616,6 +802,7 @@ static int game_do_render(AppContext *ctx) {
         render_units(&gs->units);
         render_enemies(&gs->enemies);
         render_projectiles(&gs->towers);
+        fx_render_world();   // particules + popups d'or (jus)
     EndMode2D();
 
     ui_render(&gs->ui, gs);
@@ -810,7 +997,7 @@ static int game_do_render(AppContext *ctx) {
            pour rester parfaitement lisible (avant il était noyé sous le
            rectangle d'assombrissement plein écran du menu pause).        */
         if (big_title[0]) {
-            char compact[200];
+            char compact[256];   // assez large pour "titre — sous-titre"
             if (line1[0])
                 snprintf(compact, sizeof(compact), "%s  —  %s", big_title, line1);
             else
@@ -907,6 +1094,8 @@ static int game_do_render(AppContext *ctx) {
             window_apply_size(ctx->menu.opts.win_width,
                               ctx->menu.opts.win_height);
     }
+
+    mp_render_overlay(ctx);   // mini-HUD rival + résultat (par-dessus tout)
     return 1;
 }
 
@@ -933,6 +1122,7 @@ int app_update(AppContext *ctx, float dt) {
     /* SCREEN_GAME */
     game_do_input(ctx);
     game_do_update(ctx, dt);
+    mp_game_tick(ctx, dt);   // réseau multijoueur (no-op hors MP)
 
     /* Sync show_fps opts ↔ ui :
        - En jeu (non pausé) : [F] peut avoir changé ui → on met à jour opts pour persistance.
@@ -942,12 +1132,16 @@ int app_update(AppContext *ctx, float dt) {
     else
         ctx->menu.opts.show_fps = ctx->gs.ui.show_fps;
 
-    game_handle_gameover(ctx);
-    game_handle_campaign_end(ctx);
-    game_handle_dialog_after(ctx);
-    game_handle_draft(ctx);
-    game_handle_shop(ctx);
-    game_handle_extract(ctx);
+    if (ctx->mp_in_game) {
+        mp_handle_result(ctx);          // partie MP : résultat → retour menu
+    } else {
+        game_handle_gameover(ctx);
+        game_handle_campaign_end(ctx);
+        game_handle_dialog_after(ctx);
+        game_handle_draft(ctx);
+        game_handle_shop(ctx);
+        game_handle_extract(ctx);
+    }
     int keep = game_do_render(ctx);
     /* Mémorise l'interlude pour le frame suivant (garde anti-bleed d'input). */
     ctx->interlude_prev = ctx->interlude;

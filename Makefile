@@ -13,13 +13,17 @@ SRC = Src/main.c                                                              \
       Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c       \
       Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c    \
       Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
+      Src/combat/fx.c                                                        \
       Src/ui/renderer.c        Src/ui/ui_utils.c      Src/ui/tile_art.c     \
+      Src/ui/perk_art.c                                                     \
       Src/ui/hud.c             Src/ui/hud_input.c     Src/ui/hud_render.c   \
       Src/ui/menu.c            Src/ui/menu_screens.c  Src/ui/menu_campaign.c \
       Src/ui/menu_anim.c                                                     \
       Src/ui/menu_options.c    Src/ui/menu_upgrades.c Src/ui/menu_bestiary.c \
       Src/ui/menu_custom_config.c                                             \
+      Src/ui/menu_mp.c                                                       \
       Src/ui/interlude.c                                                     \
+      Src/net/net_transport.c  Src/net/net_session.c                         \
 
 # ── Dossiers ────────────────────────────────────────────────────
 ASSETS_DIR   = assets
@@ -56,6 +60,7 @@ CFLAGS_WIN  = -Wall -Wextra -O2                          \
 LDFLAGS_WIN = -L$(RAYLIB_WIN_PATH)/lib                   \
               -lraylib -lopengl32 -lgdi32                 \
               -lwinmm -lshell32 -lpthread -lm             \
+              -lws2_32                                    \
               -static-libgcc -static-libstdc++
 
 OUT_WIN     = $(BUILD_DIR)/rustbastion.exe

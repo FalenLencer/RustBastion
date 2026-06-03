@@ -13,6 +13,7 @@
 #include "game_state.h"
 #include "../ui/menu.h"
 #include "../ui/interlude.h"
+#include "../net/net_session.h"
 
 // ────────────────────────────────────────────────────────────────
 // Écrans principaux
@@ -49,6 +50,17 @@ typedef struct {
 
     /* Bannière de carte : affichée 5 s au démarrage puis fondu */
     float          banner_timer;         /* > 0 = visible, fondu sur la dernière 0.5 s */
+
+    /* ── Multijoueur ──────────────────────────────────────── */
+    NetSession     session;
+    int            mp_active;       /* 1 = session réseau vivante (lobby ou jeu) */
+    int            mp_mode;         /* MpMode courant */
+    int            mp_in_game;      /* 1 = partie MP en cours (pas juste lobby) */
+    NetStatus      mp_peer;         /* dernier statut reçu de l'adversaire */
+    int            mp_peer_valid;   /* 1 = au moins un statut reçu */
+    int            mp_result;       /* 0 = en cours, 1 = gagné, 2 = perdu */
+    float          mp_status_timer; /* throttle d'envoi du statut (s) */
+    char           mp_name[24];     /* pseudo local */
 } AppContext;
 
 // ────────────────────────────────────────────────────────────────

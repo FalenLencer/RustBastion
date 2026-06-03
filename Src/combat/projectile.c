@@ -18,6 +18,13 @@ static void apply_damage(Enemy *e, float dmg, DamageType dtype) {
     if (dt_idx < 0 || dt_idx >= DAMAGE_TYPE_COUNT) dt_idx = 0;
     float mult = ENEMY_DMG_MULT[e->type][dt_idx];
 
+    // ── Synergies d'état (matériaux) ──────────────────────────
+    // Cryo : un ennemi ralenti (gelé) est vulnérable à TOUT.
+    // Acide : un ennemi empoisonné (corrodé) prend +dégâts phys./feu.
+    if (e->slow_timer > 0.0f) dmg *= SYN_CRYO_VULN;
+    if (e->poison_timer > 0.0f && (dtype == DMG_PHYSICAL || dtype == DMG_FIRE))
+        dmg *= SYN_ACID_CORRODE;
+
     if (dtype == DMG_POISON) {
         // ── Accumulation brûlure (lance-flammes) ────────────
         // burn_mult = 1.0 au 1er tir, +0.1 par stack suivant (max +100%)

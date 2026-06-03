@@ -283,6 +283,12 @@ void tower_pool_update(TowerPool *tp, EnemyPool *ep, float dt) {
         Tower *tw = &tp->towers[i];
         if (!tw->active) continue;
 
+        // Étourdie par une onde EMP de boss → ne tire pas
+        if (tw->stun_timer > 0.0f) {
+            tw->stun_timer -= dt;
+            continue;
+        }
+
         tw->fire_timer -= dt;
         if (tw->fire_timer > 0.0f) continue;
 

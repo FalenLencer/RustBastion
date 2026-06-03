@@ -100,6 +100,12 @@ typedef struct {
     Vector2       overlay_bl_pos;     // panneau bas-gauche  (bases HP / réparation)
     int           dragging_overlay;   // -1=aucun, 0=TL, 1=TR, 2=BL
     Vector2       drag_grab;          // décalage souris → coin overlay au début du drag
+    // Sélection de GROUPE d'unités (glisser-boîte gauche → ordre clic droit)
+    int           group_sel[MAX_UNITS]; // 1 = unité (par slot) dans le groupe courant
+    int           group_count;          // nombre d'unités de combat sélectionnées
+    int           box_dragging;         // 1 = glisser de sélection en cours
+    Vector2       box_start;            // coin de départ du glisser (coords virtuelles)
+    Vector2       box_cur;              // coin courant du glisser
     // Notifications flottantes
     FloatNotif    notifs[MAX_NOTIFS];
     int           notif_count;

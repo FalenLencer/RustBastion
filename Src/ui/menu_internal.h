@@ -50,6 +50,9 @@
 #define C_DARK    ((Color){  9,   5,   2, 255})
 #define C_ORANGE  ((Color){215, 118,  28, 255})
 
+// Couleur d'identité de chaque chapitre (source unique, défini dans menu.c).
+extern const Color CHAPTER_COLORS[CAMPAIGN_CHAPTERS];
+
 // ── Constantes de layout ─────────────────────────────────────────
 #define M_PAD     16    // marge extérieure des panneaux
 #define M_IN       8    // marge intérieure entre éléments
@@ -110,3 +113,5 @@ MenuAction draw_options       (MenuState *m, int vw, int vh);
 MenuAction draw_upgrades      (MenuState *m, const MetaProgress *meta, int vw, int vh);
 MenuAction draw_bestiary      (MenuState *m, const MetaProgress *meta, int vw, int vh);
 MenuAction draw_custom_config (MenuState *m, int vw, int vh);
+MenuAction draw_mp_hub        (MenuState *m, int vw, int vh);
+MenuAction draw_mp_lobby      (MenuState *m, int vw, int vh);

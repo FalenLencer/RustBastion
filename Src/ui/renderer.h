@@ -19,6 +19,8 @@ typedef struct GameState GameState;
 extern Color TOWER_FILL[TOWER_TYPE_COUNT];
 extern Color UNIT_FILL [UNIT_TYPE_COUNT];
 extern Color PROJ_COLOR[TOWER_TYPE_COUNT];
+// Couleur d'identité par matériau (source unique, cf. MaterialType).
+extern Color MATERIAL_COLORS[MAT_COUNT];
 
 // Décalage horizontal de la carte dans le canvas (centrage, px virtuels)
 extern int g_map_x_off;
@@ -34,6 +36,7 @@ extern float g_map_render_scale;
 
 Color renderer_tower_color(TowerType type);
 Color renderer_unit_color (UnitType  type);
+Color renderer_enemy_color(EnemyType type);
 // Couleur d'identité d'une base (distincte par index) — partagée entre le
 // bunker, l'onde de repérage et la barre de vie pour différencier les bases.
 Color renderer_base_color (int base_idx, int is_primary);

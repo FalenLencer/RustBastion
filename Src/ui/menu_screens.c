@@ -88,6 +88,17 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     }
     by += bh + gap;
 
+    if (draw_nav_btn("M", "MULTIJOUEUR",
+                     "Jouez ensemble ou l'un contre l'autre (code de session).",
+                     C_GREEN, bx, by, bw, bh)) {
+        push_back_screen(m);
+        m->screen      = MENU_MP_HUB;
+        m->back_screen = MENU_PLAY_HUB;
+        m->mp_role = 0;
+        if (m->mp_mode == MP_NONE) m->mp_mode = MP_COURSE;
+    }
+    by += bh + gap;
+
     if (draw_nav_btn("X", "CUSTOM GAME",
                      "Carte, spawns, bases, terrain et difficulte sur mesure.",
                      C_ORANGE, bx, by, bw, bh)) {
@@ -190,7 +201,7 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
                           txt_clip_w, 12, arcbuf, sizeof(arcbuf));
                 dtxt(arcbuf, tx, ty, 12, C_BLUE);
             }
-            ty += 16;
+            ty += fh(12) + 1;   /* hauteur réelle du titre (taille 12 → ~19 px) */
             {
                 char s1[32], s2[24], s3[24];
                 snprintf(s1, sizeof(s1), "Vague %d  |  ", si->wave);
@@ -203,7 +214,7 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
                 draw_icon(g_icon_gold,  ix, ty, fh(10), WHITE); ix += fh(10);
                 dtxt(s3, ix, ty, 10, C_TEXT);
             }
-            ty += M_LINE;
+            ty += fh(10) + 2;   /* hauteur réelle de la ligne de stats (~16 px) */
             dtxt(TextFormat("Emplacement %d", i+1), tx, ty, 9, C_DIM);
 
             /* REPRENDRE + EFFACER côte à côte */
@@ -293,14 +304,7 @@ MenuAction draw_new_campaign(MenuState *m, const MetaProgress *meta,
     draw_bg(m, vw, vh);
     draw_header("NOUVELLE CAMPAGNE", vw);
 
-    // Ordre fixe des chapitres — identique à campaign_data.c
-    static const Color CHAPTER_COLS[CAMPAIGN_CHAPTERS] = {
-        {200,150, 80,255},  // Ch.1 — Terres Brulees  (ocre)
-        { 60,180, 80,255},  // Ch.2 — Marais Toxique  (vert)
-        {220,180, 80,255},  // Ch.3 — Desert Irradie  (jaune)
-        {100,140,200,255},  // Ch.4 — Ville en Ruine  (bleu)
-        {180, 80, 80,255},  // Ch.5 — Usine Abandonnee (rouge)
-    };
+    const Color *CHAPTER_COLS = CHAPTER_COLORS;   // source unique (menu.c)
     static const char *CHAPTER_NAMES[CAMPAIGN_CHAPTERS] = {
         "Les Terres Brulees",
         "Le Marais Toxique",

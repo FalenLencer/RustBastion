@@ -81,6 +81,9 @@ typedef struct {
     int          upg_dmg;
     int          upg_range;
     int          upg_rate;
+
+    // Étourdissement par capacité de boss (onde EMP) : >0 = ne tire pas
+    float        stun_timer;
 } Tower;
 
 typedef struct {

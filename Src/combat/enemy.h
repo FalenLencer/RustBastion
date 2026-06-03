@@ -89,6 +89,15 @@ typedef struct {
     int   raid_target;       // index de l'ouvrier dans UnitPool (-1 = aucun)
     float raid_base_x;       // position base cible (pour après la traque)
     float raid_base_y;
+
+    // Feedback visuel (« jus ») : éclair blanc bref quand touché
+    float hit_flash;         // 0 = aucun, >0 = intensité décroissante
+
+    // Boss — capacité spéciale télégraphiée
+    int   boss_ability;      // BossAbility (0 si non-boss)
+    float ability_timer;     // cooldown avant la prochaine capacité
+    float telegraph_timer;   // >0 = préavis en cours (avant l'effet)
+    float boss_shield;       // >0 = invulnérable (capacité Bouclier)
 } Enemy;
 
 typedef struct {
@@ -121,6 +130,26 @@ extern const char *ENEMY_SPEC[ENEMY_TYPE_COUNT];
 
 // ── Paliers de brûlure (lance-flammes) ───────────────────────
 #define BURN_MAX_STACKS 10
+
+// ── Synergies élémentaires (matériaux) ───────────────────────
+// Un ennemi sous effet d'état devient vulnérable → récompense la combinaison
+// d'une tour de contrôle (cryo/acide) avec des tours de dégâts.
+#define SYN_CRYO_VULN     1.30f  /* +30% de dégâts subis si RALENTI (gelé)      */
+#define SYN_ACID_CORRODE  1.25f  /* +25% de dégâts phys./feu si EMPOISONNÉ      */
+
+// ── Boss : capacités spéciales télégraphiées ─────────────────
+typedef enum {
+    BOSS_ABILITY_NONE = 0,
+    BOSS_SUMMON,    // invoque des renforts sur son chemin
+    BOSS_STUN,      // onde EMP : étourdit les tours proches
+    BOSS_SHIELD,    // bouclier : invulnérable un court instant
+} BossAbility;
+#define BOSS_ABILITY_PERIOD   9.0f  /* intervalle entre deux capacités (s)      */
+#define BOSS_TELEGRAPH_TIME   1.3f  /* préavis avant l'effet (s)                */
+#define BOSS_STUN_RADIUS      3.0f  /* portée de l'onde EMP (tiles)             */
+#define BOSS_STUN_DURATION    3.0f  /* durée d'étourdissement des tours (s)     */
+#define BOSS_SHIELD_DURATION  3.5f  /* durée d'invulnérabilité (s)              */
+#define BOSS_SUMMON_COUNT     3     /* renforts invoqués par capacité           */
 
 // ── Comportement général ──────────────────────────────────────
 #define ENEMY_SLOW_SPEED_MULT        0.5f  /* vitesse sous ralentissement              */
@@ -181,6 +210,6 @@ void  enemy_spawn      (EnemyPool *pool, EnemyType type,
 // Fait apparaître un boss de fin de chapitre sur un chemin donné.
 // hp_scale module ses PV selon le chapitre (croissance de campagne).
 void  enemy_spawn_boss (EnemyPool *pool, int path_id, const PathSet *paths,
-                        float hp_scale);
+                        float hp_scale, int boss_chapter);
 int   enemy_pool_alive (const EnemyPool *pool);
 void  enemy_damage     (Enemy *e, float dmg);

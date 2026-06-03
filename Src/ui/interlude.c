@@ -6,6 +6,7 @@
 
 #include "interlude.h"
 #include "ui_utils.h"
+#include "perk_art.h"
 #include "../game/campaign_data.h"
 #include "../game/meta.h"
 #include "../game/runperks.h"
@@ -494,7 +495,7 @@ void interlude_render_draft(const RunBuild *rb, Vector2 vm, int vw, int vh) {
                 (Color){rc.r, rc.g, rc.b, (unsigned char)(60 + pulse*130)});
 
         il_keycap(L.px+12, ry+ch/2-11, 22, 22, TextFormat("%d", i+1), cc, hov);
-        il_cat_glyph(L.px+52, ry+ch/2, runperk_category(id), cc);
+        perk_art_draw(id, L.px+52, ry+ch/2, 11, cc);
         dtxt(pd->name, L.px+70, ry+6, 13, cc);
 
         const char *rn = rar_name(pd->rarity);
@@ -595,7 +596,7 @@ void interlude_render_shop(const RunBuild *rb, int reroll_cost, Vector2 vm, int 
                 (Color){rc.r, rc.g, rc.b, (unsigned char)(60 + pulse*130)});
 
         il_keycap(L.px+12, ry+ch/2-10, 20, 20, TextFormat("%d", i+1), tc, hov && afford);
-        il_cat_glyph(L.px+48, ry+ch/2, runperk_category(id), tc);
+        perk_art_draw(id, L.px+48, ry+ch/2, 11, tc);
         dtxt(pd->name, L.px+66, ry+5, 12, tc);
 
         const char *cs = maxed ? "MAX" : TextFormat("%d", pd->shop_cost);

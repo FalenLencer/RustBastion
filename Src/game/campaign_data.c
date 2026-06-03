@@ -356,7 +356,7 @@ static const ActData ACT_DATA[CAMPAIGN_NODES] = {
             "\"Ces composants... des nano-structures que je n'avais jamais vues.\n"
             "Avec ca, on peut perturber les signaux de controle robotique.\n"
             "Mais la source est plus profonde. Il faut aller au coeur.\"\n",
-        .min_waves  = 15,
+        .min_waves  = 12,   /* lissé : 15 était un pic isolé (tous les autres 8-12) */
         .unlock_msg = NULL,
     },
 

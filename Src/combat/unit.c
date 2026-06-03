@@ -380,10 +380,14 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     dep->active     = 0;   // filon épuisé
                     dep->mined      = 1;   // laisse une roche minée
                     /* La roche minée redevient constructible mais difficile :
-                       la tuile sous-jacente est une ruine (coût x2). */
+                       on force le type RUIN (coût x2). Indispensable car un
+                       gisement peut reposer sur du GROUND (coût normal) tout
+                       autant que sur de la ruine. */
                     if (dep->tile_x >= 0 && dep->tile_x < map->w &&
-                        dep->tile_y >= 0 && dep->tile_y < map->h)
+                        dep->tile_y >= 0 && dep->tile_y < map->h) {
+                        map->tiles[dep->tile_y][dep->tile_x].type      = TILE_RUIN;
                         map->tiles[dep->tile_y][dep->tile_x].buildable = 1;
+                    }
                     u->deposit_idx  = -1;
                     u->state        = USTATE_GOTO_BASE;
                 }

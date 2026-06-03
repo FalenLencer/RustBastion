@@ -28,7 +28,33 @@ typedef enum {
     MENU_CONFIRM_DEL,
     MENU_PAUSE,
     MENU_BESTIARY,
+    MENU_MP_HUB,         // multijoueur : choix du mode + héberger/rejoindre
+    MENU_MP_LOBBY,       // multijoueur : salon (code, ready-up, lancement)
 } MenuScreen;
+
+// ── Modes multijoueur (valeur = octet `mode` du protocole réseau) ──
+typedef enum {
+    MP_NONE = 0,
+    MP_COURSE,           // course/score (1er mode implémenté)
+    MP_DUEL,             // duel d'envoi de vagues
+    MP_ASYM,             // bâtisseur vs envahisseur
+    MP_COOP,             // co-op défense partagée
+    MP_MODE_COUNT
+} MpMode;
+
+// Vue (lecture seule) de l'état de session réseau, remplie par app.c et lue
+// par les écrans de lobby. POD : aucun type réseau ici.
+typedef struct {
+    int  active;          // 1 = une session existe
+    int  state;           // SessState (entier) pour l'affichage
+    int  is_host;
+    int  peer_connected;  // 1 = pair présent
+    int  my_ready, peer_ready;
+    int  started;         // 1 = partie lancée
+    int  failed;
+    char code[20];        // code de session (côté hôte)
+    char peer_name[24];
+} MpLobbyView;
 
 // ── Configuration d'une partie personnalisée ──────────────────
 typedef struct {
@@ -51,6 +77,7 @@ typedef struct {
     int music_volume;
     int sfx_volume;
     int show_fps;      // 1 = afficher le compteur FPS (touche [F] en jeu)
+    int fx_effects;    // 1 = effets de jus (particules, secousse, pops) activés
 } AppOptions;
 
 typedef struct {
@@ -83,13 +110,21 @@ typedef struct {
 
     // Bestiaire
     int         sel_bestiary;       // index ennemi sélectionné (0..ENEMY_TYPE_COUNT-1)
-    int         bestiary_tab;       // 0=Ennemis, 1=Minerais, 2=Tours, 3=Unites
+    int         bestiary_tab;       // 0=Ennemis, 1=Minerais, 2=Tours, 3=Unites, 4=Butin
     int         sel_material;       // index minerai sélectionné (0..MAT_COUNT-1)
     int         sel_tower;          // index tour sélectionnée (0..TOWER_TYPE_COUNT-1)
     int         sel_unit;           // index unité sélectionnée (0..UNIT_TYPE_COUNT-1)
+    int         sel_perk;           // index perk/butin sélectionné (0..PERK_COUNT-1)
 
     // Animation cinématique de l'écran titre
     MenuAnimState anim;
+
+    // ── Multijoueur ──────────────────────────────────────────
+    int          mp_mode;            // MpMode choisi sur le hub
+    int          mp_role;            // 0=indéfini, 1=héberger, 2=rejoindre
+    char         mp_code_input[20];  // saisie du code (rejoindre)
+    int          mp_code_len;
+    MpLobbyView  mp_view;            // état de session (rempli par app.c)
 } MenuState;
 
 typedef struct {
@@ -107,6 +142,15 @@ typedef struct {
     int          campaign_order_seed;
     int          start_campaign_act;  // acte de départ (0 = premier acte)
     CustomConfig custom_cfg;          // paramètres de la partie custom à lancer
+
+    // ── Multijoueur (intentions traitées par app.c) ──────────
+    int          mp_host;             // 1 = héberger (mode = mp_mode)
+    int          mp_join;             // 1 = rejoindre (code = mp_code)
+    int          mp_ready;            // 1 = basculer "prêt"
+    int          mp_start;            // 1 = hôte lance la partie
+    int          mp_leave;            // 1 = quitter la session
+    int          mp_mode;             // MpMode pour l'hébergement
+    char         mp_code[20];         // code saisi pour rejoindre
 } MenuAction;
 
 // Persistance des options (config/settings.bin)

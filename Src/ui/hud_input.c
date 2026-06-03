@@ -14,6 +14,13 @@
 
 #include "hud_internal.h"
 
+// Efface la sélection de groupe courante.
+static void group_clear(UIState *ui) {
+    if (ui->group_count == 0) return;
+    for (int j = 0; j < MAX_UNITS; j++) ui->group_sel[j] = 0;
+    ui->group_count = 0;
+}
+
 // ════════════════════════════════════════════════════
 // MISE À JOUR
 // ════════════════════════════════════════════════════
@@ -59,6 +66,16 @@ void ui_update(UIState *ui, GameState *gs) {
             ui->worker_selected_idx = -1;
             gs->units.selected_unit = -1;
         }
+    }
+    // Groupe : retire les unités mortes et recompte
+    if (ui->group_count > 0) {
+        int gc = 0;
+        for (int j = 0; j < MAX_UNITS; j++) {
+            if (!ui->group_sel[j]) continue;
+            if (!gs->units.units[j].active) { ui->group_sel[j] = 0; continue; }
+            gc++;
+        }
+        ui->group_count = gc;
     }
 
     // Hover outil
@@ -273,6 +290,53 @@ void ui_update(UIState *ui, GameState *gs) {
         } else {
             for (int b = 0; b < MAX_BASES; b++)
                 ui->repair_base_btn[b] = (Rectangle){0.0f, 0.0f, 0.0f, 0.0f};
+        }
+    }
+
+    /* ── Sélection de GROUPE par glisser-boîte : suivi + validation ──
+       La boîte est AMORCÉE plus bas, dans le chemin « carte vide » du clic
+       gauche (après que tout overlay / bouton / outil a déjà consommé le
+       clic via goto end_click) → aucun faux départ possible.
+       Ici on suit le glisser et on valide la sélection à la relâche.
+       L'ordre de déplacement du groupe se donne ensuite au CLIC DROIT. */
+    if (ui->box_dragging) {
+        ui->box_cur = mouse;
+        if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
+            float ddx = ui->box_cur.x - ui->box_start.x;
+            float ddy = ui->box_cur.y - ui->box_start.y;
+            if (ddx*ddx + ddy*ddy >= 64.0f) {            /* glisser réel ≥ 8 px */
+                float x0 = (fminf(ui->box_start.x, ui->box_cur.x) - g_map_x_off)
+                           / g_map_render_scale;
+                float x1 = (fmaxf(ui->box_start.x, ui->box_cur.x) - g_map_x_off)
+                           / g_map_render_scale;
+                float y0 = fminf(ui->box_start.y, ui->box_cur.y) / g_map_render_scale;
+                float y1 = fmaxf(ui->box_start.y, ui->box_cur.y) / g_map_render_scale;
+                int cnt = 0;
+                for (int j = 0; j < MAX_UNITS; j++) {
+                    ui->group_sel[j] = 0;
+                    Unit *u = &gs->units.units[j];
+                    if (!u->active || u->type == UNIT_WORKER) continue;
+                    if (u->x >= x0 && u->x <= x1 && u->y >= y0 && u->y <= y1) {
+                        ui->group_sel[j] = 1; cnt++;
+                    }
+                }
+                ui->group_count = cnt;
+                if (cnt > 0) {
+                    /* La sélection de groupe remplace la sélection simple */
+                    ui->sell_unit_idx       = -1;
+                    ui->worker_selected_idx = -1;
+                    gs->units.selected_unit = -1;
+                    ui->selection.active    = 0;
+                    char gb[40];
+                    snprintf(gb, sizeof(gb), "%d unite%s selectionnee%s",
+                             cnt, cnt > 1 ? "s" : "", cnt > 1 ? "s" : "");
+                    ui_push_notif(ui, gb, (Color){120, 200, 140, 255});
+                    audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+                }
+            }
+            ui->box_dragging = 0;
+        } else if (!IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
+            ui->box_dragging = 0;   /* sécurité : relâche manquée */
         }
     }
 
@@ -804,6 +868,7 @@ void ui_update(UIState *ui, GameState *gs) {
                 ui->selected_tool       = TOOL_NONE;
                 ui->worker_selected_idx = -1;
                 gs->units.selected_unit = -1;
+                group_clear(ui);
             } else if (ui->selected_tool != TOOL_NONE) {
                 if (ui_tool_is_tower(ui->selected_tool)) {
                     if (gs->towers.tower_count < gs->towers.tower_limit) {
@@ -891,10 +956,11 @@ void ui_update(UIState *ui, GameState *gs) {
                     }
                 }
             } else {
-                // Unité cliquée ?
+                // Unité cliquée ? (un clic simple remplace toute sélection de groupe)
                 ui->sell_unit_idx       = -1;
                 ui->worker_selected_idx = -1;
                 gs->units.selected_unit = -1;
+                group_clear(ui);
                 for (int j = 0; j < MAX_UNITS; j++) {
                     Unit *u = &gs->units.units[j];
                     if (!u->active) continue;
@@ -911,19 +977,82 @@ void ui_update(UIState *ui, GameState *gs) {
                         break;
                     }
                 }
+                /* Carte vide (aucune unité/tour/outil) → amorce une sélection
+                   de groupe par glisser. Ce chemin n'est atteint qu'une fois
+                   tous les éléments d'UI écartés (ils font goto end_click), donc
+                   aucun faux départ possible. Validée à la relâche (bloc plus
+                   haut) ; un clic sans glisser ne fait que désélectionner. */
+                if (gs->units.selected_unit < 0) {
+                    ui->box_dragging = 1;
+                    ui->box_start    = mouse;
+                    ui->box_cur      = mouse;
+                }
             }
         }
         end_click:;
     }
 
     if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
-        ui->selected_tool         = TOOL_NONE;
-        ui->selection.active      = 0;
-        ui->worker_selected_idx   = -1;
-        ui->sell_unit_idx         = -1;
-        gs->units.selected_unit   = -1;
-        ui->behavior_pending      = -1;
-        ui->behavior_pending_unit = -1;
+        /* Groupe sélectionné + clic droit sur la carte (sans outil) →
+           ORDRE DE DÉPLACEMENT EN FORMATION (on conserve la sélection). */
+        int did_group_move = 0;
+        if (ui->group_count > 0 && mouse.y < HUD_Y &&
+            ui->selected_tool == TOOL_NONE) {
+            float wx = (mouse.x - g_map_x_off) / g_map_render_scale;
+            float wy = mouse.y / g_map_render_scale;
+            int   tx = (int)(wx / TILE_SIZE), ty = (int)(wy / TILE_SIZE);
+            int   in_spawn = 0;
+            for (int _sp = 0; _sp < gs->map.path_count; _sp++) {
+                int _dx = tx - gs->map.paths[_sp].spawn.x;
+                int _dy = ty - gs->map.paths[_sp].spawn.y;
+                if (_dx*_dx + _dy*_dy <= SPAWN_EXCLUSION_RADIUS*SPAWN_EXCLUSION_RADIUS) {
+                    in_spawn = 1; break;
+                }
+            }
+            if (in_spawn) {
+                ui_push_notif(ui, "Zone de spawn interdite !",
+                              (Color){231, 76, 60, 255});
+            } else {
+                /* Disposition en grille autour du point cliqué (évite l'empilement). */
+                int   n    = ui->group_count;
+                int   cols = (int)ceilf(sqrtf((float)n)); if (cols < 1) cols = 1;
+                int   rows = (n + cols - 1) / cols;
+                float sp   = TILE_SIZE * 0.8f;
+                int   placed = 0;
+                for (int j = 0; j < MAX_UNITS; j++) {
+                    if (!ui->group_sel[j]) continue;
+                    Unit *u = &gs->units.units[j];
+                    if (!u->active || u->type == UNIT_WORKER) { ui->group_sel[j] = 0; continue; }
+                    int   gx = placed % cols, gy = placed / cols;
+                    float ox = ((float)gx - (cols - 1) * 0.5f) * sp;
+                    float oy = ((float)gy - (rows - 1) * 0.5f) * sp;
+                    u->behavior      = UBEH_MANUAL;
+                    u->manual_x      = wx + ox;
+                    u->manual_y      = wy + oy;
+                    u->manual_moving = 1;
+                    placed++;
+                }
+                /* Recompte (des unités du groupe ont pu mourir entre-temps). */
+                ui->group_count = placed;
+                if (placed > 0) {
+                    ui_push_notif(ui, "Groupe en mouvement",
+                                  (Color){120, 200, 140, 255});
+                    audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+                }
+            }
+            did_group_move = 1;   /* le clic droit est consommé par l'ordre */
+        }
+
+        if (!did_group_move) {
+            ui->selected_tool         = TOOL_NONE;
+            ui->selection.active      = 0;
+            ui->worker_selected_idx   = -1;
+            ui->sell_unit_idx         = -1;
+            gs->units.selected_unit   = -1;
+            ui->behavior_pending      = -1;
+            ui->behavior_pending_unit = -1;
+            group_clear(ui);
+        }
     }
 
     if (IsKeyPressed(KEY_ONE))   ui->selected_tool = TOOL_TOWER_GUN;

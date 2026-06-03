@@ -6,6 +6,7 @@
 
 #include "game_state.h"
 #include "../engine/audio.h"
+#include "../combat/fx.h"
 #include "../map/pathfinding.h"
 
 /* ═══════════════════════════════════════════════════════════════
@@ -127,6 +128,7 @@ void game_damage_base(GameState *gs, int base_id, int dmg) {
 void game_state_init(GameState *gs) {
     if (!meta_load(&gs->meta)) meta_init(&gs->meta);
     meta_compute(&gs->meta, &gs->bonuses);
+    fx_reset();                 // vide particules/popups/secousse (garde l'option)
     gs->phase               = PHASE_PREP;
     gs->gold                = gs->bonuses.start_gold;
     gs->lives               = gs->bonuses.start_lives;
@@ -343,7 +345,8 @@ void game_state_update(GameState *gs, float dt) {
             if (gs->enemy_paths.paths[p].found) { bpath = p; break; }
         if (bpath >= 0) {
             float hp_scale = 1.0f + (float)gs->boss_chapter * 0.6f;
-            enemy_spawn_boss(&gs->enemies, bpath, &gs->enemy_paths, hp_scale);
+            enemy_spawn_boss(&gs->enemies, bpath, &gs->enemy_paths, hp_scale,
+                             gs->boss_chapter);
             gs->boss_pending = 0;
             ui_push_notif(&gs->ui, "!!! BOSS EN APPROCHE !!!",
                           (Color){231, 76, 60, 255});

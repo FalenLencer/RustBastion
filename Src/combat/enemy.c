@@ -8,6 +8,7 @@
 #include "unit.h"
 #include "tower.h"
 #include "combat_math.h"
+#include "fx.h"                  // effets de jus (mort, secousse)
 #include "../game/runperks.h"   // g_run_mods (build de run)
 #include "../engine/audio.h"
 #include "raylib.h"
@@ -179,7 +180,7 @@ void enemy_spawn(EnemyPool *pool, EnemyType type,
    marqueur is_boss qui active phases (enrage) + rendu spécial.
    ════════════════════════════════════════════════════ */
 void enemy_spawn_boss(EnemyPool *pool, int path_id, const PathSet *paths,
-                      float hp_scale)
+                      float hp_scale, int boss_chapter)
 {
     if (pool->count >= MAX_ENEMIES) return;
     if (path_id < 0 || path_id >= paths->count) return;
@@ -211,6 +212,12 @@ void enemy_spawn_boss(EnemyPool *pool, int path_id, const PathSet *paths,
     e->hunt_target = -1;
     e->arty_target = -1;
     e->raid_target = -1;
+
+    // Capacité spéciale selon le chapitre (variété entre les boss)
+    e->boss_ability  = (boss_chapter <= 1) ? BOSS_SUMMON
+                     : (boss_chapter >= 4) ? BOSS_SHIELD
+                     : BOSS_STUN;            // chapitres 3 & 4 (index 2,3)
+    e->ability_timer = BOSS_ABILITY_PERIOD;
     pool->count++;
 }
 
@@ -227,7 +234,13 @@ static float boss_enrage_mult(const Enemy *e) {
    ════════════════════════════════════════════════════ */
 void enemy_damage(Enemy *e, float dmg) {
     if (!e->active || e->dead) return;
+    // Boss sous bouclier : invulnérable (petit flash pour signaler le blocage)
+    if (e->is_boss && e->boss_shield > 0.0f) {
+        if (dmg > 0.0f) e->hit_flash = 0.35f;
+        return;
+    }
     e->hp -= dmg;
+    if (dmg > 0.0f) e->hit_flash = 1.0f;   // éclair blanc bref (feedback)
     if (e->hp <= 0.0f) { e->hp = 0.0f; e->dead = 1; }
 }
 
@@ -266,8 +279,19 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
         // ── Mort ─────────────────────────────────────────────
         if (e->dead) {
             audio_play_sfx(AUDIO_SFX_ENEMY_DEATH);
-            *gold  += e->reward + g_run_mods.gold_per_kill;   // + perk Pillage/Fortune
+            int reward = e->reward + g_run_mods.gold_per_kill;   // + perk Pillage/Fortune
+            *gold  += reward;
             *kills += 1;
+            // Jus : gerbe de débris + pop d'or (boss = plus gros + secousse)
+            if (e->is_boss) {
+                fx_burst(e->x, e->y, (Color){230, 180, 60, 255}, 30, 250.0f);
+                fx_burst(e->x, e->y, (Color){200, 70, 40, 255}, 22, 160.0f);
+                fx_shake(12.0f);
+            } else {
+                int np = (int)(e->size * 0.9f) + 4;
+                fx_burst(e->x, e->y, (Color){190, 95, 60, 255}, np, 90.0f + e->size * 6.0f);
+            }
+            fx_popup_gold(e->x, e->y - e->size, reward);
             e->active = 0;
             if (pool->count > 0) pool->count--;
             continue;
@@ -281,9 +305,11 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                 int bid = paths->paths[e->path_id].base_id;
                 if (bid >= 0 && bid < map->base_count && map->bases[bid].active) {
                     map->bases[bid].hp -= e->damage;
+                    fx_shake(3.0f + (float)e->damage);   // jus : impact sur la base
                     if (map->bases[bid].hp <= 0) {
                         map->bases[bid].hp     = 0;
                         map->bases[bid].active = 0;
+                        fx_shake(11.0f);                 // base tombée
                     }
                     *lives -= e->damage;
                     if (*lives < 0) *lives = 0;
@@ -298,6 +324,58 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
         if (e->type == ENEMY_MUTANT && e->hp < e->max_hp) {
             e->hp += ENEMY_MUTANT_REGEN_RATE * dt;
             if (e->hp > e->max_hp) e->hp = e->max_hp;
+        }
+
+        // ── Éclair de dégât (feedback) — decay rapide ─────────
+        if (e->hit_flash > 0.0f) {
+            e->hit_flash -= dt * 7.0f;
+            if (e->hit_flash < 0.0f) e->hit_flash = 0.0f;
+        }
+
+        // ── Capacité spéciale de boss (télégraphiée) ──────────
+        if (e->is_boss && e->boss_ability != BOSS_ABILITY_NONE) {
+            if (e->boss_shield > 0.0f) e->boss_shield -= dt;
+
+            if (e->telegraph_timer > 0.0f) {
+                // Préavis en cours → exécute l'effet à l'échéance
+                e->telegraph_timer -= dt;
+                if (e->telegraph_timer <= 0.0f) {
+                    switch (e->boss_ability) {
+                        case BOSS_SUMMON:
+                            for (int s = 0; s < BOSS_SUMMON_COUNT; s++) {
+                                EnemyType ty = (s % 2) ? ENEMY_RUNNER : ENEMY_RAIDER;
+                                enemy_spawn(pool, ty, e->path_id, paths,
+                                            (float)s * 0.25f, 1.0f, 1.0f);
+                            }
+                            break;
+                        case BOSS_STUN: {
+                            float r2 = (BOSS_STUN_RADIUS * TILE_SIZE) *
+                                       (BOSS_STUN_RADIUS * TILE_SIZE);
+                            if (towers) for (int ti = 0; ti < MAX_TOWERS; ti++) {
+                                Tower *tw = &towers->towers[ti];
+                                if (!tw->active) continue;
+                                float tx = tw->tile_x * TILE_SIZE + TILE_SIZE / 2.0f;
+                                float ty = tw->tile_y * TILE_SIZE + TILE_SIZE / 2.0f;
+                                if (gdist2(e->x, e->y, tx, ty) <= r2)
+                                    tw->stun_timer = BOSS_STUN_DURATION;
+                            }
+                            fx_shake(8.0f);
+                            break;
+                        }
+                        case BOSS_SHIELD:
+                            e->boss_shield = BOSS_SHIELD_DURATION;
+                            break;
+                        default: break;
+                    }
+                    e->ability_timer = BOSS_ABILITY_PERIOD;
+                }
+            } else {
+                e->ability_timer -= dt;
+                if (e->ability_timer <= 0.0f) {
+                    e->telegraph_timer = BOSS_TELEGRAPH_TIME;   // démarre le préavis
+                    audio_play_sfx(AUDIO_SFX_ENEMY_SPAWN);
+                }
+            }
         }
 
         // ── Ralentissement ────────────────────────────────────

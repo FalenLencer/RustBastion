@@ -7,7 +7,8 @@
 /*  menu_bestiary.c ─ Écran Bestiaire.
  *
  *  Contient :
- *    draw_bestiary   — 4 onglets : Ennemis, Minerais, Tours, Unités
+ *    draw_bestiary   — 5 onglets : Ennemis, Minerais, Tours, Unités, Butin
+ *                      (le dernier référence les perks de run & la boutique)
  *
  *  Helpers locaux (statiques) :
  *    draw_multiline  — Rendu de texte multiligne séparé par \n
@@ -15,15 +16,11 @@
  */
 
 #include "menu_internal.h"
+#include "../game/runperks.h"   // catalogue de perks (onglet Butin)
+#include "perk_art.h"           // emblèmes pixel-art des perks
 
-// ── Couleurs par catégorie ────────────────────────────────────────
-static const Color MAT_COLORS[MAT_COUNT] = {
-    {160, 140, 120, 255},  // Iron
-    { 80, 200,  60, 255},  // Acid
-    { 48, 140, 205, 255},  // Plasma
-    {100, 210, 240, 255},  // Cryo
-    {180, 100, 220, 255},  // Nano
-};
+// Couleurs des minerais : on réutilise la source unique MATERIAL_COLORS
+// (renderer.h) au lieu d'une copie divergente.
 
 static const Color TOWER_COLORS[TOWER_TYPE_COUNT] = {
     {215, 155,  40, 255},  // Gun    — or
@@ -110,12 +107,12 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
         if (meta->tower_discovered[i]) nb_tower_disc++;
 
     // ── Onglets ──────────────────────────────────────────────────
-    int tab_w = 130, tab_h = 26, tab_gap = 6;
-    int tabs_total = 4 * tab_w + 3 * tab_gap;
+    int tab_w = 122, tab_h = 26, tab_gap = 6;
+    int tabs_total = 5 * tab_w + 4 * tab_gap;
     int tab_x0 = vw/2 - tabs_total/2;
     int tab_y  = M_PAD + 86;
 
-    for (int t = 0; t < 4; t++) {
+    for (int t = 0; t < 5; t++) {
         int tx  = tab_x0 + t * (tab_w + tab_gap);
         int sel = (m->bestiary_tab == t);
         Rectangle tr = {(float)tx, (float)tab_y, (float)tab_w, (float)tab_h};
@@ -132,7 +129,8 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             case 0: snprintf(lbuf, sizeof(lbuf), "ENNEMIS %d/%d",  nb_enemy_disc, ENEMY_TYPE_COUNT); break;
             case 1: snprintf(lbuf, sizeof(lbuf), "MINERAIS %d/%d", nb_mat_disc,   MAT_COUNT);        break;
             case 2: snprintf(lbuf, sizeof(lbuf), "TOURS %d/%d",    nb_tower_disc, META_TOWER_COUNT); break;
-            default:snprintf(lbuf, sizeof(lbuf), "UNITES");                                           break;
+            case 3: snprintf(lbuf, sizeof(lbuf), "UNITES");                                           break;
+            default:snprintf(lbuf, sizeof(lbuf), "BUTIN %d", PERK_COUNT);                             break;
         }
         int tw2 = mtxt(lbuf, 11);
         dtxt(lbuf, tx + tab_w/2 - tw2/2, tab_y + tab_h/2 - fh(11)/2, 11,
@@ -302,7 +300,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             for (int i = 0; i < MAT_COUNT; i++) {
                 int disc = meta->material_discovered[i];
                 int sel  = (m->sel_material == i);
-                Color mc = MAT_COLORS[i];
+                Color mc = MATERIAL_COLORS[i];
                 Rectangle r = {(float)(list_x+4),(float)ey,(float)(list_w-8),(float)entry_h};
                 Color bg  = sel  ? (Color){mc.r/8, mc.g/8, mc.b/8, 255} :
                             disc ? (Color){18, 12, 4, 200} : (Color){8,5,2,180};
@@ -327,7 +325,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             int si = m->sel_material < 0 ? 0 : m->sel_material >= MAT_COUNT ? MAT_COUNT-1 : m->sel_material;
             int disc = meta->material_discovered[si];
             int px = detail_x+M_IN+4, py = detail_y+M_IN, pw = detail_w-M_IN*2-4;
-            Color mc = MAT_COLORS[si];
+            Color mc = MATERIAL_COLORS[si];
             if (!disc) {
                 txt_c("???", detail_x+detail_w/2, detail_y+detail_h/2-20, 24, C_DIM);
                 txt_c("Collectez ce minerai en campagne.",
@@ -450,7 +448,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             }
         }
 
-    } else {
+    } else if (m->bestiary_tab == 3) {
     // ── Onglet UNITES ────────────────────────────────────────────
 
         // Liste gauche
@@ -534,6 +532,96 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             if (UNIT_LORE[si])
                 draw_multiline(UNIT_LORE[si], px, &py, 9,
                                (Color){160,145,100,255}, fh(9)+3);
+        }
+
+    } else {
+    // ── Onglet BUTIN (perks de run & boutique) ───────────────────
+        static const char *RAR_NAMES[3] = {"Commune", "Rare", "Epique"};
+        static const char *CAT_NAMES[4] = {"Tour", "Economie", "Unite", "Survie"};
+
+        // Liste gauche — les 19 perks, teintés par rareté
+        {
+            int entry_h = 28, gap = 2;
+            int ey = list_y + M_IN;
+            for (int i = 0; i < PERK_COUNT; i++) {
+                const PerkDef *pd = &RUN_PERKS[i];
+                RunColor rcl = runperk_rarity_color(pd->rarity);
+                Color rc = (Color){rcl.r, rcl.g, rcl.b, 255};
+                int sel = (m->sel_perk == i);
+                Rectangle r = {(float)(list_x+4), (float)ey,
+                               (float)(list_w-8), (float)entry_h};
+                Color bg  = sel ? (Color){rc.r/8, rc.g/8, rc.b/8, 255}
+                                : (Color){16,11,4,200};
+                Color brd = sel ? rc : C_BORDER;
+                DrawRectangleRounded(r, 3.0f/entry_h, 4, bg);
+                DrawRectangleRoundedLinesEx(r, 3.0f/entry_h, 4, sel ? 2.0f : 1.0f, brd);
+                int tx = (int)r.x + M_IN, ty = (int)r.y + entry_h/2 - fh(10)/2;
+                perk_art_draw(i, tx + 8, (int)r.y + entry_h/2, 9, rc);
+                char nb[40];
+                clip_text(pd->name, list_w - 52, 10, nb, sizeof(nb));
+                dtxt(nb, tx+22, ty, 10, sel ? rc : C_TEXT);
+                if (vclick_r(r)) { m->sel_perk = i; audio_play_sfx(AUDIO_SFX_MENU_CLICK); }
+                ey += entry_h + gap;
+                if (ey + entry_h > list_y + list_h - M_IN) break;
+            }
+        }
+
+        // Détails droite
+        {
+            int si = m->sel_perk < 0 ? 0
+                   : (m->sel_perk >= PERK_COUNT ? PERK_COUNT-1 : m->sel_perk);
+            const PerkDef *pd = &RUN_PERKS[si];
+            RunColor rcl = runperk_rarity_color(pd->rarity);
+            Color rc = (Color){rcl.r, rcl.g, rcl.b, 255};
+            int cat = runperk_category(si);
+            int px = detail_x+M_IN+4, py = detail_y+M_IN, pw = detail_w-M_IN*2-4;
+
+            // Emblème procédural : badge de rareté portant le tag
+            int em  = 150;
+            int ex  = detail_x + detail_w - em - M_IN;
+            int ey0 = detail_y + M_IN;
+            DrawRectangleRounded(
+                (Rectangle){(float)ex,(float)ey0,(float)em,(float)em}, 0.10f, 6,
+                (Color){rc.r/6, rc.g/6, rc.b/6, 255});
+            DrawRectangleRoundedLinesEx(
+                (Rectangle){(float)ex,(float)ey0,(float)em,(float)em}, 0.10f, 6, 2.0f, rc);
+            // Emblème pixel-art du perk + tag en petit + rareté en bas
+            perk_art_draw(si, ex + em/2, ey0 + em/2 - 8, 40, rc);
+            int gtw = mtxt(pd->tag, 12);
+            dtxt(pd->tag, ex + em/2 - gtw/2, ey0 + em/2 + 34, 12, rc);
+            const char *rn = RAR_NAMES[pd->rarity];
+            int rnw = mtxt(rn, 10);
+            dtxt(rn, ex + em/2 - rnw/2, ey0 + em - fh(10) - 8, 10,
+                 (Color){rc.r, rc.g, rc.b, 200});
+
+            int sep_w = pw - em - M_IN;
+
+            dtxt(pd->name, px, py, 18, rc); py += fh(18)+3;
+            dtxt(TextFormat("%s  -  %s", rn, CAT_NAMES[cat]), px, py, 9, C_DIM);
+            py += fh(9) + M_IN;
+            draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
+
+            dtxt("Effet :", px, py, 10, C_GOLD); py += fh(10)+3;
+            draw_multiline(pd->desc, px+M_IN, &py, 10,
+                           (Color){rc.r, rc.g, rc.b, 225}, fh(10)+3);
+            py += M_IN;
+            draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
+
+            dtxt("Exemplaires max :", px, py, 9, C_DIM);
+            dtxt(TextFormat("x%d", pd->max_stack), px+138, py, 10, rc);
+            py += fh(10)+3;
+            dtxt("Cout boutique :", px, py, 9, C_DIM);
+            dtxt(TextFormat("%d Renfort", pd->shop_cost), px+138, py, 10,
+                 (Color){232, 200, 90, 255});
+            py += fh(10)+M_IN;
+            draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
+
+            dtxt("Acquisition :", px, py, 10, C_GOLD); py += fh(10)+3;
+            draw_multiline(
+                "Butin apres chaque acte : 1 choix gratuit parmi 3.\n"
+                "Boutique entre chaque chapitre : achat en Renfort.\n"
+                "Empiler les perks d'un meme cluster cree des combos.",
+                px+M_IN, &py, 9, (Color){160,145,100,255}, fh(9)+3);
         }
     }
 
