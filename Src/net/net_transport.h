@@ -25,6 +25,10 @@ void  transport_loopback_pair(Transport **a, Transport **b);
 Transport *transport_tcp_host(int port);
 // TCP client : se connecte à ip:port (non bloquant). NULL si échec d'init.
 Transport *transport_tcp_join(const char *ip, int port);
+// TCP via RELAIS : se connecte au relais ip:port comme un client, mais envoie
+// d'abord un préambule d'appairage ('R''B' + room[4]) sur le flux. Ensuite
+// duplex normal (le relais recopie les octets). NULL si échec d'init.
+Transport *transport_tcp_relay(const char *ip, int port, const unsigned char room[4]);
 
 // ── Cycle de vie ─────────────────────────────────────────────
 // Fait avancer accept/connect et tire les octets entrants en tampon.
@@ -48,3 +52,5 @@ int   transport_recv_msg(Transport *t, NetMsgHeader *h, void *payload, int maxle
 uint32_t net_local_ip_be(void);
 // Convertit une IP (big-endian) en chaîne "a.b.c.d".
 void  net_ip_to_str(uint32_t ip_be, char out[16]);
+// Convertit "a.b.c.d" → IP (ordre réseau). 1 = OK.
+int   net_str_to_ip(const char *s, uint32_t *ip_be);

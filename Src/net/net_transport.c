@@ -7,6 +7,7 @@
 #include "net_transport.h"
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 #ifdef _WIN32
   #include <winsock2.h>
@@ -59,6 +60,11 @@ struct Transport {
     sock_t   listen_fd, fd;
     int      is_host;
     int      connecting;
+    time_t   connect_deadline;   // échéance d'abandon de la connexion (client)
+    // préambule à émettre EN PREMIER une fois connecté (mode relais)
+    unsigned char preamble[6];
+    int      preamble_len;       // 0 = aucun
+    int      preamble_sent;
     // tampon d'assemblage des octets entrants (framing)
     unsigned char asmbuf[ASM_CAP];
     int      asmlen;
@@ -121,11 +127,31 @@ Transport *transport_tcp_join(const char *ip, int port) {
     if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) { closesock(s); return NULL; }
     Transport *t = calloc(1, sizeof(Transport));
     t->kind = 1; t->is_host = 0; t->listen_fd = SOCK_INVALID; t->fd = s;
+    t->connect_deadline = time(NULL) + 8;   // abandon après 8 s sans connexion
     int r = connect(s, (struct sockaddr *)&addr, sizeof(addr));
     if (r == 0)              t->connected = 1;
     else if (SOCK_INPROGRESS) t->connecting = 1;
     else                      t->failed = 1;
     return t;
+}
+
+Transport *transport_tcp_relay(const char *ip, int port, const unsigned char room[4]) {
+    Transport *t = transport_tcp_join(ip, port);
+    if (!t) return NULL;
+    t->preamble[0] = 'R'; t->preamble[1] = 'B';
+    memcpy(t->preamble + 2, room, 4);   // 'R''B' + room(4) = 6 octets
+    t->preamble_len  = 6;
+    t->preamble_sent = 0;
+    return t;
+}
+
+// Convertit "a.b.c.d" → IP (ordre réseau). 1 = OK.
+int net_str_to_ip(const char *s, uint32_t *ip_be) {
+    net_plat_init();
+    struct in_addr a;
+    if (!s || inet_pton(AF_INET, s, &a) != 1) return 0;
+    if (ip_be) *ip_be = a.s_addr;
+    return 1;
 }
 
 // ── Mise à jour (accept/connect + tirage des octets) ─────────
@@ -163,19 +189,42 @@ void transport_update(Transport *t) {
         }
     }
     if (t->connecting && t->fd != SOCK_INVALID) {
-        fd_set wf; FD_ZERO(&wf); FD_SET(t->fd, &wf);
+        // Surveille l'écriture (succès) ET l'exception (échec — indispensable
+        // sous Winsock : un connect raté arrive dans le set "except").
+        fd_set wf, ef;
+        FD_ZERO(&wf); FD_ZERO(&ef);
+        FD_SET(t->fd, &wf); FD_SET(t->fd, &ef);
         struct timeval tv = {0, 0};
-        if (select((int)t->fd + 1, NULL, &wf, NULL, &tv) > 0) {
-            int err = 0; socklen_t l = sizeof(err);
-            getsockopt(t->fd, SOL_SOCKET, SO_ERROR, (char *)&err, &l);
-            if (err == 0) {
-                int one = 1;
-                setsockopt(t->fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof(one));
-                t->connecting = 0; t->connected = 1;
-            } else {
+        int r = select((int)t->fd + 1, NULL, &wf, &ef, &tv);
+        if (r > 0) {
+            if (FD_ISSET(t->fd, &ef)) {
                 t->failed = 1;
+            } else {
+                int err = 0; socklen_t l = sizeof(err);
+                getsockopt(t->fd, SOL_SOCKET, SO_ERROR, (char *)&err, &l);
+                if (err == 0) {
+                    int one = 1;
+                    setsockopt(t->fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof(one));
+                    t->connecting = 0; t->connected = 1;
+                } else {
+                    t->failed = 1;
+                }
             }
         }
+        if (t->connecting && time(NULL) > t->connect_deadline)
+            t->failed = 1;   // timeout : hôte injoignable
+    }
+    // Préambule relais : émis EN PREMIER dès la connexion établie, avant tout
+    // message de session (le relais lit ces 6 octets pour apparier le salon).
+    if (t->connected && !t->failed && t->preamble_len && !t->preamble_sent) {
+        int sent = 0;
+        while (sent < t->preamble_len) {
+            int n = send(t->fd, (const char *)t->preamble + sent, t->preamble_len - sent, 0);
+            if (n > 0) sent += n;
+            else if (SOCK_WOULDBLOCK) continue;
+            else { t->failed = 1; break; }
+        }
+        t->preamble_sent = 1;
     }
     tcp_pull(t);
 }

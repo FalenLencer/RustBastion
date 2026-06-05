@@ -23,7 +23,8 @@ SRC = Src/main.c                                                              \
       Src/ui/menu_custom_config.c                                             \
       Src/ui/menu_mp.c                                                       \
       Src/ui/interlude.c                                                     \
-      Src/net/net_transport.c  Src/net/net_session.c                         \
+      Src/net/net_transport.c  Src/net/net_session.c   Src/net/net_upnp.c     \
+      Src/net/net_relay.c                                                     \
 
 # ── Dossiers ────────────────────────────────────────────────────
 ASSETS_DIR   = assets

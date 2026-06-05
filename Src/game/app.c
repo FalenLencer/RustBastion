@@ -24,13 +24,63 @@
 #include "../ui/ui_utils.h"   // DrawText/MeasureText → g_font (support accents)
 #include "../map/theme.h"
 #include "../combat/fx.h"     // effets de jus (particules, secousse, pops)
+#include "../net/net_upnp.h"  // UPNP_HOOK : ouverture auto du port (module isolé)
 #include "raylib.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 // Multijoueur
 #define MP_PORT             47777
 #define MP_STATUS_INTERVAL  0.4f    // période d'envoi du statut (s)
+
+// Analyse "IP:port" (port optionnel → MP_PORT). 1 = OK. (mode serveur relais)
+static int parse_relay_addr(const char *s, uint32_t *ip, uint16_t *port) {
+    if (!s || !s[0]) return 0;
+    char tmp[32];
+    snprintf(tmp, sizeof(tmp), "%s", s);
+    int p = MP_PORT;
+    char *colon = strchr(tmp, ':');
+    if (colon) { *colon = '\0'; p = atoi(colon + 1); }
+    if (p <= 0 || p > 65535) p = MP_PORT;
+    if (!net_str_to_ip(tmp, ip)) return 0;
+    *port = (uint16_t)p;
+    return 1;
+}
+
+// Duel : monnaie de sabotage (par kill) + ennemis envoyables (type, coût, touche).
+#define DUEL_SABOTAGE_PER_KILL  1
+// Asym : le défenseur gagne s'il survit N vagues ; l'envahisseur gagne du budget
+// avec le temps.
+#define ASYM_SURVIVE_WAVES   15
+#define ASYM_BUDGET_PERIOD   0.8f   // +1 de budget toutes les 0.8 s
+// Co-op : survie commune ; si l'un des deux boards tombe, tous perdent.
+#define COOP_WAVES           20     // vagues à tenir ensemble pour gagner
+#define COOP_AID_GOLD        50     // or transféré au partenaire (touche G)
+// Ennemi envoyable : type + coût + nom. BOUTONS cliquables (pas de touche →
+// fonctionne quel que soit le clavier, AZERTY inclus).
+typedef struct { int type; int cost; const char *name; } MpSend;
+#define DUEL_SEND_COUNT 4
+static const MpSend DUEL_SENDS[DUEL_SEND_COUNT] = {
+    { ENEMY_RAIDER,   3, "Raider" },
+    { ENEMY_RUNNER,   6, "Runner" },
+    { ENEMY_BRUTE,   14, "Brute"  },
+    { ENEMY_VEHICLE, 30, "Blinde" },
+};
+// Asym envahisseur : roster + budget par vague (compositeur de vagues).
+#define INV_ROSTER_COUNT 6
+static const MpSend INV_ROSTER[INV_ROSTER_COUNT] = {
+    { ENEMY_RAIDER,   3, "Raider"  },
+    { ENEMY_RUNNER,   6, "Runner"  },
+    { ENEMY_MUTANT,  10, "Mutant"  },
+    { ENEMY_BRUTE,   14, "Brute"   },
+    { ENEMY_GHOST,   16, "Spectre" },
+    { ENEMY_VEHICLE, 30, "Blinde"  },
+};
+#define INV_WAVE_BUDGET_BASE 70
+#define INV_WAVE_BUDGET_STEP 25
+#define INV_WAVE_BUDGET(n)   (INV_WAVE_BUDGET_BASE + (n) * INV_WAVE_BUDGET_STEP)
+#define INV_WAVE_COOLDOWN    7.0f   // délai imposé entre deux vagues envoyées (s)
 
 // ════════════════════════════════════════════════════════════════
 // INIT
@@ -39,7 +89,6 @@ void app_init(AppContext *ctx) {
     memset(ctx, 0, sizeof(AppContext));
 
     game_state_init(&ctx->gs);
-    snprintf(ctx->mp_name, sizeof(ctx->mp_name), "Joueur");
 
     AppOptions opts = {
         .win_width     = VIRT_W,
@@ -49,8 +98,10 @@ void app_init(AppContext *ctx) {
         .music_volume  = 50,
         .sfx_volume    = 50,
         .fx_effects    = 1,
+        .player_name   = "Joueur",
     };
     opts_load(&opts);
+    if (!opts.player_name[0]) snprintf(opts.player_name, sizeof(opts.player_name), "Joueur");
     audio_set_master_volume(opts.master_volume / 100.0f);
     audio_set_music_volume (opts.music_volume  / 100.0f);
     audio_set_sfx_volume   (opts.sfx_volume    / 100.0f);
@@ -101,6 +152,16 @@ static void mp_launch_game(AppContext *ctx) {
     ctx->mp_peer_valid   = 0;
     ctx->mp_result       = 0;
     ctx->mp_status_timer = 0.0f;
+    ctx->mp_sabotage     = 0;
+    ctx->mp_prev_kills   = 0;
+    ctx->mp_budget_t     = 0.0f;
+    ctx->mp_inject_acc    = 0.0f;
+    ctx->mp_wave_num      = 0;
+    ctx->mp_wave_budget   = INV_WAVE_BUDGET(0);
+    ctx->mp_wave_cooldown = 0.0f;
+    memset(ctx->mp_wave_compose, 0, sizeof(ctx->mp_wave_compose));
+    // Asym : le rejoignant est l'ENVAHISSEUR (sim figée, écran de commande).
+    ctx->mp_invader      = (s->mode == MP_ASYM && !s->is_host) ? 1 : 0;
     memset(&ctx->mp_peer, 0, sizeof(ctx->mp_peer));
 
     // Course : board type arcade, MÊME seed → même carte (équité).
@@ -237,27 +298,63 @@ static int handle_menu(AppContext *ctx) {
     // ── Multijoueur : cycle de vie de la session ─────────────
     if (act.mp_host) {
         net_session_close(&ctx->session);
-        ctx->mp_active = 0;
+        ctx->mp_active = 0; ctx->mp_via_relay = 0;
         int seed = GetRandomValue(1, 0x3FFFFFFF);
         ctx->mp_mode = act.mp_mode ? act.mp_mode : MP_COURSE;
-        if (net_session_host(&ctx->session, MP_PORT, (uint32_t)seed,
-                             (uint8_t)ctx->mp_mode, ctx->mp_name))
+        uint32_t rip; uint16_t rport;
+        if (parse_relay_addr(ctx->menu.opts.relay_addr, &rip, &rport)) {
+            // ── Via serveur relais : l'hôte s'y connecte aussi ──
+            uint32_t room = (uint32_t)GetRandomValue(1, 0x7FFFFFFE);
+            if (net_session_host_relay(&ctx->session, rip, rport, room,
+                                       (uint32_t)seed, (uint8_t)ctx->mp_mode,
+                                       ctx->menu.opts.player_name)) {
+                ctx->mp_active = 1; ctx->mp_via_relay = 1;
+            }
+        } else if (net_session_host(&ctx->session, MP_PORT, (uint32_t)seed,
+                                    (uint8_t)ctx->mp_mode, ctx->menu.opts.player_name)) {
             ctx->mp_active = 1;
+            // IP par défaut = celle détectée (encodée dans le code) ; modifiable.
+            net_ip_to_str(net_local_ip_be(), ctx->menu.mp_host_ip);
+        }
     }
     if (act.mp_join) {
         net_session_close(&ctx->session);
-        ctx->mp_active = 0;
-        if (net_session_join(&ctx->session, act.mp_code, ctx->mp_name))
+        ctx->mp_active = 0; ctx->mp_via_relay = 0;
+        // Un code relais (10 octets) se distingue d'un code direct (6 octets) :
+        // on tente d'abord le relais, sinon connexion directe.
+        if (net_session_parse_relay_code(act.mp_code, NULL, NULL, NULL)) {
+            if (net_session_join_relay(&ctx->session, act.mp_code, ctx->menu.opts.player_name)) {
+                ctx->mp_active = 1; ctx->mp_via_relay = 1;
+            }
+        } else if (net_session_join(&ctx->session, act.mp_code, ctx->menu.opts.player_name)) {
             ctx->mp_active = 1;
+        }
     }
+    if (act.mp_host || act.mp_join) opts_save(&ctx->menu.opts);   // persiste le pseudo
     if (ctx->mp_active && act.mp_ready)
         net_session_set_ready(&ctx->session, !ctx->session.my_ready);
-    if (ctx->mp_active && act.mp_start)
+    if (ctx->mp_active && act.mp_start) {
+        ctx->session.seed = (uint32_t)GetRandomValue(1, 0x3FFFFFFE);  // carte fraîche
         net_session_start(&ctx->session);
+    }
+    // UPNP_HOOK : autorise le pare-feu (UAC) PUIS ouvre le port (bloquant ~6 s max).
+    if (act.mp_upnp) {
+        int fw = net_upnp_request_firewall(MP_PORT);  // invite UAC sous Windows
+        UpnpResult r;
+        net_upnp_map_tcp(MP_PORT, &r);
+        if (r.mapped && r.external_ip_be && r.external_public)
+            net_ip_to_str(r.external_ip_be, ctx->menu.mp_host_ip);  // code → IP publique
+        ctx->menu.mp_upnp_ok = (r.mapped && r.external_public);
+        snprintf(ctx->menu.mp_upnp_msg, sizeof(ctx->menu.mp_upnp_msg),
+                 "%s %.130s", fw ? "Pare-feu OK." : "Pare-feu KO (refuse/AV ?).",
+                 r.message);
+    }
     if (act.mp_leave) {
+        net_upnp_unmap_tcp(MP_PORT);     // UPNP_HOOK : retire la redirection (best effort)
         net_session_close(&ctx->session);
-        ctx->mp_active = 0;
+        ctx->mp_active = 0; ctx->mp_via_relay = 0;
         ctx->menu.mp_view.active = 0;
+        ctx->menu.mp_upnp_msg[0] = '\0';
     }
 
     // ── Avance la session + remplit la vue + lance la partie ──
@@ -270,19 +367,32 @@ static int handle_menu(AppContext *ctx) {
             MpLobbyView *v = &ctx->menu.mp_view;
             v->active         = 1;
             v->is_host        = s->is_host;
-            v->peer_connected = (s->state == SESS_LOBBY || s->state == SESS_INGAME);
+            v->peer_connected = (s->state == SESS_LOBBY || s->state == SESS_INGAME)
+                                && !s->peer_gone;
             v->my_ready       = s->my_ready;
             v->peer_ready     = s->peer_ready;
             v->started        = s->started;
-            v->failed         = (s->state == SESS_FAILED);
-            snprintf(v->code, sizeof(v->code), "%s", s->code);
+            v->failed         = (s->state == SESS_FAILED) || s->peer_gone;
+            v->via_relay      = ctx->mp_via_relay;
+            // Code = fonction de l'IP hôte modifiable (LAN détectée par défaut,
+            // ou IP publique si l'hôte a redirigé le port 47777).
+            uint32_t hip;
+            if (s->is_host && net_str_to_ip(ctx->menu.mp_host_ip, &hip))
+                net_session_make_code(hip, MP_PORT, v->code);
+            else
+                snprintf(v->code, sizeof(v->code), "%s", s->code);
             snprintf(v->peer_name, sizeof(v->peer_name), "%s", s->peer_name);
             if (s->mode) { ctx->mp_mode = s->mode; ctx->menu.mp_mode = s->mode; }
             if (s->started) mp_launch_game(ctx);
-        } else if (ctx->mp_active && !in_mp && ctx->screen == SCREEN_MENU) {
-            net_session_close(&ctx->session);   // quitté les écrans MP → ferme
-            ctx->mp_active = 0;
-            ctx->menu.mp_view.active = 0;
+        } else {
+            // Pas de session active affichée → ferme une session orpheline et
+            // VIDE la vue (sinon le lobby garderait un état "connecté" périmé
+            // après une partie → impossible de re-saisir un code).
+            if (ctx->mp_active && !in_mp && ctx->screen == SCREEN_MENU) {
+                net_session_close(&ctx->session);
+                ctx->mp_active = 0;
+            }
+            memset(&ctx->menu.mp_view, 0, sizeof(ctx->menu.mp_view));
         }
     }
 
@@ -335,11 +445,71 @@ static void game_do_update(AppContext *ctx, float dt) {
     }
 }
 
-// Tick réseau en jeu (mode Course) : réception du statut adverse + envoi du
-// nôtre + détection de victoire/défaite. Tourne même en pause (keep-alive).
+// Fait apparaître un ennemi injecté par l'adversaire sur un portail. Les
+// injections rapprochées sont ÉTALÉES (mp_inject_acc) → effet de vague plutôt
+// qu'un bloc instantané.
+static void mp_spawn_injected(AppContext *ctx, int etype) {
+    GameState *gs = &ctx->gs;
+    if (etype < 0 || etype >= ENEMY_TYPE_COUNT) return;
+    int path = -1;
+    for (int p = 0; p < gs->enemy_paths.count; p++)
+        if (gs->enemy_paths.paths[p].found) { path = p; break; }
+    if (path < 0) return;
+    const Theme *th = theme_get(gs->map.theme);
+    float delay = ctx->mp_inject_acc;
+    ctx->mp_inject_acc += 0.45f;
+    if (ctx->mp_inject_acc > 12.0f) ctx->mp_inject_acc = 12.0f;
+    enemy_spawn(&gs->enemies, (EnemyType)etype, path, &gs->enemy_paths,
+                delay, gs->wave_manager.scale,
+                th->enemy_speed_mult * gs->wave_manager.speed_mult);
+}
+
+// Rectangle du bouton d'envoi Duel n°i (bandeau haut-centre).
+static Rectangle mp_duel_btn_rect(int i) {
+    int base_cx = g_map_x_off + g_canvas_virt_w_base / 2;
+    int bw = 100, bh = 30, gap = 8;
+    int total = DUEL_SEND_COUNT * bw + (DUEL_SEND_COUNT - 1) * gap;
+    int x0 = base_cx - total / 2;
+    return (Rectangle){ (float)(x0 + i * (bw + gap)), 60.0f, (float)bw, (float)bh };
+}
+
+// Duel : clic sur un bouton d'envoi (traité AVANT l'input HUD → bloque le
+// placement de tour sous le bouton via ui.mp_block_click).
+static void mp_duel_send_input(AppContext *ctx) {
+    if (ctx->mp_mode != MP_DUEL || !ctx->mp_in_game ||
+        ctx->mp_result != 0 || ctx->menu.paused) return;
+    if (!IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) return;
+    Vector2 vm = virt_mouse();
+    for (int i = 0; i < DUEL_SEND_COUNT; i++) {
+        if (CheckCollisionPointRec(vm, mp_duel_btn_rect(i))) {
+            if (ctx->mp_sabotage >= DUEL_SENDS[i].cost) {
+                ctx->mp_sabotage -= DUEL_SENDS[i].cost;
+                uint8_t t = (uint8_t)DUEL_SENDS[i].type;
+                net_session_send(&ctx->session, NMSG_SEND_ENEMY, &t, 1);
+                ui_push_notif(&ctx->gs.ui, TextFormat("%s envoye !", DUEL_SENDS[i].name),
+                              (Color){200, 90, 200, 255});
+            } else {
+                ui_push_notif(&ctx->gs.ui, "Sabotage insuffisant", (Color){231, 76, 60, 255});
+            }
+            ctx->gs.ui.mp_block_click = 1;   // ne pas placer de tour sous le bouton
+            return;
+        }
+    }
+}
+
+// Fixe le résultat local (won=1 → VICTOIRE) et l'annonce au pair (octet = vainqueur).
+static void mp_set_result(AppContext *ctx, int won) {
+    if (ctx->mp_result != 0) return;
+    ctx->mp_result = won ? 1 : 2;
+    uint8_t w = won ? 1 : 0;
+    net_session_send(&ctx->session, NMSG_GAMEOVER, &w, 1);
+}
+
+// Tick réseau en jeu (Course / Duel / Asym). Tourne même en pause (keep-alive).
 static void mp_game_tick(AppContext *ctx, float dt) {
     if (!ctx->mp_active || !ctx->mp_in_game) return;
     NetSession *s = &ctx->session;
+    int inv = ctx->mp_invader;
     net_session_update(s);
 
     NetMsgHeader h;
@@ -349,12 +519,57 @@ static void mp_game_tick(AppContext *ctx, float dt) {
             memcpy(&ctx->mp_peer, pl, sizeof(NetStatus));
             ctx->mp_peer_valid = 1;
         } else if (h.type == NMSG_GAMEOVER) {
-            if (ctx->mp_result == 0 && ctx->gs.lives > 0) ctx->mp_result = 1; // adversaire tombé
+            int peer_won = (h.len >= 1) ? pl[0] : 0;
+            if (ctx->mp_result == 0)
+                ctx->mp_result = (ctx->mp_mode == MP_COOP)
+                               ? (peer_won ? 1 : 2)    // co-op : sort partagé (adopté)
+                               : (peer_won ? 2 : 1);   // versus : inversé
+        } else if (h.type == NMSG_SEND_ENEMY && h.len >= 1 && !inv) {
+            mp_spawn_injected(ctx, pl[0]);   // on subit l'envoi (défenseur / Duel)
+        } else if (h.type == NMSG_AID && h.len >= 4) {
+            int32_t g; memcpy(&g, pl, 4);
+            if (g > 0 && g < 100000) {       // co-op : or reçu du partenaire
+                ctx->gs.gold += g;
+                ui_push_notif(&ctx->gs.ui, "Or recu du partenaire !", (Color){120,210,120,255});
+            }
         }
     }
-    if (s->peer_gone && ctx->mp_result == 0) ctx->mp_result = 1;  // déconnexion adverse
+    if (s->peer_gone && ctx->mp_result == 0)
+        ctx->mp_result = (ctx->mp_mode == MP_COOP) ? 2 : 1;  // co-op : sans partenaire = perdu
 
-    if (!ctx->menu.paused) {
+    // Étalement des ennemis injectés : décroît quand on n'en reçoit plus.
+    if (ctx->mp_inject_acc > 0.0f) {
+        ctx->mp_inject_acc -= dt;
+        if (ctx->mp_inject_acc < 0.0f) ctx->mp_inject_acc = 0.0f;
+    }
+    // Asym envahisseur : cooldown entre vagues.
+    if (inv && ctx->mp_wave_cooldown > 0.0f) {
+        ctx->mp_wave_cooldown -= dt;
+        if (ctx->mp_wave_cooldown < 0.0f) ctx->mp_wave_cooldown = 0.0f;
+    }
+
+    // Duel : sabotage gagné aux kills (les ENVOIS se font aux BOUTONS, cf.
+    // mp_duel_send_input). L'envahisseur Asym compose ses vagues (mp_invader_render).
+    if (ctx->mp_mode == MP_DUEL && ctx->mp_result == 0 && !ctx->menu.paused) {
+        int dk = ctx->gs.kills - ctx->mp_prev_kills;
+        if (dk > 0) {
+            ctx->mp_sabotage += dk * DUEL_SABOTAGE_PER_KILL;
+            ctx->mp_prev_kills = ctx->gs.kills;
+        }
+    }
+
+    // ── Co-op : entraide (transfert d'or au partenaire, touche G) ──
+    if (ctx->mp_mode == MP_COOP && !inv && ctx->mp_result == 0 && !ctx->menu.paused) {
+        if (IsKeyPressed(KEY_G) && ctx->gs.gold >= COOP_AID_GOLD) {
+            ctx->gs.gold -= COOP_AID_GOLD;
+            int32_t g = COOP_AID_GOLD;
+            net_session_send(s, NMSG_AID, &g, 4);
+            ui_push_notif(&ctx->gs.ui, "+50 or envoye au partenaire", (Color){120,210,120,255});
+        }
+    }
+
+    // ── Statut : seuls les joueurs AVEC un board l'envoient (pas l'envahisseur) ──
+    if (!inv && !ctx->menu.paused) {
         ctx->mp_status_timer -= dt;
         if (ctx->mp_status_timer <= 0.0f) {
             ctx->mp_status_timer = MP_STATUS_INTERVAL;
@@ -367,23 +582,98 @@ static void mp_game_tick(AppContext *ctx, float dt) {
             net_session_send(s, NMSG_STATUS, &st, sizeof(st));
         }
     }
-    if (ctx->mp_result == 0 && ctx->gs.lives <= 0) {   // défaite locale
-        net_session_send(s, NMSG_GAMEOVER, NULL, 0);
-        ctx->mp_result = 2;
+
+    // ── Conditions de fin ──
+    if (ctx->mp_result == 0 && !inv) {
+        if (ctx->mp_mode == MP_COOP) {
+            // L'HÔTE arbitre le sort partagé (les deux gagnent ou perdent ensemble).
+            if (ctx->session.is_host) {
+                int peer_dead = (ctx->mp_peer_valid && ctx->mp_peer.lives <= 0);
+                if (ctx->gs.lives <= 0 || peer_dead)
+                    mp_set_result(ctx, 0);                          // un board tombe → tous perdent
+                else if (ctx->gs.wave_manager.number >= COOP_WAVES &&
+                         ctx->mp_peer_valid && ctx->mp_peer.wave >= COOP_WAVES)
+                    mp_set_result(ctx, 1);                          // survie commune → tous gagnent
+            }
+            // le client attend le verdict de l'hôte (GAMEOVER)
+        } else if (ctx->gs.lives <= 0) {
+            mp_set_result(ctx, 0);                                  // mes bases tombent → je perds
+        } else if (ctx->mp_mode == MP_ASYM &&
+                   ctx->gs.wave_manager.number >= ASYM_SURVIVE_WAVES) {
+            mp_set_result(ctx, 1);                                  // défenseur survit → gagne
+        }
     }
 }
 
-// Résultat MP affiché → un input ramène au menu (ferme la session).
+// Rectangles des boutons du bandeau de résultat (partagés rendu + input).
+static Rectangle mp_result_btn(int which) {  // 0 = REMATCH, 1 = MENU
+    int cx = g_canvas_virt_w / 2, cy = g_canvas_virt_h / 2;
+    return (which == 0) ? (Rectangle){(float)(cx - 220), (float)(cy + 12), 200.0f, 46.0f}
+                        : (Rectangle){(float)(cx + 20),  (float)(cy + 12), 200.0f, 46.0f};
+}
+
+// Bandeau de résultat VICTOIRE / DEFAITE + boutons REMATCH / MENU.
+static void mp_draw_result(AppContext *ctx) {
+    if (ctx->mp_result == 0) return;
+    int cx = g_canvas_virt_w / 2, cy = g_canvas_virt_h / 2;
+    DrawRectangle(0, 0, g_canvas_virt_w, g_canvas_virt_h, (Color){0, 0, 0, 188});
+    const char *t = (ctx->mp_result == 1) ? "VICTOIRE" : "DEFAITE";
+    Color tc = (ctx->mp_result == 1) ? (Color){240, 200, 60, 255}
+                                     : (Color){220, 70, 60, 255};
+    int tw = mtxt(t, 40);
+    dtxt(t, cx - tw/2, cy - 72, 40, tc);
+
+    int can_rematch = net_session_connected(&ctx->session);
+    Vector2 vm = virt_mouse();
+    Rectangle rb = mp_result_btn(0), mb = mp_result_btn(1);
+    int hov_r = can_rematch && CheckCollisionPointRec(vm, rb);
+    int hov_m = CheckCollisionPointRec(vm, mb);
+
+    DrawRectangleRounded(rb, 0.3f, 5, !can_rematch ? (Color){25,22,18,225}
+                                    : hov_r ? (Color){40,120,60,245} : (Color){22,70,38,238});
+    DrawRectangleRoundedLinesEx(rb, 0.3f, 5, hov_r ? 2.2f : 1.2f,
+                                can_rematch ? (Color){80,200,110,235} : (Color){70,65,55,180});
+    int rw = mtxt("REMATCH", 14);
+    dtxt("REMATCH", (int)rb.x + 100 - rw/2, (int)rb.y + 23 - fh(14)/2, 14,
+         can_rematch ? (Color){200,240,200,255} : (Color){100,95,85,255});
+
+    DrawRectangleRounded(mb, 0.3f, 5, hov_m ? (Color){72,56,20,245} : (Color){46,36,12,238});
+    DrawRectangleRoundedLinesEx(mb, 0.3f, 5, hov_m ? 2.2f : 1.2f, (Color){150,120,40,225});
+    int mw = mtxt("MENU", 14);
+    dtxt("MENU", (int)mb.x + 100 - mw/2, (int)mb.y + 23 - fh(14)/2, 14, (Color){230,200,140,255});
+
+    const char *hint = can_rematch ? "REMATCH : rejouer ensemble  -  MENU : quitter"
+                                   : "Adversaire deconnecte  -  MENU pour revenir";
+    int hw = mtxt(hint, 9);
+    dtxt(hint, cx - hw/2, (int)rb.y + 56, 9, (Color){150, 130, 90, 230});
+}
+
+// Clics sur le bandeau de résultat (REMATCH garde la session, MENU la ferme).
 static void mp_handle_result(AppContext *ctx) {
     if (ctx->mp_result == 0) return;
-    if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER) ||
-        IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+    Vector2 vm = virt_mouse();
+    int click = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+    int can_rematch = net_session_connected(&ctx->session);
+
+    if (click && can_rematch && CheckCollisionPointRec(vm, mp_result_btn(0))) {
+        net_session_rematch(&ctx->session);      // retour au salon, session conservée
+        ctx->mp_in_game = 0;
+        ctx->mp_invader = 0;
+        ctx->mp_result  = 0;
+        ctx->menu.paused = 0;
+        ctx->screen      = SCREEN_MENU;
+        ctx->menu.screen = MENU_MP_LOBBY;
+        audio_play_menu_music();
+    } else if ((click && CheckCollisionPointRec(vm, mp_result_btn(1))) ||
+               IsKeyPressed(KEY_ESCAPE)) {
         net_session_close(&ctx->session);
         ctx->mp_active   = 0;
         ctx->mp_in_game  = 0;
+        ctx->mp_invader  = 0;
         ctx->menu.paused = 0;
         ctx->screen      = SCREEN_MENU;
         ctx->menu.screen = MENU_MP_HUB;
+        audio_play_menu_music();
     }
 }
 
@@ -744,38 +1034,193 @@ static void mp_render_overlay(AppContext *ctx) {
     DrawRectangleRoundedLinesEx((Rectangle){(float)px,(float)py,(float)pw,(float)ph},
                          0.22f, 5, 1.2f, (Color){70, 48, 16, 210});
     const char *nm = ctx->session.peer_name[0] ? ctx->session.peer_name : "Adversaire";
-    char top[72];
-    snprintf(top, sizeof(top), "RIVAL : %s", nm);
+    char top[80], cmp[80];
+    if (ctx->mp_mode == MP_ASYM) {           // défenseur : progression de survie
+        snprintf(top, sizeof(top), "ENVAHISSEUR : %s", nm);
+        snprintf(cmp, sizeof(cmp), "Survie  V%d / %d     PV %d",
+                 ctx->gs.wave_manager.number, ASYM_SURVIVE_WAVES, ctx->gs.lives);
+    } else if (ctx->mp_mode == MP_COOP) {    // partenaire : sort partagé + entraide
+        snprintf(top, sizeof(top), "PARTENAIRE : %s   [G]=+50or", nm);
+        if (ctx->mp_peer_valid)
+            snprintf(cmp, sizeof(cmp), "Vous V%d PV%d  +  Lui V%d PV%d   (objectif V%d)",
+                     ctx->gs.wave_manager.number, ctx->gs.lives,
+                     ctx->mp_peer.wave, ctx->mp_peer.lives, COOP_WAVES);
+        else
+            snprintf(cmp, sizeof(cmp), "Vous V%d PV%d   |   Lui (connexion...)",
+                     ctx->gs.wave_manager.number, ctx->gs.lives);
+    } else {
+        snprintf(top, sizeof(top), "RIVAL : %s", nm);
+        if (ctx->mp_peer_valid)
+            snprintf(cmp, sizeof(cmp), "Vous V%d PV%d   |   Lui V%d PV%d",
+                     ctx->gs.wave_manager.number, ctx->gs.lives,
+                     ctx->mp_peer.wave, ctx->mp_peer.lives);
+        else
+            snprintf(cmp, sizeof(cmp), "Vous V%d PV%d   |   Lui (connexion...)",
+                     ctx->gs.wave_manager.number, ctx->gs.lives);
+    }
     int tw0 = mtxt(top, 9);
     dtxt(top, base_cx - tw0/2, py + 3, 9, (Color){200, 180, 120, 255});
-    char cmp[72];
-    if (ctx->mp_peer_valid)
-        snprintf(cmp, sizeof(cmp), "Vous V%d PV%d   |   Lui V%d PV%d",
-                 ctx->gs.wave_manager.number, ctx->gs.lives,
-                 ctx->mp_peer.wave, ctx->mp_peer.lives);
-    else
-        snprintf(cmp, sizeof(cmp), "Vous V%d PV%d   |   Lui (connexion...)",
-                 ctx->gs.wave_manager.number, ctx->gs.lives);
     int cw0 = mtxt(cmp, 8);
     dtxt(cmp, base_cx - cw0/2, py + 18, 8, (Color){150, 130, 80, 255});
 
-    // Bandeau de résultat
-    if (ctx->mp_result != 0) {
-        int cx = g_canvas_virt_w / 2, cy = g_canvas_virt_h / 2;
-        DrawRectangle(0, 0, g_canvas_virt_w, g_canvas_virt_h, (Color){0, 0, 0, 175});
-        const char *t = (ctx->mp_result == 1) ? "VICTOIRE" : "DEFAITE";
-        Color tc = (ctx->mp_result == 1) ? (Color){240, 200, 60, 255}
-                                         : (Color){220, 70, 60, 255};
-        int tw = mtxt(t, 40);
-        dtxt(t, cx - tw/2, cy - 46, 40, tc);
-        const char *sub = (ctx->mp_result == 1) ? "L'adversaire est tombe."
-                                                : "Vos bases sont tombees.";
-        int sw = mtxt(sub, 12);
-        dtxt(sub, cx - sw/2, cy + 16, 12, (Color){200, 180, 140, 255});
-        const char *hint = "Clic ou ESPACE pour revenir au menu";
-        int hw = mtxt(hint, 10);
-        dtxt(hint, cx - hw/2, cy + 44, 10, (Color){140, 120, 80, 255});
+    // Panneau Duel : sabotage + BOUTONS d'envoi cliquables
+    if (ctx->mp_mode == MP_DUEL && ctx->mp_result == 0) {
+        char sb[64];
+        snprintf(sb, sizeof(sb), "SABOTAGE : %d  -  envoyez des ennemis :", ctx->mp_sabotage);
+        int sw = mtxt(sb, 9);
+        dtxt(sb, base_cx - sw/2, 42, 9, (Color){220, 140, 230, 255});
+        Vector2 vm = virt_mouse();
+        for (int i = 0; i < DUEL_SEND_COUNT; i++) {
+            Rectangle r = mp_duel_btn_rect(i);
+            int afford = (ctx->mp_sabotage >= DUEL_SENDS[i].cost);
+            int hov    = afford && CheckCollisionPointRec(vm, r);
+            Color bg  = !afford ? (Color){20, 16, 22, 225}
+                      : hov     ? (Color){64, 30, 74, 240}
+                                : (Color){30, 14, 38, 230};
+            Color brd = afford ? (Color){175, 85, 195, 235} : (Color){70, 60, 75, 200};
+            DrawRectangleRounded(r, 0.25f, 4, bg);
+            DrawRectangleRoundedLinesEx(r, 0.25f, 4, hov ? 2.0f : 1.2f, brd);
+            char b[28];
+            snprintf(b, sizeof(b), "%s  -%d", DUEL_SENDS[i].name, DUEL_SENDS[i].cost);
+            int bw2 = mtxt(b, 9);
+            dtxt(b, (int)r.x + (int)r.width/2 - bw2/2, (int)r.y + (int)r.height/2 - fh(9)/2, 9,
+                 afford ? (Color){210, 235, 180, 255} : (Color){110, 100, 110, 255});
+        }
     }
+
+    mp_draw_result(ctx);   // bandeau VICTOIRE / DEFAITE
+}
+
+// Écran de l'ENVAHISSEUR (Asym) : carte figée + panneau de commande + statut défenseur.
+static void mp_invader_render(AppContext *ctx) {
+    GameState *gs = &ctx->gs;
+    int cx = g_canvas_virt_w / 2;
+    int base_cx = g_map_x_off + g_canvas_virt_w_base / 2;
+    Vector2 vm = virt_mouse();
+    int click = (ctx->mp_result == 0) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+
+    // ── Carte figée (référence visuelle des portails/bases/chemins) ──
+    ClearBackground(theme_get(gs->map.theme)->palette.bg);
+    Camera2D cam = {0};
+    cam.offset = (Vector2){(float)g_map_x_off, 0.0f};
+    cam.zoom   = g_map_render_scale;
+    BeginMode2D(cam);
+        render_map(&gs->map);
+        tile_art_draw_paths(&gs->map);
+        tile_art_draw_spawns(&gs->map);
+        render_spawn_exclusion_zones(&gs->map);
+        render_bases(&gs->map);
+    EndMode2D();
+
+    // ── En-tête + statut du défenseur ──
+    const char *title = "ENVAHISSEUR — composez vos vagues";
+    int tw = mtxt(title, 13);
+    dtxt(title, cx - tw/2, 6, 13, (Color){220, 140, 230, 255});
+    char ds[96];
+    if (ctx->mp_peer_valid)
+        snprintf(ds, sizeof(ds), "Defenseur %s : survie  V%d / %d     PV %d",
+                 ctx->session.peer_name[0] ? ctx->session.peer_name : "?",
+                 ctx->mp_peer.wave, ASYM_SURVIVE_WAVES, ctx->mp_peer.lives);
+    else
+        snprintf(ds, sizeof(ds), "Connexion au defenseur...");
+    int dw = mtxt(ds, 11);
+    dtxt(ds, cx - dw/2, 30, 11, (Color){200, 180, 120, 255});
+
+    // ── Compositeur de vague (bas de l'écran) ──
+    int panel_h = 126, panel_y = g_canvas_virt_h - panel_h - 8;
+    int pw = 740, px = base_cx - pw/2;
+    DrawRectangleRounded((Rectangle){(float)px,(float)panel_y,(float)pw,(float)panel_h},
+                         0.06f, 6, (Color){12, 6, 16, 236});
+    DrawRectangleRoundedLinesEx((Rectangle){(float)px,(float)panel_y,(float)pw,(float)panel_h},
+                         0.06f, 6, 1.5f, (Color){120, 50, 140, 220});
+
+    int max_budget = INV_WAVE_BUDGET(ctx->mp_wave_num);
+    char hdr[64];
+    snprintf(hdr, sizeof(hdr), "VAGUE %d    Budget : %d / %d",
+             ctx->mp_wave_num + 1, ctx->mp_wave_budget, max_budget);
+    int hw = mtxt(hdr, 11);
+    dtxt(hdr, base_cx - hw/2, panel_y + 6, 11, (Color){220, 160, 240, 255});
+
+    // Roster cliquable (ajoute un ennemi à la vague)
+    int bw = 110, bh = 30, gap = 6;
+    int total = INV_ROSTER_COUNT*bw + (INV_ROSTER_COUNT-1)*gap;
+    int rx0 = base_cx - total/2, ry = panel_y + 28;
+    for (int i = 0; i < INV_ROSTER_COUNT; i++) {
+        Rectangle r = {(float)(rx0 + i*(bw+gap)), (float)ry, (float)bw, (float)bh};
+        int afford = ctx->mp_wave_budget >= INV_ROSTER[i].cost;
+        int hov    = afford && CheckCollisionPointRec(vm, r);
+        if (click && hov) {
+            ctx->mp_wave_compose[INV_ROSTER[i].type]++;
+            ctx->mp_wave_budget -= INV_ROSTER[i].cost;
+        }
+        Color bg  = !afford ? (Color){18,14,20,230} : hov ? (Color){62,30,72,240} : (Color){28,14,36,235};
+        Color brd = afford ? (Color){175,85,195,235} : (Color){70,60,75,200};
+        DrawRectangleRounded(r, 0.25f, 4, bg);
+        DrawRectangleRoundedLinesEx(r, 0.25f, 4, hov ? 2.0f : 1.2f, brd);
+        char b[28]; snprintf(b, sizeof(b), "%s -%d", INV_ROSTER[i].name, INV_ROSTER[i].cost);
+        int b2 = mtxt(b, 9);
+        dtxt(b, (int)r.x + bw/2 - b2/2, (int)r.y + bh/2 - fh(9)/2, 9,
+             afford ? (Color){210,235,180,255} : (Color){110,100,110,255});
+    }
+
+    // Résumé de la vague composée
+    char comp[160]; snprintf(comp, sizeof(comp), "%s", "Votre vague : ");
+    int any = 0, tcount = 0;
+    for (int i = 0; i < INV_ROSTER_COUNT; i++) {
+        int n = ctx->mp_wave_compose[INV_ROSTER[i].type];
+        if (n > 0) {
+            char piece[40]; snprintf(piece, sizeof(piece), "%s%dx %s", any ? ", " : "", n, INV_ROSTER[i].name);
+            strncat(comp, piece, sizeof(comp) - strlen(comp) - 1);
+            any = 1; tcount += n;
+        }
+    }
+    if (!any) strncat(comp, "(vide - cliquez des ennemis ci-dessus)", sizeof(comp) - strlen(comp) - 1);
+    int cw = mtxt(comp, 9);
+    dtxt(comp, base_cx - cw/2, ry + bh + 8, 9, (Color){180,170,190,255});
+
+    // Boutons ENVOYER / VIDER
+    int by = ry + bh + 8 + fh(9) + 6;
+    Rectangle bsend = {(float)(base_cx - 170), (float)by, 200.0f, 30.0f};
+    Rectangle bclr  = {(float)(base_cx + 40),  (float)by, 130.0f, 30.0f};
+    int ready    = (ctx->mp_wave_cooldown <= 0.0f);
+    int can_send = (tcount > 0) && ready;
+    int hov_s = can_send && CheckCollisionPointRec(vm, bsend);
+    int hov_c = (tcount > 0) && CheckCollisionPointRec(vm, bclr);
+
+    DrawRectangleRounded(bsend, 0.3f, 5, hov_s ? (Color){40,120,60,240}
+                                       : can_send ? (Color){20,70,35,235} : (Color){25,22,18,220});
+    DrawRectangleRoundedLinesEx(bsend, 0.3f, 5, hov_s ? 2.0f : 1.2f,
+                                can_send ? (Color){80,200,110,235} : (Color){70,65,55,200});
+    char eb[48];
+    if (!ready)  snprintf(eb, sizeof(eb), "RECHARGE  %.0fs", ctx->mp_wave_cooldown + 0.9f);
+    else         snprintf(eb, sizeof(eb), "ENVOYER LA VAGUE (%d)", tcount);
+    int ew = mtxt(eb, 10);
+    dtxt(eb, (int)bsend.x + 100 - ew/2, (int)bsend.y + 15 - fh(10)/2, 10,
+         can_send ? (Color){200,240,200,255} : (Color){110,105,95,255});
+
+    DrawRectangleRounded(bclr, 0.3f, 5, hov_c ? (Color){90,40,40,235} : (Color){40,22,22,225});
+    DrawRectangleRoundedLinesEx(bclr, 0.3f, 5, hov_c ? 2.0f : 1.2f, (Color){160,70,70,210});
+    int vw2 = mtxt("VIDER", 10);
+    dtxt("VIDER", (int)bclr.x + 65 - vw2/2, (int)bclr.y + 15 - fh(10)/2, 10, (Color){220,160,160,255});
+
+    if (click && hov_s) {              // envoie la vague composée
+        for (int i = 0; i < INV_ROSTER_COUNT; i++) {
+            int t = INV_ROSTER[i].type;
+            for (int k = 0; k < ctx->mp_wave_compose[t]; k++) {
+                uint8_t et = (uint8_t)t;
+                net_session_send(&ctx->session, NMSG_SEND_ENEMY, &et, 1);
+            }
+        }
+        memset(ctx->mp_wave_compose, 0, sizeof(ctx->mp_wave_compose));
+        ctx->mp_wave_num++;
+        ctx->mp_wave_budget = INV_WAVE_BUDGET(ctx->mp_wave_num);
+        ctx->mp_wave_cooldown = INV_WAVE_COOLDOWN;   // pacing entre vagues
+    } else if (click && hov_c) {       // vide la composition (rembourse)
+        memset(ctx->mp_wave_compose, 0, sizeof(ctx->mp_wave_compose));
+        ctx->mp_wave_budget = INV_WAVE_BUDGET(ctx->mp_wave_num);
+    }
+
+    mp_draw_result(ctx);
 }
 
 static int game_do_render(AppContext *ctx) {
@@ -1119,7 +1564,18 @@ int app_update(AppContext *ctx, float dt) {
     if (ctx->screen == SCREEN_MENU)
         return handle_menu(ctx);
 
+    /* SCREEN_GAME — Asym ENVAHISSEUR : sim figée, écran de commande dédié */
+    if (ctx->mp_invader) {
+        mp_game_tick(ctx, dt);
+        mp_handle_result(ctx);
+        mp_invader_render(ctx);
+        ctx->interlude_prev = ctx->interlude;
+        return 1;
+    }
+
     /* SCREEN_GAME */
+    ctx->gs.ui.mp_block_click = (ctx->mp_result != 0) ? 1 : 0;
+    mp_duel_send_input(ctx);   // Duel : boutons d'envoi (avant l'input HUD)
     game_do_input(ctx);
     game_do_update(ctx, dt);
     mp_game_tick(ctx, dt);   // réseau multijoueur (no-op hors MP)

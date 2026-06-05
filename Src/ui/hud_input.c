@@ -340,7 +340,7 @@ void ui_update(UIState *ui, GameState *gs) {
         }
     }
 
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && !ui->mp_block_click) {
         // Démarrage du drag sur un overlay (priorité sur tout autre clic)
         {
             Rectangle tl_r = {ui->overlay_tl_pos.x, ui->overlay_tl_pos.y,

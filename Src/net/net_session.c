@@ -20,6 +20,29 @@ static int b32val(char c) {
     return -1;
 }
 
+// Encode/décode base32 génériques sur un flux d'octets.
+static int b32_encode(const unsigned char *b, int n, char *out) {
+    int bits = 0, val = 0, o = 0;
+    for (int i = 0; i < n; i++) {
+        val = (val << 8) | b[i]; bits += 8;
+        while (bits >= 5) { out[o++] = B32[(val >> (bits - 5)) & 31]; bits -= 5; }
+    }
+    if (bits > 0) out[o++] = B32[(val << (5 - bits)) & 31];
+    out[o] = '\0';
+    return o;
+}
+static int b32_decode(const char *code, unsigned char *out, int outn) {
+    int bits = 0, val = 0, o = 0;
+    for (const char *p = code; *p; p++) {
+        if (*p == '-' || *p == ' ') continue;
+        int v = b32val(*p);
+        if (v < 0) return -1;
+        val = (val << 5) | v; bits += 5;
+        if (bits >= 8) { if (o < outn) out[o++] = (unsigned char)((val >> (bits - 8)) & 0xFF); bits -= 8; }
+    }
+    return o;
+}
+
 void net_session_make_code(uint32_t ip_be, uint16_t port, char out[20]) {
     unsigned char b[6];
     memcpy(b, &ip_be, 4);                 // 4 octets IP (ordre réseau natif)
@@ -53,6 +76,31 @@ int net_session_parse_code(const char *code, uint32_t *ip_be, uint16_t *port) {
     return 1;
 }
 
+// ── Code RELAIS : 10 octets (relayIP[4] + port[2] + room[4]) ──
+void net_session_make_relay_code(uint32_t ip_be, uint16_t port, uint32_t room, char out[20]) {
+    unsigned char b[10];
+    memcpy(b, &ip_be, 4);
+    b[4] = (unsigned char)(port >> 8);  b[5] = (unsigned char)(port & 0xFF);
+    b[6] = (unsigned char)(room >> 24); b[7] = (unsigned char)(room >> 16);
+    b[8] = (unsigned char)(room >> 8);  b[9] = (unsigned char)(room & 0xFF);
+    char raw[20];
+    int n = b32_encode(b, 10, raw);     // 16 caractères
+    int o = 0;
+    for (int i = 0; i < n; i++) { if (i == 8) out[o++] = '-'; out[o++] = raw[i]; }
+    out[o] = '\0';
+}
+
+int net_session_parse_relay_code(const char *code, uint32_t *ip_be, uint16_t *port, uint32_t *room) {
+    if (!code) return 0;
+    unsigned char b[10];
+    if (b32_decode(code, b, 10) != 10) return 0;
+    if (ip_be) memcpy(ip_be, b, 4);
+    if (port)  *port = (uint16_t)(((uint16_t)b[4] << 8) | b[5]);
+    if (room)  *room = ((uint32_t)b[6] << 24) | ((uint32_t)b[7] << 16) |
+                       ((uint32_t)b[8] << 8)  |  (uint32_t)b[9];
+    return 1;
+}
+
 // ── Lobby ────────────────────────────────────────────────────
 int net_session_host(NetSession *s, int port, uint32_t seed, uint8_t mode,
                      const char *name) {
@@ -76,6 +124,42 @@ int net_session_join(NetSession *s, const char *code, const char *name) {
     char ipstr[16];
     net_ip_to_str(ip, ipstr);
     s->tr = transport_tcp_join(ipstr, port);
+    if (!s->tr) { s->state = SESS_FAILED; return 0; }
+    snprintf(s->code, sizeof(s->code), "%s", code);
+    s->state = SESS_CONNECTING;
+    return 1;
+}
+
+// ── Mode relais : les DEUX se connectent au relais (rôles inchangés) ──
+static void room_bytes(uint32_t room, unsigned char rb[4]) {
+    rb[0] = (unsigned char)(room >> 24); rb[1] = (unsigned char)(room >> 16);
+    rb[2] = (unsigned char)(room >> 8);  rb[3] = (unsigned char)(room & 0xFF);
+}
+
+int net_session_host_relay(NetSession *s, uint32_t relay_ip, uint16_t relay_port,
+                           uint32_t room, uint32_t seed, uint8_t mode, const char *name) {
+    memset(s, 0, sizeof(*s));
+    s->is_host = 1; s->seed = seed; s->mode = mode; s->port = relay_port;
+    snprintf(s->my_name, sizeof(s->my_name), "%s", name ? name : "Hote");
+    unsigned char rb[4]; room_bytes(room, rb);
+    char ipstr[16]; net_ip_to_str(relay_ip, ipstr);
+    s->tr = transport_tcp_relay(ipstr, relay_port, rb);
+    if (!s->tr) { s->state = SESS_FAILED; return 0; }
+    net_session_make_relay_code(relay_ip, relay_port, room, s->code);
+    s->state = SESS_CONNECTING;          // l'hôte se connecte AUSSI au relais
+    return 1;
+}
+
+int net_session_join_relay(NetSession *s, const char *code, const char *name) {
+    memset(s, 0, sizeof(*s));
+    s->is_host = 0;
+    snprintf(s->my_name, sizeof(s->my_name), "%s", name ? name : "Client");
+    uint32_t ip, room; uint16_t port;
+    if (!net_session_parse_relay_code(code, &ip, &port, &room)) { s->state = SESS_FAILED; return 0; }
+    s->port = port;
+    unsigned char rb[4]; room_bytes(room, rb);
+    char ipstr[16]; net_ip_to_str(ip, ipstr);
+    s->tr = transport_tcp_relay(ipstr, port, rb);
     if (!s->tr) { s->state = SESS_FAILED; return 0; }
     snprintf(s->code, sizeof(s->code), "%s", code);
     s->state = SESS_CONNECTING;
@@ -141,7 +225,10 @@ void net_session_update(NetSession *s) {
                 if (h.len >= (int)sizeof(NetReady)) s->peer_ready = ((NetReady *)pl)->ready;
                 break;
             case NMSG_START:
-                if (!s->is_host) { s->started = 1; s->state = SESS_INGAME; }
+                if (!s->is_host) {
+                    if (h.len >= 4) memcpy(&s->seed, pl, 4);  // adopte le seed de l'hôte
+                    s->started = 1; s->state = SESS_INGAME;
+                }
                 break;
             case NMSG_BYE:
                 s->peer_gone = 1;
@@ -161,9 +248,26 @@ void net_session_set_ready(NetSession *s, int ready) {
 void net_session_start(NetSession *s) {
     if (!s || !s->is_host || s->state != SESS_LOBBY) return;
     if (!s->my_ready || !s->peer_ready) return;
-    transport_send_msg(s->tr, NMSG_START, NULL, 0);
+    uint32_t seed = s->seed;                 // seed (frais à chaque lancement) → carte commune
+    transport_send_msg(s->tr, NMSG_START, &seed, 4);
     s->started = 1;
     s->state = SESS_INGAME;
+}
+
+// Retour au salon entre deux parties (rematch) : conserve la connexion,
+// réinitialise prêts + état. Sans effet si le pair est parti.
+void net_session_rematch(NetSession *s) {
+    if (!s || s->peer_gone) return;
+    s->my_ready   = 0;
+    s->peer_ready = 0;
+    s->started    = 0;
+    if (s->state == SESS_INGAME) s->state = SESS_LOBBY;
+}
+
+// 1 = pair connecté et présent (pour proposer un rematch).
+int net_session_connected(const NetSession *s) {
+    return s && s->tr && !s->peer_gone &&
+           (s->state == SESS_LOBBY || s->state == SESS_INGAME);
 }
 
 int net_session_send(NetSession *s, int type, const void *payload, int len) {

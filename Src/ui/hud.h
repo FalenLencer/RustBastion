@@ -106,6 +106,8 @@ typedef struct {
     int           box_dragging;         // 1 = glisser de sélection en cours
     Vector2       box_start;            // coin de départ du glisser (coords virtuelles)
     Vector2       box_cur;              // coin courant du glisser
+    // Multijoueur : 1 = un panneau MP a consommé le clic ce frame (ne pas placer de tour)
+    int           mp_block_click;
     // Notifications flottantes
     FloatNotif    notifs[MAX_NOTIFS];
     int           notif_count;

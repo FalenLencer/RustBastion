@@ -52,6 +52,7 @@ typedef struct {
     int  my_ready, peer_ready;
     int  started;         // 1 = partie lancée
     int  failed;
+    int  via_relay;       // 1 = session passe par un serveur relais
     char code[20];        // code de session (côté hôte)
     char peer_name[24];
 } MpLobbyView;
@@ -78,6 +79,8 @@ typedef struct {
     int sfx_volume;
     int show_fps;      // 1 = afficher le compteur FPS (touche [F] en jeu)
     int fx_effects;    // 1 = effets de jus (particules, secousse, pops) activés
+    char player_name[24]; // pseudo affiché en multijoueur
+    char relay_addr[32];  // serveur relais "IP:port" (vide = connexion directe)
 } AppOptions;
 
 typedef struct {
@@ -124,7 +127,11 @@ typedef struct {
     int          mp_role;            // 0=indéfini, 1=héberger, 2=rejoindre
     char         mp_code_input[20];  // saisie du code (rejoindre)
     int          mp_code_len;
+    char         mp_host_ip[16];     // IP de l'hôte encodée dans le code (modifiable)
+    int          mp_edit_field;      // champ texte actif : 0=aucun,1=pseudo,2=code,3=ip
     MpLobbyView  mp_view;            // état de session (rempli par app.c)
+    char         mp_upnp_msg[160];   // UPNP_HOOK : résultat de l'ouverture auto de port
+    int          mp_upnp_ok;         // UPNP_HOOK : 1 = port ouvert (vert), 0 = échec (rouge)
 } MenuState;
 
 typedef struct {
@@ -149,6 +156,7 @@ typedef struct {
     int          mp_ready;            // 1 = basculer "prêt"
     int          mp_start;            // 1 = hôte lance la partie
     int          mp_leave;            // 1 = quitter la session
+    int          mp_upnp;             // UPNP_HOOK : 1 = tenter l'ouverture auto du port
     int          mp_mode;             // MpMode pour l'hébergement
     char         mp_code[20];         // code saisi pour rejoindre
 } MenuAction;

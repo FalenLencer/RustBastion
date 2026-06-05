@@ -30,7 +30,9 @@ typedef enum {
     NMSG_GAMEOVER,       // ↔        : board tombé / extrait
     NMSG_PING,           // ↔        : maintien de connexion
     NMSG_BYE,            // ↔        : déconnexion propre
-    // Modes futurs : NMSG_SEND_ENEMY, NMSG_COMMAND, NMSG_SNAPSHOT…
+    NMSG_SEND_ENEMY,     // Duel     : injecte un ennemi chez l'adversaire (payload : 1 octet EnemyType)
+    NMSG_AID,            // Co-op    : transfert d'or au partenaire (payload : int32)
+    // Modes futurs : NMSG_COMMAND, NMSG_SNAPSHOT…
 } NetMsgType;
 
 #pragma pack(push, 1)

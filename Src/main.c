@@ -18,9 +18,24 @@
 #include "game/save.h"
 #include "game/app.h"
 #include "ui/renderer.h"
+#include "net/net_relay.h"   /* mode serveur relais (headless) */
 #include <math.h>
+#include <string.h>
+#include <stdlib.h>
 
-int main(void) {
+int main(int argc, char **argv) {
+    /* ── Mode SERVEUR RELAIS (headless, sans raylib) ─────────────
+       Usage : rustbastion --relay [port]  (défaut 47777).
+       À lancer sur un PC toujours allumé dont le port est déjà
+       redirigé par la box (ex. celui du serveur Minecraft). */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--relay") == 0) {
+            int port = (i + 1 < argc) ? atoi(argv[i + 1]) : 0;
+            if (port <= 0 || port > 65535) port = 47777;
+            return net_relay_run(port);
+        }
+    }
+
     /* ── Répertoire de travail ──────────────────────────────────── */
     setup_working_dir();
 

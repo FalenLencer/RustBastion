@@ -60,7 +60,16 @@ typedef struct {
     int            mp_peer_valid;   /* 1 = au moins un statut reçu */
     int            mp_result;       /* 0 = en cours, 1 = gagné, 2 = perdu */
     float          mp_status_timer; /* throttle d'envoi du statut (s) */
-    char           mp_name[24];     /* pseudo local */
+    int            mp_sabotage;     /* Duel/Asym : monnaie d'envoi accumulée */
+    int            mp_prev_kills;   /* Duel : kills au tick précédent (delta → sabotage) */
+    int            mp_invader;      /* Asym : 1 = ce client est l'ENVAHISSEUR (sim figée) */
+    float          mp_budget_t;     /* Asym envahisseur : accumulateur de budget (s) */
+    int            mp_wave_compose[ENEMY_TYPE_COUNT]; /* Asym : vague en composition (nb/type) */
+    int            mp_wave_budget;  /* Asym envahisseur : budget restant de la vague */
+    int            mp_wave_num;     /* Asym envahisseur : nb de vagues envoyées */
+    float          mp_wave_cooldown;/* Asym envahisseur : délai avant la prochaine vague (s) */
+    float          mp_inject_acc;   /* défenseur : étalement des ennemis injectés (s) */
+    int            mp_via_relay;    /* 1 = session courante via serveur relais */
 } AppContext;
 
 // ────────────────────────────────────────────────────────────────
