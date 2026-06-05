@@ -190,8 +190,8 @@ typedef enum {
 #define ENEMY_ARTY_FIRE_TIMER        3.0f  /* cooldown entre tirs (s)      */
 
 // ── Raider (détachement vers ouvrier) ────────────────────────
-#define ENEMY_RAID_DETECT_RANGE      5.0f  /* détection ouvrier (en tiles) */
-#define ENEMY_RAID_MAX_FRACTION      0.3f  /* max 30% des ennemis actifs   */
+#define ENEMY_RAID_DETECT_RANGE      4.0f  /* détection ouvrier (en tiles) — réduit */
+#define ENEMY_RAID_MAX_FRACTION      0.18f /* max 18% des ennemis actifs (était 30%) */
 #define ENEMY_RAID_ABANDON_RANGE    14.0f  /* abandon si ouvrier trop loin */
 
 // Forward declarations

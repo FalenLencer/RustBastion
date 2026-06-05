@@ -70,6 +70,18 @@ typedef struct {
     float          mp_wave_cooldown;/* Asym envahisseur : délai avant la prochaine vague (s) */
     float          mp_inject_acc;   /* défenseur : étalement des ennemis injectés (s) */
     int            mp_via_relay;    /* 1 = session courante via serveur relais */
+    /* Asym — plateau partagé : snapshot du défenseur vu par l'envahisseur.
+       Triplets (tile_x, tile_y, type) packés. */
+    unsigned char  mp_board_t[64 * 3]; int mp_board_tn;  /* tours  */
+    unsigned char  mp_board_u[32 * 3]; int mp_board_un;  /* unités */
+    float          mp_board_timer;   /* défenseur : throttle d'envoi du plateau (s) */
+    /* Positions déplaçables des panneaux flottants MP (coords virtuelles ;
+       <0 = non initialisé → placé au défaut au 1er rendu). */
+    Vector2        mp_pos_rival;     /* HUD rival (haut-centre)       */
+    Vector2        mp_pos_duel;      /* barre d'envoi Duel            */
+    int            mp_drag;          /* 0=aucun, 1=rival, 2=duel      */
+    Vector2        mp_drag_grab;     /* décalage souris→coin au drag  */
+    int            tactical_pause;   /* solo : gel pour réfléchir (ESPACE), on peut agir */
 } AppContext;
 
 // ────────────────────────────────────────────────────────────────

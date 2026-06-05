@@ -227,6 +227,11 @@ void net_session_update(NetSession *s) {
             case NMSG_START:
                 if (!s->is_host) {
                     if (h.len >= 4) memcpy(&s->seed, pl, 4);  // adopte le seed de l'hôte
+                    int ex = (int)h.len - 4;                  // config de partie jointe
+                    if (ex < 0) ex = 0;
+                    if (ex > (int)sizeof(s->start_extra)) ex = (int)sizeof(s->start_extra);
+                    if (ex > 0) memcpy(s->start_extra, pl + 4, ex);
+                    s->start_extra_len = ex;
                     s->started = 1; s->state = SESS_INGAME;
                 }
                 break;
@@ -245,11 +250,18 @@ void net_session_set_ready(NetSession *s, int ready) {
     transport_send_msg(s->tr, NMSG_READY, &r, sizeof(r));
 }
 
-void net_session_start(NetSession *s) {
+void net_session_start(NetSession *s, const void *extra, int extra_len) {
     if (!s || !s->is_host || s->state != SESS_LOBBY) return;
     if (!s->my_ready || !s->peer_ready) return;
-    uint32_t seed = s->seed;                 // seed (frais à chaque lancement) → carte commune
-    transport_send_msg(s->tr, NMSG_START, &seed, 4);
+    if (extra_len < 0) extra_len = 0;
+    if (extra_len > (int)sizeof(s->start_extra)) extra_len = (int)sizeof(s->start_extra);
+    unsigned char buf[4 + sizeof(s->start_extra)];
+    memcpy(buf, &s->seed, 4);                 // seed (frais à chaque lancement) → carte commune
+    if (extra && extra_len > 0) memcpy(buf + 4, extra, extra_len);
+    transport_send_msg(s->tr, NMSG_START, buf, 4 + extra_len);
+    // Mémorise l'extra côté hôte (mp_launch_game lira start_extra des 2 côtés).
+    if (extra && extra_len > 0) memcpy(s->start_extra, extra, extra_len);
+    s->start_extra_len = extra_len;
     s->started = 1;
     s->state = SESS_INGAME;
 }

@@ -157,6 +157,40 @@ int runbuild_roll_offers(const RunBuild *rb, int *out, int n,
     return n_out;
 }
 
+int runbuild_reroll_slot(const RunBuild *rb, int *offers, int n, int slot) {
+    if (!offers || slot < 0 || slot >= n) return -1;
+    int picked[PERK_COUNT];
+    for (int i = 0; i < PERK_COUNT; i++) picked[i] = 0;
+    for (int k = 0; k < n; k++)                 // exclut les autres offres en cours
+        if (k != slot && offers[k] >= 0 && offers[k] < PERK_COUNT) picked[offers[k]] = 1;
+
+    int  weights[PERK_COUNT];
+    long total = 0;
+    for (int i = 0; i < PERK_COUNT; i++) {
+        weights[i] = 0;
+        if (picked[i]) continue;
+        if (rb->count[i] >= RUN_PERKS[i].max_stack) continue;
+        int w;
+        switch (RUN_PERKS[i].rarity) {
+            case RAR_RARE: w = 34; break;
+            case RAR_EPIC: w = 14; break;
+            default:       w = 60; break;
+        }
+        weights[i] = w; total += w;
+    }
+    if (total <= 0) return -1;                   // rien d'éligible → offre inchangée
+    long r = GetRandomValue(0, (int)total - 1);
+    int chosen = -1;
+    for (int i = 0; i < PERK_COUNT; i++) {
+        if (!weights[i]) continue;
+        if (r < weights[i]) { chosen = i; break; }
+        r -= weights[i];
+    }
+    if (chosen < 0) return -1;
+    offers[slot] = chosen;
+    return chosen;
+}
+
 int runperk_category(int perk_id) {
     switch (perk_id) {
         case PERK_BUTIN: case PERK_SUBV: case PERK_REVENTE: case PERK_FORTUNE:

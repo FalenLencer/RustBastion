@@ -70,6 +70,7 @@ typedef struct {
     float        fire_rate;
     DamageType   dmg_type;
     MaterialType material;
+    float        mat_dmg_mult; // multiplicateur de dégâts du matériau (1.0 = aucun)
     float        hp;           // points de vie (Artillery + réparation)
 
     // Stats de base au moment du placement (avant upgrades, après meta)
@@ -131,5 +132,9 @@ int  tower_upg_next_cost_rate (const Tower *t);
 void tower_upgrade_dmg  (Tower *t);  // +10% dégâts
 void tower_upgrade_range(Tower *t);  // +10% portée
 void tower_upgrade_rate (Tower *t);  // +20% cadence
+
+// Applique un matériau (type de dégâts + GROS bonus de dégâts, intégré au
+// recalcul d'amélioration). Remplace proprement un matériau déjà appliqué.
+void tower_set_material (Tower *t, MaterialType mat);
 
 void tower_do_repair(Tower *t);      // restaure HP à TOWER_MAX_HP

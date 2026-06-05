@@ -89,14 +89,21 @@ int main(void) {
     if (join.seed == seed) printf("  [OK] seed propage (%u)\n", join.seed);
     else { printf("  [X] seed join=%u attendu %u\n", join.seed, seed); fails++; }
 
-    /* 4) Ready des deux côtés → START → INGAME */
+    /* 4) Ready des deux côtés → START (avec config jointe) → INGAME */
     net_session_set_ready(&host, 1);
     net_session_set_ready(&join, 1);
     pump_until(&host, &join, peer_ready_both, 2000);
-    net_session_start(&host);
+    unsigned char cfg_extra[12] = { 3, 0,0,0, 7, 0,0,0, 42, 0, 0, 1 };  // config factice + rôle
+    net_session_start(&host, cfg_extra, sizeof(cfg_extra));
     if (pump_until(&host, &join, both_ingame, 3000))
         printf("  [OK] START : les deux INGAME\n");
     else { printf("  [X] pas INGAME (host=%d join=%d)\n", host.state, join.state); fails++; }
+
+    /* 4b) La config jointe (start_extra) a-t-elle traversé le relais ? */
+    if (join.start_extra_len == (int)sizeof(cfg_extra) &&
+        memcmp(join.start_extra, cfg_extra, sizeof(cfg_extra)) == 0)
+        printf("  [OK] config de partie transmise via START (%d octets)\n", join.start_extra_len);
+    else { printf("  [X] config NON transmise (len=%d)\n", join.start_extra_len); fails++; }
 
     /* 5) Transfert d'un message applicatif hôte → client À TRAVERS le relais */
     NetStatus st = { .wave = 7, .kills = 42, .gold = 100, .lives = 3, .alive = 1 };

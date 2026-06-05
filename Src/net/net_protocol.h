@@ -32,6 +32,8 @@ typedef enum {
     NMSG_BYE,            // ↔        : déconnexion propre
     NMSG_SEND_ENEMY,     // Duel     : injecte un ennemi chez l'adversaire (payload : 1 octet EnemyType)
     NMSG_AID,            // Co-op    : transfert d'or au partenaire (payload : int32)
+    NMSG_BOARD,          // Asym     : snapshot plateau défenseur → envahisseur
+                         //   payload : [nt][nt×(tx,ty,type)][nu][nu×(tx,ty,type)]
     // Modes futurs : NMSG_COMMAND, NMSG_SNAPSHOT…
 } NetMsgType;
 

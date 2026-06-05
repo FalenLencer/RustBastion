@@ -512,6 +512,8 @@ MenuAction menu_render_and_act(MenuState *m, const MetaProgress *meta,
             case MENU_OPTIONS:      act = draw_options(m, menu_w, vh);            break;
             case MENU_BESTIARY:     act = draw_bestiary(m, meta, menu_w, vh);     break;
             case MENU_MP_HUB:       act = draw_mp_hub(m, menu_w, vh);            break;
+            case MENU_MP_CONFIG:    act = draw_mp_config(m, menu_w, vh);         break;
+            case MENU_MP_CONFIG_ADV:act = draw_custom_config(m, menu_w, vh);     break;
             case MENU_MP_LOBBY:     act = draw_mp_lobby(m, menu_w, vh);          break;
             case MENU_CONFIRM_DEL:
                 draw_slot_list(m, menu_w, vh,

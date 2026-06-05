@@ -33,6 +33,13 @@ extern int g_canvas_virt_h;
 // Facteur de zoom de la carte pour les grandes cartes (1.0 = taille standard)
 // La carte est rendue dans un Camera2D avec ce zoom pour tenir dans le canvas fixe.
 extern float g_map_render_scale;
+// Zoom JOUEUR (molette) + décalage (pan). Le rendu carte ET le mappage souris
+// passent par les helpers ci-dessous (source unique → alignement garanti).
+extern float g_map_zoom;             // 1..3
+extern float g_map_pan_x, g_map_pan_y;
+float   map_eff_scale(void);                 // g_map_render_scale * g_map_zoom
+Vector2 map_origin(void);                    // (OX, OY) du rendu carte
+Vector2 map_screen_to_world(Vector2 s);      // souris (coords canvas) → monde (px)
 
 Color renderer_tower_color(TowerType type);
 Color renderer_unit_color (UnitType  type);

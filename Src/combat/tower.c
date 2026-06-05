@@ -190,8 +190,9 @@ int tower_place(TowerPool *tp, TowerType type,
     tw->upg_range      = 0;
     tw->upg_rate       = 0;
 
-    tw->dmg_type = DMG_PHYSICAL;
-    tw->material = MAT_NONE;
+    tw->dmg_type     = DMG_PHYSICAL;
+    tw->material     = MAT_NONE;
+    tw->mat_dmg_mult = 1.0f;
     switch (type) {
         case TOWER_FLAME: tw->dmg_type = DMG_FIRE;      break;
         case TOWER_TESLA: tw->dmg_type = DMG_ELECTRIC;  break;
@@ -224,7 +225,24 @@ int tower_upg_next_cost_rate(const Tower *t) {
 void tower_upgrade_dmg(Tower *t) {
     if (t->upg_dmg >= TOWER_UPG_MAX) return;
     t->upg_dmg++;
-    t->damage = t->base_damage * (1.0f + t->upg_dmg * TOWER_UPG_DMG_MULT);
+    // Inclut le multiplicateur de matériau → le bonus n'est plus effacé par un upgrade.
+    t->damage = t->base_damage * (1.0f + t->upg_dmg * TOWER_UPG_DMG_MULT) * t->mat_dmg_mult;
+}
+
+void tower_set_material(Tower *t, MaterialType mat) {
+    if (!t) return;
+    float mult = 1.0f;
+    switch (mat) {
+        case MAT_IRON:   mult = 1.45f; break;                 // +45% (garde le type de dégâts)
+        case MAT_ACID:   t->dmg_type = DMG_POISON;   mult = 1.25f; break;
+        case MAT_PLASMA: t->dmg_type = DMG_ELECTRIC; mult = 1.30f; break;
+        case MAT_CRYO:   t->dmg_type = DMG_CRYO;     mult = 1.20f; break;
+        case MAT_NANO:   t->dmg_type = DMG_NANO;     mult = 1.20f; break;
+        default: return;
+    }
+    t->material     = mat;
+    t->mat_dmg_mult = mult;   // remplace proprement (pas d'empilement)
+    t->damage = t->base_damage * (1.0f + t->upg_dmg * TOWER_UPG_DMG_MULT) * t->mat_dmg_mult;
 }
 void tower_upgrade_range(Tower *t) {
     if (t->upg_range >= TOWER_UPG_MAX) return;

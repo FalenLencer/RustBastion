@@ -87,15 +87,15 @@ void ui_update(UIState *ui, GameState *gs) {
         }
     }
 
-    // Hover tuile (tient compte du décalage horizontal et du zoom de carte)
+    // Hover tuile via le mappage centralisé (zoom/pan + grandes cartes inclus)
     {
-        int map_left  = g_map_x_off;
-        int map_right = g_map_x_off + g_canvas_virt_w_base;
-        if (mouse.y >= 0 && mouse.y < HUD_Y &&
-            mouse.x >= map_left && mouse.x < map_right) {
-            float eff_tile = TILE_SIZE * g_map_render_scale;
-            ui->hovered_tile_x = (int)((mouse.x - map_left) / eff_tile);
-            ui->hovered_tile_y = (int)(mouse.y / eff_tile);
+        Vector2 w = map_screen_to_world(mouse);
+        int tx = (int)(w.x / TILE_SIZE);
+        int ty = (int)(w.y / TILE_SIZE);
+        if (mouse.y >= 0 && mouse.y < HUD_Y && w.x >= 0 && w.y >= 0 &&
+            tx >= 0 && tx < gs->map.w && ty >= 0 && ty < gs->map.h) {
+            ui->hovered_tile_x = tx;
+            ui->hovered_tile_y = ty;
         } else {
             ui->hovered_tile_x = -1;
             ui->hovered_tile_y = -1;
@@ -305,12 +305,13 @@ void ui_update(UIState *ui, GameState *gs) {
             float ddx = ui->box_cur.x - ui->box_start.x;
             float ddy = ui->box_cur.y - ui->box_start.y;
             if (ddx*ddx + ddy*ddy >= 64.0f) {            /* glisser réel ≥ 8 px */
-                float x0 = (fminf(ui->box_start.x, ui->box_cur.x) - g_map_x_off)
-                           / g_map_render_scale;
-                float x1 = (fmaxf(ui->box_start.x, ui->box_cur.x) - g_map_x_off)
-                           / g_map_render_scale;
-                float y0 = fminf(ui->box_start.y, ui->box_cur.y) / g_map_render_scale;
-                float y1 = fmaxf(ui->box_start.y, ui->box_cur.y) / g_map_render_scale;
+                Vector2 _w0 = map_screen_to_world((Vector2){
+                    fminf(ui->box_start.x, ui->box_cur.x),
+                    fminf(ui->box_start.y, ui->box_cur.y)});
+                Vector2 _w1 = map_screen_to_world((Vector2){
+                    fmaxf(ui->box_start.x, ui->box_cur.x),
+                    fmaxf(ui->box_start.y, ui->box_cur.y)});
+                float x0 = _w0.x, y0 = _w0.y, x1 = _w1.x, y1 = _w1.y;
                 int cnt = 0;
                 for (int j = 0; j < MAX_UNITS; j++) {
                     ui->group_sel[j] = 0;
@@ -615,6 +616,11 @@ void ui_update(UIState *ui, GameState *gs) {
                 if (rfrac > 1.0f) rfrac = 1.0f;   // perk Recyclage (cap 100 %)
                 int refund = (int)(real_cost * rfrac);
                 gs->gold += refund;
+                // Rend le MINERAI appliqué à l'inventaire (s'il reste de la place).
+                if (tw->material != MAT_NONE && gs->inventory_count < MAX_INVENTORY) {
+                    gs->inventory[gs->inventory_count++] = tw->material;
+                    ui_push_notif(ui, "Minerai recupere", (Color){62, 175, 200, 255});
+                }
                 gs->map.tiles[tw->tile_y][tw->tile_x].buildable = 1;
                 tw->active = 0;
                 gs->towers.tower_count--;
@@ -666,33 +672,7 @@ void ui_update(UIState *ui, GameState *gs) {
                     int _midx = ui->sel_mat_idx;
                     if (_midx < 0 || _midx >= gs->inventory_count) _midx = 0;
                     MaterialType mat = gs->inventory[_midx];
-                    switch (mat) {
-                        case MAT_ACID:
-                            tw->dmg_type = DMG_POISON;
-                            tw->material = MAT_ACID;
-                            break;
-                        case MAT_PLASMA:
-                            tw->dmg_type = DMG_ELECTRIC;
-                            tw->material = MAT_PLASMA;
-                            break;
-                        case MAT_CRYO:
-                            tw->dmg_type = DMG_CRYO;
-                            tw->material = MAT_CRYO;
-                            break;
-                        case MAT_NANO:
-                            tw->dmg_type = DMG_NANO;
-                            tw->material = MAT_NANO;
-                            break;
-                        case MAT_IRON:
-                            // Guard: n'empile pas le +10% si déjà appliqué
-                            if (tw->material != MAT_IRON) {
-                                tw->damage  *= 1.10f;
-                                tw->material = MAT_IRON;
-                            }
-                            break;
-                        default:
-                            break;
-                    }
+                    tower_set_material(tw, mat);   // type de dégâts + gros bonus (remplace proprement)
                     /* Retire le matériau sélectionné de l'inventaire */
                     for (int k = _midx; k < gs->inventory_count - 1; k++)
                         gs->inventory[k] = gs->inventory[k + 1];
@@ -712,8 +692,8 @@ void ui_update(UIState *ui, GameState *gs) {
         else if (mouse.y < HUD_Y && ui->hovered_tile_x >= 0) {
             int tx = ui->hovered_tile_x;
             int ty = ui->hovered_tile_y;
-            float wx_m = (mouse.x - g_map_x_off) / g_map_render_scale;
-            float wy_m = mouse.y / g_map_render_scale;
+            float wx_m = map_screen_to_world(mouse).x;
+            float wy_m = map_screen_to_world(mouse).y;
 
             // ── Attribution d'une cible de comportement en attente ───
             if (ui->behavior_pending == (int)UBEH_GUARD_TOWER) {
@@ -905,8 +885,8 @@ void ui_update(UIState *ui, GameState *gs) {
                             float bpy = gs->map.bases[b].pos.y * TILE_SIZE
                                         + TILE_SIZE / 2.0f;
                             /* Convertit la souris en espace monde (zoom carte) */
-                            float wx = (mouse.x - g_map_x_off) / g_map_render_scale;
-                            float wy = mouse.y / g_map_render_scale;
+                            float wx = map_screen_to_world(mouse).x;
+                            float wy = map_screen_to_world(mouse).y;
                             float dx = wx - bpx;
                             float dy = wy - bpy;
                             float dist = sqrtf(dx*dx + dy*dy);
@@ -964,8 +944,8 @@ void ui_update(UIState *ui, GameState *gs) {
                 for (int j = 0; j < MAX_UNITS; j++) {
                     Unit *u = &gs->units.units[j];
                     if (!u->active) continue;
-                    float wx = (mouse.x - g_map_x_off) / g_map_render_scale;
-                    float wy = mouse.y / g_map_render_scale;
+                    float wx = map_screen_to_world(mouse).x;
+                    float wy = map_screen_to_world(mouse).y;
                     float dx = wx - u->x;
                     float dy = wy - u->y;
                     if (sqrtf(dx*dx + dy*dy) <= u->size + 6.0f) {
@@ -998,8 +978,8 @@ void ui_update(UIState *ui, GameState *gs) {
         int did_group_move = 0;
         if (ui->group_count > 0 && mouse.y < HUD_Y &&
             ui->selected_tool == TOOL_NONE) {
-            float wx = (mouse.x - g_map_x_off) / g_map_render_scale;
-            float wy = mouse.y / g_map_render_scale;
+            float wx = map_screen_to_world(mouse).x;
+            float wy = map_screen_to_world(mouse).y;
             int   tx = (int)(wx / TILE_SIZE), ty = (int)(wy / TILE_SIZE);
             int   in_spawn = 0;
             for (int _sp = 0; _sp < gs->map.path_count; _sp++) {

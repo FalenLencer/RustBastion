@@ -114,4 +114,5 @@ MenuAction draw_upgrades      (MenuState *m, const MetaProgress *meta, int vw, i
 MenuAction draw_bestiary      (MenuState *m, const MetaProgress *meta, int vw, int vh);
 MenuAction draw_custom_config (MenuState *m, int vw, int vh);
 MenuAction draw_mp_hub        (MenuState *m, int vw, int vh);
+MenuAction draw_mp_config     (MenuState *m, int vw, int vh);   // écran simple (rapide)
 MenuAction draw_mp_lobby      (MenuState *m, int vw, int vh);

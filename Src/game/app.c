@@ -67,18 +67,23 @@ static const MpSend DUEL_SENDS[DUEL_SEND_COUNT] = {
     { ENEMY_BRUTE,   14, "Brute"  },
     { ENEMY_VEHICLE, 30, "Blinde" },
 };
-// Asym envahisseur : roster + budget par vague (compositeur de vagues).
-#define INV_ROSTER_COUNT 6
+// Asym envahisseur : roster COMPLET (tous les types) + budget par vague.
+// Coûts croissants selon la dangerosité ; l'envahisseur compose librement.
+#define INV_ROSTER_COUNT 10
 static const MpSend INV_ROSTER[INV_ROSTER_COUNT] = {
-    { ENEMY_RAIDER,   3, "Raider"  },
-    { ENEMY_RUNNER,   6, "Runner"  },
-    { ENEMY_MUTANT,  10, "Mutant"  },
-    { ENEMY_BRUTE,   14, "Brute"   },
-    { ENEMY_GHOST,   16, "Spectre" },
-    { ENEMY_VEHICLE, 30, "Blinde"  },
+    { ENEMY_RAIDER,       3, "Raider"  },
+    { ENEMY_RUNNER,       6, "Runner"  },
+    { ENEMY_MUTANT,      10, "Mutant"  },
+    { ENEMY_PATHBREAKER, 12, "Perceur" },
+    { ENEMY_BRUTE,       14, "Brute"   },
+    { ENEMY_GHOST,       16, "Spectre" },
+    { ENEMY_HEALER,      18, "Soigneur"},
+    { ENEMY_HUNTER,      20, "Chasseur"},
+    { ENEMY_ARTILLERY,   24, "Artilleur"},
+    { ENEMY_VEHICLE,     30, "Blinde"  },
 };
-#define INV_WAVE_BUDGET_BASE 70
-#define INV_WAVE_BUDGET_STEP 25
+#define INV_WAVE_BUDGET_BASE 80
+#define INV_WAVE_BUDGET_STEP 30
 #define INV_WAVE_BUDGET(n)   (INV_WAVE_BUDGET_BASE + (n) * INV_WAVE_BUDGET_STEP)
 #define INV_WAVE_COOLDOWN    7.0f   // délai imposé entre deux vagues envoyées (s)
 
@@ -160,16 +165,32 @@ static void mp_launch_game(AppContext *ctx) {
     ctx->mp_wave_budget   = INV_WAVE_BUDGET(0);
     ctx->mp_wave_cooldown = 0.0f;
     memset(ctx->mp_wave_compose, 0, sizeof(ctx->mp_wave_compose));
-    // Asym : le rejoignant est l'ENVAHISSEUR (sim figée, écran de commande).
-    ctx->mp_invader      = (s->mode == MP_ASYM && !s->is_host) ? 1 : 0;
+    // ── Config de partie jointe au START (carte/difficulté + rôle Asym) ──
+    CustomConfig cfg; memset(&cfg, 0, sizeof(cfg));
+    int host_invader = 0;
+    if (s->start_extra_len >= (int)sizeof(CustomConfig)) {
+        memcpy(&cfg, s->start_extra, sizeof(CustomConfig));
+        if (s->start_extra_len > (int)sizeof(CustomConfig))
+            host_invader = s->start_extra[sizeof(CustomConfig)] ? 1 : 0;
+    }
+    // Asym : qui joue l'ENVAHISSEUR (sim figée) selon le choix de l'hôte.
+    ctx->mp_invader      = (s->mode == MP_ASYM) && (host_invader ? s->is_host : !s->is_host);
     memset(&ctx->mp_peer, 0, sizeof(ctx->mp_peer));
+    // Plateau partagé + panneaux déplaçables : reset.
+    ctx->mp_board_tn = 0; ctx->mp_board_un = 0; ctx->mp_board_timer = 0.0f;
+    ctx->mp_pos_rival = (Vector2){-1, -1};   // <0 → placement par défaut au 1er rendu
+    ctx->mp_pos_duel  = (Vector2){-1, -1};
+    ctx->mp_drag      = 0;
 
-    // Course : board type arcade, MÊME seed → même carte (équité).
+    // MÊME seed → même carte (équité). Thème aléatoire résolu de façon
+    // déterministe depuis le seed partagé. La config (spawns/minerais/taille/
+    // difficulté) choisie par l'hôte s'applique aux DEUX joueurs.
     unsigned int seed = s->seed ? s->seed : 1u;
+    if (cfg.theme < 0 || cfg.theme >= THEME_COUNT)
+        cfg.theme = (int)(seed % THEME_COUNT);
     SetRandomSeed(seed);
-    ThemeID theme = (ThemeID)(seed % THEME_COUNT);
     ctx->active_slot = -1;                 // pas de sauvegarde en multijoueur
-    game_init_arcade(&ctx->gs, theme, -1);
+    game_init_custom(&ctx->gs, &cfg);
 
     ctx->menu.screen    = MENU_TITLE;
     ctx->screen         = SCREEN_GAME;
@@ -184,6 +205,8 @@ static void mp_launch_game(AppContext *ctx) {
 static int handle_menu(AppContext *ctx) {
     /* Réinitialise le zoom de carte au retour au menu */
     g_map_render_scale = 1.0f;
+    g_map_zoom = 1.0f; g_map_pan_x = 0.0f; g_map_pan_y = 0.0f;   // reset zoom joueur
+    ctx->tactical_pause = 0;   // en menu = jamais en pause tactique
     menu_update(&ctx->menu, &ctx->gs.meta);
     ClearBackground((Color){8,5,3,255});
     MenuAction act = menu_render_and_act(&ctx->menu, &ctx->gs.meta,
@@ -335,7 +358,11 @@ static int handle_menu(AppContext *ctx) {
         net_session_set_ready(&ctx->session, !ctx->session.my_ready);
     if (ctx->mp_active && act.mp_start) {
         ctx->session.seed = (uint32_t)GetRandomValue(1, 0x3FFFFFFE);  // carte fraîche
-        net_session_start(&ctx->session);
+        // Joint la config de partie (carte/difficulté) + rôle Asym au START.
+        unsigned char extra[sizeof(CustomConfig) + 1];
+        memcpy(extra, &ctx->menu.mp_cfg, sizeof(CustomConfig));
+        extra[sizeof(CustomConfig)] = (unsigned char)(ctx->menu.mp_host_invader ? 1 : 0);
+        net_session_start(&ctx->session, extra, (int)sizeof(extra));
     }
     // UPNP_HOOK : autorise le pare-feu (UAC) PUIS ouvre le port (bloquant ~6 s max).
     if (act.mp_upnp) {
@@ -402,11 +429,66 @@ static int handle_menu(AppContext *ctx) {
 // ════════════════════════════════════════════════════════════════
 // ÉCRAN JEU — MISE À JOUR
 // ════════════════════════════════════════════════════════════════
+// Zoom carte (molette, centré sur le curseur) + déplacement (bouton du milieu).
+// Tout passe par g_map_zoom/pan → le rendu ET le mappage souris restent alignés.
+static void game_zoom_input(AppContext *ctx) {
+    if (ctx->menu.paused || ctx->interlude != INTER_NONE) return;
+    Vector2 m = virt_mouse();
+    float map_area_h = (float)(g_canvas_virt_h - UI_HUD_HEIGHT);
+
+    float wheel = GetMouseWheelMove();
+    if (wheel != 0.0f && m.y >= 0 && m.y < map_area_h) {
+        Vector2 w = map_screen_to_world(m);                 // point monde sous le curseur
+        float nz = g_map_zoom * (wheel > 0.0f ? 1.15f : 1.0f / 1.15f);
+        if (nz < 1.0f) nz = 1.0f;
+        if (nz > 3.0f) nz = 3.0f;
+        g_map_zoom = nz;
+        float S = map_eff_scale();
+        g_map_pan_x = m.x - w.x * S - (float)g_map_x_off;   // garde le point fixe sous le curseur
+        g_map_pan_y = m.y - w.y * S;
+    }
+
+    // Déplacement à la molette enfoncée (bouton du milieu).
+    static int panning = 0;
+    static Vector2 grab, start;
+    if (g_map_zoom > 1.0f && IsMouseButtonPressed(MOUSE_MIDDLE_BUTTON)) {
+        panning = 1; grab = m; start = (Vector2){ g_map_pan_x, g_map_pan_y };
+    }
+    if (panning && IsMouseButtonDown(MOUSE_MIDDLE_BUTTON)) {
+        g_map_pan_x = start.x + (m.x - grab.x);
+        g_map_pan_y = start.y + (m.y - grab.y);
+    } else {
+        panning = 0;
+    }
+
+    // Clamp : la carte zoomée reste plaquée sur la zone de jeu (pas de vide).
+    if (g_map_zoom <= 1.0001f) {
+        g_map_zoom = 1.0f; g_map_pan_x = 0.0f; g_map_pan_y = 0.0f;
+    } else {
+        float S  = map_eff_scale();
+        float W  = (float)(ctx->gs.map.w * TILE_SIZE) * S;
+        float Hh = (float)(ctx->gs.map.h * TILE_SIZE) * S;
+        float ov_x = W  - (float)g_canvas_virt_w_base; if (ov_x < 0.0f) ov_x = 0.0f;
+        float ov_y = Hh - map_area_h;                  if (ov_y < 0.0f) ov_y = 0.0f;
+        if (g_map_pan_x >  0.0f)  g_map_pan_x =  0.0f;
+        if (g_map_pan_x < -ov_x)  g_map_pan_x = -ov_x;
+        if (g_map_pan_y >  0.0f)  g_map_pan_y =  0.0f;
+        if (g_map_pan_y < -ov_y)  g_map_pan_y = -ov_y;
+    }
+}
+
 static void game_do_input(AppContext *ctx) {
     if (IsKeyPressed(KEY_ESCAPE)) {
         ctx->menu.paused ^= 1;
         ctx->menu.screen  = ctx->menu.paused ? MENU_PAUSE : MENU_TITLE;
+        ctx->tactical_pause = 0;   // le menu pause remplace la pause tactique
     }
+    // Pause TACTIQUE (solo) : ESPACE gèle la simulation mais on peut continuer à
+    // placer/vendre/déplacer pour réfléchir. Désactivée en multijoueur (équité).
+    if (IsKeyPressed(KEY_SPACE) && !ctx->menu.paused &&
+        ctx->gs.ui.disc_count == 0 && !ctx->mp_in_game &&
+        ctx->interlude == INTER_NONE)
+        ctx->tactical_pause ^= 1;
     /* Bouton pause cliqué dans le HUD */
     if (!ctx->menu.paused && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         Vector2 vm = virt_mouse();
@@ -429,6 +511,9 @@ static void game_do_update(AppContext *ctx, float dt) {
     ui_update(&ctx->gs.ui, &ctx->gs);
     // Fiche de découverte visible → jeu gelé (ui_update gère la fermeture)
     if (ctx->gs.ui.disc_count > 0) return;
+    // Pause tactique : on a pu agir (ui_update ci-dessus) mais la SIMULATION ne
+    // s'avance pas → temps de réfléchir/placer.
+    if (ctx->tactical_pause) return;
     game_state_update(&ctx->gs, dt);
     fx_update(dt);   // particules / popups / secousse
 
@@ -465,23 +550,28 @@ static void mp_spawn_injected(AppContext *ctx, int etype) {
 }
 
 // Rectangle du bouton d'envoi Duel n°i (bandeau haut-centre).
-static Rectangle mp_duel_btn_rect(int i) {
-    int base_cx = g_map_x_off + g_canvas_virt_w_base / 2;
+// Dimensions du panneau Duel (grip de glissement + rangée de boutons).
+#define MP_DUEL_BARW  (DUEL_SEND_COUNT*100 + (DUEL_SEND_COUNT-1)*8)  // 424
+#define MP_DUEL_GRIP_H 18
+#define MP_RIVAL_W    240
+#define MP_RIVAL_H     34
+
+static Rectangle mp_duel_btn_rect(const AppContext *ctx, int i) {
     int bw = 100, bh = 30, gap = 8;
-    int total = DUEL_SEND_COUNT * bw + (DUEL_SEND_COUNT - 1) * gap;
-    int x0 = base_cx - total / 2;
-    return (Rectangle){ (float)(x0 + i * (bw + gap)), 60.0f, (float)bw, (float)bh };
+    float bx = ctx->mp_pos_duel.x;
+    float by = ctx->mp_pos_duel.y + MP_DUEL_GRIP_H + 2;   // sous le grip
+    return (Rectangle){ bx + (float)(i * (bw + gap)), by, (float)bw, (float)bh };
 }
 
 // Duel : clic sur un bouton d'envoi (traité AVANT l'input HUD → bloque le
 // placement de tour sous le bouton via ui.mp_block_click).
 static void mp_duel_send_input(AppContext *ctx) {
     if (ctx->mp_mode != MP_DUEL || !ctx->mp_in_game ||
-        ctx->mp_result != 0 || ctx->menu.paused) return;
+        ctx->mp_result != 0 || ctx->menu.paused || ctx->mp_drag) return;
     if (!IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) return;
     Vector2 vm = virt_mouse();
     for (int i = 0; i < DUEL_SEND_COUNT; i++) {
-        if (CheckCollisionPointRec(vm, mp_duel_btn_rect(i))) {
+        if (CheckCollisionPointRec(vm, mp_duel_btn_rect(ctx, i))) {
             if (ctx->mp_sabotage >= DUEL_SENDS[i].cost) {
                 ctx->mp_sabotage -= DUEL_SENDS[i].cost;
                 uint8_t t = (uint8_t)DUEL_SENDS[i].type;
@@ -493,6 +583,43 @@ static void mp_duel_send_input(AppContext *ctx) {
             }
             ctx->gs.ui.mp_block_click = 1;   // ne pas placer de tour sous le bouton
             return;
+        }
+    }
+}
+
+// Glissement des panneaux flottants MP (HUD rival + barre Duel). Traité AVANT
+// l'input HUD pour ne pas placer de tour en déplaçant un panneau.
+static void mp_panels_input(AppContext *ctx) {
+    if (!ctx->mp_in_game || ctx->mp_invader || ctx->mp_result != 0 || ctx->menu.paused) return;
+    int base_cx = g_map_x_off + g_canvas_virt_w_base / 2;
+    if (ctx->mp_pos_rival.x < 0) ctx->mp_pos_rival = (Vector2){ (float)(base_cx - MP_RIVAL_W/2), 4.0f };
+    if (ctx->mp_pos_duel.x  < 0) ctx->mp_pos_duel  = (Vector2){ (float)(base_cx - MP_DUEL_BARW/2), 44.0f };
+
+    Vector2 m = virt_mouse();
+    Rectangle rival = { ctx->mp_pos_rival.x, ctx->mp_pos_rival.y, MP_RIVAL_W, MP_RIVAL_H };
+    Rectangle dgrip = { ctx->mp_pos_duel.x,  ctx->mp_pos_duel.y,  MP_DUEL_BARW, MP_DUEL_GRIP_H };
+
+    if (ctx->mp_drag == 0 && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (CheckCollisionPointRec(m, rival)) {
+            ctx->mp_drag = 1;
+            ctx->mp_drag_grab = (Vector2){ m.x - ctx->mp_pos_rival.x, m.y - ctx->mp_pos_rival.y };
+        } else if (ctx->mp_mode == MP_DUEL && CheckCollisionPointRec(m, dgrip)) {
+            ctx->mp_drag = 2;
+            ctx->mp_drag_grab = (Vector2){ m.x - ctx->mp_pos_duel.x, m.y - ctx->mp_pos_duel.y };
+        }
+    }
+    if (ctx->mp_drag != 0) {
+        if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
+            Vector2 *p = (ctx->mp_drag == 1) ? &ctx->mp_pos_rival : &ctx->mp_pos_duel;
+            p->x = m.x - ctx->mp_drag_grab.x;
+            p->y = m.y - ctx->mp_drag_grab.y;
+            if (p->x < 0) p->x = 0;
+            if (p->y < 0) p->y = 0;
+            if (p->x > g_canvas_virt_w - 40)  p->x = (float)(g_canvas_virt_w - 40);
+            if (p->y > g_canvas_virt_h - 24)  p->y = (float)(g_canvas_virt_h - 24);
+            ctx->gs.ui.mp_block_click = 1;   // ne pas placer de tour pendant le drag
+        } else {
+            ctx->mp_drag = 0;
         }
     }
 }
@@ -532,6 +659,24 @@ static void mp_game_tick(AppContext *ctx, float dt) {
                 ctx->gs.gold += g;
                 ui_push_notif(&ctx->gs.ui, "Or recu du partenaire !", (Color){120,210,120,255});
             }
+        } else if (h.type == NMSG_BOARD && inv) {
+            // Asym : snapshot du plateau du défenseur (tours + unités).
+            int o = 0, len = h.len;
+            ctx->mp_board_tn = 0; ctx->mp_board_un = 0;
+            if (o < len) {
+                int nt = pl[o++]; if (nt > 64) nt = 64;
+                if (o + nt * 3 <= len) {
+                    memcpy(ctx->mp_board_t, pl + o, nt * 3);
+                    ctx->mp_board_tn = nt; o += nt * 3;
+                }
+            }
+            if (o < len) {
+                int nu = pl[o++]; if (nu > 32) nu = 32;
+                if (o + nu * 3 <= len) {
+                    memcpy(ctx->mp_board_u, pl + o, nu * 3);
+                    ctx->mp_board_un = nu;
+                }
+            }
         }
     }
     if (s->peer_gone && ctx->mp_result == 0)
@@ -565,6 +710,39 @@ static void mp_game_tick(AppContext *ctx, float dt) {
             int32_t g = COOP_AID_GOLD;
             net_session_send(s, NMSG_AID, &g, 4);
             ui_push_notif(&ctx->gs.ui, "+50 or envoye au partenaire", (Color){120,210,120,255});
+        }
+    }
+
+    // ── Asym : le DÉFENSEUR streame son plateau à l'envahisseur (plateau partagé) ──
+    if (ctx->mp_mode == MP_ASYM && !inv && !ctx->menu.paused) {
+        ctx->mp_board_timer -= dt;
+        if (ctx->mp_board_timer <= 0.0f) {
+            ctx->mp_board_timer = 0.3f;
+            unsigned char b[NET_MAX_PAYLOAD];
+            int o = 0, nt = 0, nu = 0;
+            int nt_pos = o++;                       // emplacement du compteur tours
+            TowerPool *tp = &ctx->gs.towers;
+            for (int i = 0; i < tp->tower_count && nt < 64; i++) {
+                Tower *t = &tp->towers[i];
+                if (!t->active) continue;
+                b[o++] = (unsigned char)t->tile_x;
+                b[o++] = (unsigned char)t->tile_y;
+                b[o++] = (unsigned char)t->type;
+                nt++;
+            }
+            b[nt_pos] = (unsigned char)nt;
+            int nu_pos = o++;                       // emplacement du compteur unités
+            UnitPool *up = &ctx->gs.units;
+            for (int i = 0; i < up->count && nu < 32; i++) {
+                Unit *u = &up->units[i];
+                if (!u->active) continue;
+                b[o++] = (unsigned char)((int)(u->x / TILE_SIZE));
+                b[o++] = (unsigned char)((int)(u->y / TILE_SIZE));
+                b[o++] = (unsigned char)u->type;
+                nu++;
+            }
+            b[nu_pos] = (unsigned char)nu;
+            net_session_send(s, NMSG_BOARD, b, o);
         }
     }
 
@@ -938,6 +1116,8 @@ static void game_handle_shop(AppContext *ctx) {
             if (rb->count[id] < pd->max_stack && rb->renfort >= pd->shop_cost) {
                 rb->renfort -= pd->shop_cost;
                 runbuild_add(rb, id);
+                // Rachat infini : l'article acheté est REMPLACÉ par un nouveau.
+                runbuild_reroll_slot(rb, rb->shop_offer, rb->shop_n, buy);
                 ui_push_notif(&ctx->gs.ui, "Achat effectue !", (Color){120, 210, 120, 255});
                 campaign_save_write(&ctx->gs, ctx->active_slot, INTER_SHOP, 0, 0, 0);
             } else {
@@ -1026,15 +1206,11 @@ static void game_handle_extract(AppContext *ctx) {
 static void mp_render_overlay(AppContext *ctx) {
     if (!ctx->mp_in_game) return;
     int base_cx = g_map_x_off + g_canvas_virt_w_base / 2;
+    if (ctx->mp_pos_rival.x < 0) ctx->mp_pos_rival = (Vector2){ (float)(base_cx - MP_RIVAL_W/2), 4.0f };
+    if (ctx->mp_pos_duel.x  < 0) ctx->mp_pos_duel  = (Vector2){ (float)(base_cx - MP_DUEL_BARW/2), 44.0f };
 
-    // Mini-HUD rival (haut-centre)
-    int pw = 240, ph = 34, px = base_cx - pw/2, py = 4;
-    DrawRectangleRounded((Rectangle){(float)px,(float)py,(float)pw,(float)ph},
-                         0.22f, 5, (Color){10, 7, 3, 215});
-    DrawRectangleRoundedLinesEx((Rectangle){(float)px,(float)py,(float)pw,(float)ph},
-                         0.22f, 5, 1.2f, (Color){70, 48, 16, 210});
     const char *nm = ctx->session.peer_name[0] ? ctx->session.peer_name : "Adversaire";
-    char top[80], cmp[80];
+    char top[80], cmp[96];
     if (ctx->mp_mode == MP_ASYM) {           // défenseur : progression de survie
         snprintf(top, sizeof(top), "ENVAHISSEUR : %s", nm);
         snprintf(cmp, sizeof(cmp), "Survie  V%d / %d     PV %d",
@@ -1058,20 +1234,33 @@ static void mp_render_overlay(AppContext *ctx) {
             snprintf(cmp, sizeof(cmp), "Vous V%d PV%d   |   Lui (connexion...)",
                      ctx->gs.wave_manager.number, ctx->gs.lives);
     }
-    int tw0 = mtxt(top, 9);
-    dtxt(top, base_cx - tw0/2, py + 3, 9, (Color){200, 180, 120, 255});
-    int cw0 = mtxt(cmp, 8);
-    dtxt(cmp, base_cx - cw0/2, py + 18, 8, (Color){150, 130, 80, 255});
+    // Panneau rival déplaçable — largeur adaptée au texte (aucun débordement).
+    int tw0 = mtxt(top, 9), cw0 = mtxt(cmp, 8);
+    int twmax = tw0 > cw0 ? tw0 : cw0;
+    int pw = twmax + 24; if (pw < MP_RIVAL_W) pw = MP_RIVAL_W;
+    int ph = MP_RIVAL_H;
+    int rx = (int)ctx->mp_pos_rival.x, ry = (int)ctx->mp_pos_rival.y;
+    int rcx = rx + pw/2;
+    Rectangle rpanel = {(float)rx,(float)ry,(float)pw,(float)ph};
+    DrawRectangleRounded(rpanel, 0.22f, 5, (Color){10, 7, 3, 222});
+    DrawRectangleRoundedLinesEx(rpanel, 0.22f, 5, 1.2f, (Color){70, 48, 16, 210});
+    // 2 lignes empilées via fh() — pas de superposition.
+    dtxt(top, rcx - tw0/2, ry + 3, 9, (Color){200, 180, 120, 255});
+    dtxt(cmp, rcx - cw0/2, ry + 3 + fh(9), 8, (Color){150, 130, 80, 255});
 
-    // Panneau Duel : sabotage + BOUTONS d'envoi cliquables
+    // Panneau Duel déplaçable : grip (sabotage) + BOUTONS d'envoi cliquables
     if (ctx->mp_mode == MP_DUEL && ctx->mp_result == 0) {
+        int dx = (int)ctx->mp_pos_duel.x, dy = (int)ctx->mp_pos_duel.y;
+        Rectangle grip = {(float)dx,(float)dy,(float)MP_DUEL_BARW,(float)MP_DUEL_GRIP_H};
+        DrawRectangleRounded(grip, 0.4f, 4, (Color){26, 12, 32, 225});
         char sb[64];
-        snprintf(sb, sizeof(sb), "SABOTAGE : %d  -  envoyez des ennemis :", ctx->mp_sabotage);
-        int sw = mtxt(sb, 9);
-        dtxt(sb, base_cx - sw/2, 42, 9, (Color){220, 140, 230, 255});
+        snprintf(sb, sizeof(sb), ":::  SABOTAGE %d  -  envoyez des ennemis", ctx->mp_sabotage);
+        int sw = mtxt(sb, 8);
+        dtxt(sb, dx + MP_DUEL_BARW/2 - sw/2, dy + (MP_DUEL_GRIP_H - fh(8))/2, 8,
+             (Color){220, 140, 230, 255});
         Vector2 vm = virt_mouse();
         for (int i = 0; i < DUEL_SEND_COUNT; i++) {
-            Rectangle r = mp_duel_btn_rect(i);
+            Rectangle r = mp_duel_btn_rect(ctx, i);
             int afford = (ctx->mp_sabotage >= DUEL_SENDS[i].cost);
             int hov    = afford && CheckCollisionPointRec(vm, r);
             Color bg  = !afford ? (Color){20, 16, 22, 225}
@@ -1110,9 +1299,28 @@ static void mp_invader_render(AppContext *ctx) {
         tile_art_draw_spawns(&gs->map);
         render_spawn_exclusion_zones(&gs->map);
         render_bases(&gs->map);
+        // ── PLATEAU PARTAGÉ : tours + unités du défenseur (marqueurs live) ──
+        for (int i = 0; i < ctx->mp_board_tn; i++) {
+            int tx = ctx->mp_board_t[i*3], ty = ctx->mp_board_t[i*3+1];
+            int tt = ctx->mp_board_t[i*3+2];
+            Color c = renderer_tower_color((TowerType)tt);
+            Rectangle rr = {tx*(float)TILE_SIZE + 5, ty*(float)TILE_SIZE + 5,
+                            TILE_SIZE - 10.0f, TILE_SIZE - 10.0f};
+            DrawRectangleRounded(rr, 0.3f, 4, c);
+            DrawRectangleRoundedLinesEx(rr, 0.3f, 4, 2.0f, (Color){10, 8, 6, 230});
+        }
+        for (int i = 0; i < ctx->mp_board_un; i++) {
+            int tx = ctx->mp_board_u[i*3], ty = ctx->mp_board_u[i*3+1];
+            int ut = ctx->mp_board_u[i*3+2];
+            Color c = renderer_unit_color((UnitType)ut);
+            float px = tx*(float)TILE_SIZE + TILE_SIZE/2.0f;
+            float py = ty*(float)TILE_SIZE + TILE_SIZE/2.0f;
+            DrawCircle((int)px, (int)py, 6.0f, c);
+            DrawCircleLines((int)px, (int)py, 6.0f, (Color){10, 8, 6, 230});
+        }
     EndMode2D();
 
-    // ── En-tête + statut du défenseur ──
+    // ── En-tête + statut du défenseur + légende plateau ──
     const char *title = "ENVAHISSEUR — composez vos vagues";
     int tw = mtxt(title, 13);
     dtxt(title, cx - tw/2, 6, 13, (Color){220, 140, 230, 255});
@@ -1124,11 +1332,17 @@ static void mp_invader_render(AppContext *ctx) {
     else
         snprintf(ds, sizeof(ds), "Connexion au defenseur...");
     int dw = mtxt(ds, 11);
-    dtxt(ds, cx - dw/2, 30, 11, (Color){200, 180, 120, 255});
+    dtxt(ds, cx - dw/2, 6 + fh(13) + 4, 11, (Color){200, 180, 120, 255});
+    const char *leg = "Carte LIVE  -  carres = tours, points = unites du defenseur";
+    int lw = mtxt(leg, 8);
+    dtxt(leg, cx - lw/2, 6 + fh(13) + 4 + fh(11) + 3, 8, (Color){150, 130, 160, 255});
 
-    // ── Compositeur de vague (bas de l'écran) ──
-    int panel_h = 126, panel_y = g_canvas_virt_h - panel_h - 8;
-    int pw = 740, px = base_cx - pw/2;
+    // ── Compositeur de vague (bas de l'écran) : 2 rangées de 5 ──
+    int bw = 120, bh = 28, gap = 6;
+    int cols = 5;
+    int rowsw = cols*bw + (cols-1)*gap;             // largeur d'une rangée
+    int panel_h = 162, panel_y = g_canvas_virt_h - panel_h - 8;
+    int pw = rowsw + 56, px = base_cx - pw/2;
     DrawRectangleRounded((Rectangle){(float)px,(float)panel_y,(float)pw,(float)panel_h},
                          0.06f, 6, (Color){12, 6, 16, 236});
     DrawRectangleRoundedLinesEx((Rectangle){(float)px,(float)panel_y,(float)pw,(float)panel_h},
@@ -1141,12 +1355,12 @@ static void mp_invader_render(AppContext *ctx) {
     int hw = mtxt(hdr, 11);
     dtxt(hdr, base_cx - hw/2, panel_y + 6, 11, (Color){220, 160, 240, 255});
 
-    // Roster cliquable (ajoute un ennemi à la vague)
-    int bw = 110, bh = 30, gap = 6;
-    int total = INV_ROSTER_COUNT*bw + (INV_ROSTER_COUNT-1)*gap;
-    int rx0 = base_cx - total/2, ry = panel_y + 28;
+    // Roster cliquable (ajoute un ennemi à la vague) — 2 rangées de 5
+    int rx0 = base_cx - rowsw/2, ry0 = panel_y + 6 + fh(11) + 4;
     for (int i = 0; i < INV_ROSTER_COUNT; i++) {
-        Rectangle r = {(float)(rx0 + i*(bw+gap)), (float)ry, (float)bw, (float)bh};
+        int col = i % cols, row = i / cols;
+        Rectangle r = {(float)(rx0 + col*(bw+gap)), (float)(ry0 + row*(bh+gap)),
+                       (float)bw, (float)bh};
         int afford = ctx->mp_wave_budget >= INV_ROSTER[i].cost;
         int hov    = afford && CheckCollisionPointRec(vm, r);
         if (click && hov) {
@@ -1162,9 +1376,10 @@ static void mp_invader_render(AppContext *ctx) {
         dtxt(b, (int)r.x + bw/2 - b2/2, (int)r.y + bh/2 - fh(9)/2, 9,
              afford ? (Color){210,235,180,255} : (Color){110,100,110,255});
     }
+    int roster_bottom = ry0 + 2*bh + gap;           // bas de la 2e rangée
 
     // Résumé de la vague composée
-    char comp[160]; snprintf(comp, sizeof(comp), "%s", "Votre vague : ");
+    char comp[200]; snprintf(comp, sizeof(comp), "%s", "Votre vague : ");
     int any = 0, tcount = 0;
     for (int i = 0; i < INV_ROSTER_COUNT; i++) {
         int n = ctx->mp_wave_compose[INV_ROSTER[i].type];
@@ -1176,10 +1391,10 @@ static void mp_invader_render(AppContext *ctx) {
     }
     if (!any) strncat(comp, "(vide - cliquez des ennemis ci-dessus)", sizeof(comp) - strlen(comp) - 1);
     int cw = mtxt(comp, 9);
-    dtxt(comp, base_cx - cw/2, ry + bh + 8, 9, (Color){180,170,190,255});
+    dtxt(comp, base_cx - cw/2, roster_bottom + 6, 9, (Color){180,170,190,255});
 
     // Boutons ENVOYER / VIDER
-    int by = ry + bh + 8 + fh(9) + 6;
+    int by = roster_bottom + 6 + fh(9) + 6;
     Rectangle bsend = {(float)(base_cx - 170), (float)by, 200.0f, 30.0f};
     Rectangle bclr  = {(float)(base_cx + 40),  (float)by, 130.0f, 30.0f};
     int ready    = (ctx->mp_wave_cooldown <= 0.0f);
@@ -1232,9 +1447,9 @@ static int game_do_render(AppContext *ctx) {
        + secousse caméra (jus) : décalage purement visuel (le mappage souris
        reste sur g_map_x_off non secoué). */
     Camera2D map_cam = {0};
-    map_cam.offset = (Vector2){(float)g_map_x_off + fx_shake_dx(),
-                               fx_shake_dy()};
-    map_cam.zoom   = g_map_render_scale;
+    Vector2 _mo = map_origin();   // inclut le zoom joueur + pan (source unique)
+    map_cam.offset = (Vector2){_mo.x + fx_shake_dx(), _mo.y + fx_shake_dy()};
+    map_cam.zoom   = map_eff_scale();
     BeginMode2D(map_cam);
         render_map(&gs->map);
         tile_art_draw_paths(&gs->map);    // routes connectées (remplace les traits)
@@ -1251,6 +1466,18 @@ static int game_do_render(AppContext *ctx) {
     EndMode2D();
 
     ui_render(&gs->ui, gs);
+
+    /* ── Indicateur de PAUSE TACTIQUE (solo) ─────────────────── */
+    if (ctx->tactical_pause && !ctx->menu.paused) {
+        int cxp = g_map_x_off + g_canvas_virt_w_base / 2;
+        const char *pt = "PAUSE  -  ESPACE pour reprendre";
+        int tw = mtxt(pt, 11);
+        int bw = tw + 28, bx = cxp - bw/2, by = 40, bh = fh(11) + 12;
+        Rectangle pr = {(float)bx, (float)by, (float)bw, (float)bh};
+        DrawRectangleRounded(pr, 0.4f, 6, (Color){10, 20, 40, 230});
+        DrawRectangleRoundedLinesEx(pr, 0.4f, 6, 1.8f, (Color){90, 150, 220, 240});
+        dtxt(pt, cxp - tw/2, by + (bh - fh(11))/2, 11, (Color){175, 215, 255, 255});
+    }
 
     /* ── Bannière (mode de jeu + infos de carte) ─────────────── */
     /* • Démarrage : grand overlay centré sur la carte, fade-in 0.3 s,
@@ -1575,7 +1802,9 @@ int app_update(AppContext *ctx, float dt) {
 
     /* SCREEN_GAME */
     ctx->gs.ui.mp_block_click = (ctx->mp_result != 0) ? 1 : 0;
+    mp_panels_input(ctx);      // MP : glissement des panneaux (avant l'input HUD)
     mp_duel_send_input(ctx);   // Duel : boutons d'envoi (avant l'input HUD)
+    game_zoom_input(ctx);      // zoom molette + déplacement carte
     game_do_input(ctx);
     game_do_update(ctx, dt);
     mp_game_tick(ctx, dt);   // réseau multijoueur (no-op hors MP)

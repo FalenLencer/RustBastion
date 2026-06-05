@@ -95,6 +95,35 @@ static void gen_terrain(Map *map, const Theme *th) {
     }
 }
 
+// Plafonne le relief : garantit qu'au moins MIN_BUILDABLE_FRACTION des tuiles
+// sont constructibles (non-eau). Sur certains thèmes (marais), le bruit produit
+// trop d'eau → la carte devient injouable. On assèche l'eau LA MOINS PROFONDE
+// (plus haut noise_val) jusqu'à atteindre le seuil → on garde des mares isolées.
+#define MIN_BUILDABLE_FRACTION 0.55f
+static void cap_relief(Map *map) {
+    int total = map->w * map->h;
+    int target = (int)((float)total * MIN_BUILDABLE_FRACTION);
+    int buildable = 0;
+    for (int y = 0; y < map->h; y++)
+        for (int x = 0; x < map->w; x++)
+            if (map->tiles[y][x].type != TILE_WATER) buildable++;
+
+    while (buildable < target) {
+        float best = -1.0f; int bx = -1, by = -1;
+        for (int y = 0; y < map->h; y++)
+            for (int x = 0; x < map->w; x++)
+                if (map->tiles[y][x].type == TILE_WATER &&
+                    map->tiles[y][x].noise_val > best) {
+                    best = map->tiles[y][x].noise_val; bx = x; by = y;
+                }
+        if (bx < 0) break;                 // plus d'eau à assécher
+        map->tiles[by][bx].type      = TILE_GROUND;
+        map->tiles[by][bx].passable  = 1;
+        map->tiles[by][bx].buildable = 1;
+        buildable++;
+    }
+}
+
 // ════════════════════════════════════════════════════
 // UTILITAIRES
 // ════════════════════════════════════════════════════
@@ -410,6 +439,7 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
 
     build_perm(seed);
     gen_terrain(map, th);
+    cap_relief(map);                 // limite les zones non-constructibles (marais)
     rng_init((uint32_t)(seed + 999));
 
     // ── Bord des bases ────────────────────────────────────────

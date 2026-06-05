@@ -1250,8 +1250,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
     // ════════════════════════════════════════════════
     {
         Camera2D map_cam = {0};
-        map_cam.offset = (Vector2){(float)g_map_x_off, 0.0f};
-        map_cam.zoom   = g_map_render_scale;
+        map_cam.offset = map_origin();      // zoom joueur + pan (aligné sur la carte)
+        map_cam.zoom   = map_eff_scale();
         BeginMode2D(map_cam);
 
         // Prévisualisation placement

@@ -255,11 +255,12 @@ static int map_ind_max_spawns(int map_w, int map_h) {
 MenuAction draw_custom_config(MenuState *m, int vw, int vh)
 {
     MenuAction act = {0};
+    int is_mp = (m->screen == MENU_MP_CONFIG_ADV);   // config avancée d'hébergement multijoueur
     draw_bg(m, vw, vh);
-    draw_header("CUSTOM GAME", vw);
+    draw_header(is_mp ? "CONFIG DE LA PARTIE (HOTE)" : "CUSTOM GAME", vw);
 
-    ensure_defaults(&m->custom_cfg);
-    CustomConfig *cfg = &m->custom_cfg;
+    CustomConfig *cfg = is_mp ? &m->mp_cfg : &m->custom_cfg;
+    ensure_defaults(cfg);
 
     // ── Constantes de layout ──────────────────────────────────
     const int COL_THEME_X  = M_PAD * 2;          // colonne terrain
@@ -477,15 +478,25 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
         int by2 = vh - M_PAD - bh2;
         int bx2 = vw / 2 - bw2 / 2;
 
-        if (draw_btn("LANCER LA PARTIE", bx2, by2, bw2, bh2, C_GREEN, 0)) {
+        if (is_mp) {
+            if (draw_btn("HEBERGER LA PARTIE", bx2, by2, bw2, bh2, C_GREEN, 0)) {
+                m->mp_role  = 1;  m->mp_edit_field = 0;
+                m->screen   = MENU_MP_LOBBY;
+                act.mp_host = 1;  act.mp_mode = m->mp_mode;
+            }
+        } else if (draw_btn("LANCER LA PARTIE", bx2, by2, bw2, bh2, C_GREEN, 0)) {
             act.start_custom = 1;
             act.custom_cfg   = *cfg;
         }
     }
 
     if (draw_back_btn(vw, vh)) {
-        m->screen = m->paused ? MENU_PAUSE : m->back_screen;
-        if (!m->paused) pop_back_screen(m);
+        if (is_mp) {
+            m->screen = MENU_MP_CONFIG;   // retour à l'écran simple
+        } else {
+            m->screen = m->paused ? MENU_PAUSE : m->back_screen;
+            if (!m->paused) pop_back_screen(m);
+        }
     }
     return act;
 }

@@ -29,6 +29,8 @@ typedef enum {
     MENU_PAUSE,
     MENU_BESTIARY,
     MENU_MP_HUB,         // multijoueur : choix du mode + héberger/rejoindre
+    MENU_MP_CONFIG,      // multijoueur : config RAPIDE (difficulté/taille) avant d'héberger
+    MENU_MP_CONFIG_ADV,  // multijoueur : config AVANCÉE (menu complet de personnalisation)
     MENU_MP_LOBBY,       // multijoueur : salon (code, ready-up, lancement)
 } MenuScreen;
 
@@ -132,6 +134,8 @@ typedef struct {
     MpLobbyView  mp_view;            // état de session (rempli par app.c)
     char         mp_upnp_msg[160];   // UPNP_HOOK : résultat de l'ouverture auto de port
     int          mp_upnp_ok;         // UPNP_HOOK : 1 = port ouvert (vert), 0 = échec (rouge)
+    CustomConfig mp_cfg;             // config hôte (carte/spawns/minerais/difficulté)
+    int          mp_host_invader;    // Asym : 1 = l'HÔTE joue l'envahisseur (défaut 0)
 } MenuState;
 
 typedef struct {

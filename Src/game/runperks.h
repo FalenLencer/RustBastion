@@ -108,6 +108,11 @@ int  runbuild_add    (RunBuild *rb, int perk_id);
 int  runbuild_roll_offers(const RunBuild *rb, int *out, int n,
                           int bias, int shop_only);
 
+// Remplace l'offre `slot` par un NOUVEAU perk éligible (count<max, non déjà
+// présent dans les autres slots). Pour la boutique : rachat infini, l'article
+// acheté est remplacé. Retourne le nouvel id, ou -1 si rien (slot inchangé).
+int  runbuild_reroll_slot(const RunBuild *rb, int *offers, int n, int slot);
+
 // Couleur d'affichage d'une rareté.
 typedef struct { unsigned char r, g, b, a; } RunColor;
 RunColor runperk_rarity_color(PerkRarity rar);

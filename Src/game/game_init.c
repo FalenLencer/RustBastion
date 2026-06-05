@@ -231,6 +231,18 @@ void game_goto_campaign_node(GameState *gs, int node_id) {
     MetaProgress meta_bak = gs->meta;
     RunBuild     run_bak  = gs->run;   // le build de run persiste entre les actes
 
+    // Les MINERAIS persistent entre les actes : inventaire courant + ceux
+    // appliqués aux tours (rendus au joueur). Capés à MAX_INVENTORY.
+    // (À la fin du run, un nouveau game_init_campaign repart d'un inventaire vide.)
+    MaterialType inv_bak[MAX_INVENTORY];
+    int inv_cnt = gs->inventory_count;
+    if (inv_cnt > MAX_INVENTORY) inv_cnt = MAX_INVENTORY;
+    for (int i = 0; i < inv_cnt; i++) inv_bak[i] = gs->inventory[i];
+    for (int i = 0; i < MAX_TOWERS && inv_cnt < MAX_INVENTORY; i++) {
+        const Tower *t = &gs->towers.towers[i];
+        if (t->active && t->material != MAT_NONE) inv_bak[inv_cnt++] = t->material;
+    }
+
     if (node_id < 0)               node_id = 0;
     if (node_id >= CAMPAIGN_NODES) node_id = CAMPAIGN_NODES - 1;
 
@@ -242,6 +254,10 @@ void game_goto_campaign_node(GameState *gs, int node_id) {
     gs->campaign_flags      = camp_flags;   // restaure les drapeaux narratifs
     gs->meta                = meta_bak;
     gs->run                 = run_bak;   // restaure le build (perks + Renfort)
+
+    // Restaure les minerais persistés (rendus depuis les tours de l'acte précédent).
+    for (int i = 0; i < inv_cnt; i++) gs->inventory[i] = inv_bak[i];
+    gs->inventory_count = inv_cnt;
 
     meta_compute(&gs->meta, &gs->bonuses);
     gs->gold = gs->bonuses.start_gold;

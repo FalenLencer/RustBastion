@@ -60,6 +60,22 @@ int   g_canvas_virt_w      = MAP_W * TILE_SIZE;
 int   g_canvas_virt_w_base = MAP_W * TILE_SIZE;
 int   g_canvas_virt_h      = MAP_H * TILE_SIZE + UI_HUD_HEIGHT;
 float g_map_render_scale   = 1.0f;   // zoom de la carte (1 = standard, <1 = grande carte)
+float g_map_zoom           = 1.0f;   // zoom JOUEUR (molette), 1..3
+float g_map_pan_x          = 0.0f;   // décalage horizontal (en pixels canvas) quand zoom>1
+float g_map_pan_y          = 0.0f;   // décalage vertical
+
+float map_eff_scale(void) { return g_map_render_scale * g_map_zoom; }
+
+Vector2 map_origin(void) {
+    return (Vector2){ (float)g_map_x_off + g_map_pan_x, g_map_pan_y };
+}
+
+Vector2 map_screen_to_world(Vector2 s) {
+    float S = map_eff_scale();
+    if (S < 0.0001f) S = 0.0001f;
+    return (Vector2){ (s.x - ((float)g_map_x_off + g_map_pan_x)) / S,
+                      (s.y - g_map_pan_y) / S };
+}
 
 Color renderer_tower_color(TowerType type) { return TOWER_FILL[type]; }
 Color renderer_unit_color (UnitType  type) { return UNIT_FILL[type];  }

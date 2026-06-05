@@ -115,9 +115,19 @@ MenuAction draw_mp_hub(MenuState *m, int vw, int vh) {
 
     int abw = 256, agap = M_IN, ax = cx - abw - agap/2;
     if (draw_btn("HEBERGER", ax, py, abw, BTN_H + 6, C_GREEN, 0)) {
-        m->mp_role  = 1;  m->mp_edit_field = 0;
-        m->screen   = MENU_MP_LOBBY;
-        act.mp_host = 1;  act.mp_mode = m->mp_mode;
+        m->mp_edit_field = 0;
+        // Réglages PAR DÉFAUT (ajustables sur l'écran simple, ou avancé).
+        m->mp_cfg = (CustomConfig){0};
+        m->mp_cfg.theme          = THEME_COUNT;   // aléatoire
+        m->mp_cfg.forced_bases   = 1;
+        m->mp_cfg.forced_spawns  = 2;
+        m->mp_cfg.min_dist       = 10;
+        m->mp_cfg.forced_deposits = 0;
+        m->mp_cfg.scale_cap      = 6.0f;
+        m->mp_cfg.count_mult     = 1.0f;
+        m->mp_cfg.map_w = 0; m->mp_cfg.map_h = 0;
+        m->mp_host_invader = 0;
+        m->screen = MENU_MP_CONFIG;   // écran simple (rapide) → avancé si besoin
     }
     if (draw_btn("REJOINDRE", ax + abw + agap, py, abw, BTN_H + 6, C_BLUE, 0)) {
         m->mp_role     = 2;  m->mp_edit_field = 2;
@@ -135,6 +145,78 @@ MenuAction draw_mp_hub(MenuState *m, int vw, int vh) {
 }
 
 // ════════════════════════════════════════════════════
+// CONFIG SIMPLE — réglages rapides (ou accès aux réglages avancés)
+// ════════════════════════════════════════════════════
+MenuAction draw_mp_config(MenuState *m, int vw, int vh) {
+    MenuAction act = {0};
+    int cx = vw/2;
+    draw_bg(m, vw, vh);
+    draw_header("CONFIGURATION DE LA PARTIE", vw);
+
+    if (m->mp_mode <= MP_NONE || m->mp_mode >= MP_MODE_COUNT) m->mp_mode = MP_COURSE;
+    CustomConfig *c = &m->mp_cfg;
+
+    int py = M_PAD + 96;
+    txt_c(TextFormat("Mode : %s", MP_MODE_NAMES[m->mp_mode]), cx, py, 12, C_GOLD);
+    py += fh(12) + 8;
+    txt_c("Reglages rapides — le reste est aleatoire/equilibre par defaut.",
+          cx, py, 9, C_DIM);
+    py += fh(9) + 22;
+
+    int bw = 170, gap = 10, x0 = cx - (3*bw + 2*gap)/2;
+
+    // ── Difficulté ──
+    txt_c("Difficulte", cx, py, 11, C_TEXT);
+    py += fh(11) + 6;
+    {
+        const char *labels[3] = { "Facile", "Normal", "Difficile" };
+        const float caps [3]  = { 4.0f, 6.0f, 9.0f };
+        const float mults[3]  = { 0.5f, 1.0f, 1.5f };
+        int sel = (c->scale_cap <= 4.5f) ? 0 : (c->scale_cap <= 7.0f) ? 1 : 2;
+        for (int i = 0; i < 3; i++) {
+            int active = (sel == i);
+            if (draw_btn(labels[i], x0 + i*(bw+gap), py, bw, BTN_H,
+                         active ? C_GOLD : C_TEXT, active)) {
+                c->scale_cap = caps[i]; c->count_mult = mults[i];
+            }
+        }
+    }
+    py += BTN_H + 22;
+
+    // ── Taille de la carte ──
+    txt_c("Taille de la carte", cx, py, 11, C_TEXT);
+    py += fh(11) + 6;
+    {
+        const char *labels[3] = { "Standard", "Grande", "Enorme" };
+        const int ws[3] = { 0, 38, 48 };
+        const int hs[3] = { 0, 22, 28 };
+        int sel = (c->map_w <= 0) ? 0 : (c->map_w <= 40) ? 1 : 2;
+        for (int i = 0; i < 3; i++) {
+            int active = (sel == i);
+            if (draw_btn(labels[i], x0 + i*(bw+gap), py, bw, BTN_H,
+                         active ? C_GOLD : C_TEXT, active)) {
+                c->map_w = ws[i]; c->map_h = hs[i];
+            }
+        }
+    }
+    py += BTN_H + 30;
+
+    // ── Héberger (gros) + accès aux réglages avancés ──
+    if (draw_btn("HEBERGER LA PARTIE", cx - 165, py, 330, BTN_H + 8, C_GREEN, 0)) {
+        m->mp_role  = 1;  m->mp_edit_field = 0;
+        m->screen   = MENU_MP_LOBBY;
+        act.mp_host = 1;  act.mp_mode = m->mp_mode;
+    }
+    py += BTN_H + 8 + 12;
+    if (draw_btn("Reglages avances...", cx - 125, py, 250, BTN_H, C_BLUE, 0))
+        m->screen = MENU_MP_CONFIG_ADV;
+
+    if (draw_back_btn(vw, vh))
+        m->screen = MENU_MP_HUB;
+    return act;
+}
+
+// ════════════════════════════════════════════════════
 // LOBBY — code, copier/coller, ready-up, lancement
 // ════════════════════════════════════════════════════
 MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
@@ -144,7 +226,7 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
     draw_header(m->mp_role == 1 ? "HEBERGER" : "REJOINDRE", vw);
     const MpLobbyView *v = &m->mp_view;
 
-    int pw = 560, ph = 340;
+    int pw = 560, ph = (m->mp_mode == MP_ASYM) ? 400 : 340;  // +place pour le rôle Asym
     draw_panel(cx, cy, pw, ph, C_GOLD);
     int py = cy - ph/2 + M_PAD + 2;
 
@@ -238,6 +320,19 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
                      cx - 130, py, 260, BTN_H, v->my_ready ? C_ORANGE : C_GREEN, 0))
             act.mp_ready = 1;
         py += BTN_H + 12;
+
+        // Asym (hôte) : choix de qui joue l'envahisseur, avant le lancement.
+        if (m->mp_role == 1 && m->mp_mode == MP_ASYM) {
+            txt_c("Qui joue l'ENVAHISSEUR ?", cx, py, 10, C_GOLD);
+            py += fh(10) + 4;
+            int bw3 = 150, gap3 = 10, x0 = cx - (2*bw3 + gap3)/2;
+            int hi = m->mp_host_invader;
+            if (draw_btn("VOUS (hote)", x0, py, bw3, 30, hi ? C_GOLD : C_TEXT, hi))
+                m->mp_host_invader = 1;
+            if (draw_btn("L'INVITE", x0 + bw3 + gap3, py, bw3, 30, hi ? C_TEXT : C_GOLD, !hi))
+                m->mp_host_invader = 0;
+            py += 30 + 12;
+        }
 
         if (m->mp_role == 1) {
             int can = v->my_ready && v->peer_ready;

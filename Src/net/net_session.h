@@ -39,6 +39,10 @@ typedef struct {
     int        peer_gone;     // 1 = pair déconnecté
     char       code[20];      // code de session (rempli côté hôte)
     int        port;
+    // Charge utile attachée au START (config de partie) : opaque pour le réseau,
+    // décodée par le jeu (CustomConfig + rôle). Rempli côté hôte ET à la réception.
+    unsigned char start_extra[64];
+    int        start_extra_len;
 } NetSession;
 
 // Hôte : écoute sur `port`, fixe seed+mode, génère s->code. 1 = OK.
@@ -58,8 +62,9 @@ int  net_session_join_relay(NetSession *s, const char *code, const char *name);
 void net_session_update(NetSession *s);
 // Bascule l'état "prêt" (et l'envoie au pair).
 void net_session_set_ready(NetSession *s, int ready);
-// Hôte uniquement : lance la partie si les deux sont prêts.
-void net_session_start(NetSession *s);
+// Hôte uniquement : lance la partie si les deux sont prêts. `extra` (≤64o,
+// peut être NULL) est joint au START → reçu par le client dans start_extra.
+void net_session_start(NetSession *s, const void *extra, int extra_len);
 // Retour au salon entre deux parties (conserve la connexion, reset prêts).
 void net_session_rematch(NetSession *s);
 // 1 = pair connecté et présent (pour proposer un rematch).
