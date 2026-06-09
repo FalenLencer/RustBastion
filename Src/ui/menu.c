@@ -38,7 +38,7 @@ const Color CHAPTER_COLORS[CAMPAIGN_CHAPTERS] = {
 // PERSISTANCE DES OPTIONS
 // ════════════════════════════════════════════════════
 #define OPTS_MAGIC   0x52424F50u   /* "RBOP" */
-#define OPTS_VERSION 5             /* v5 : ajout serveur relais (relay_addr) */
+#define OPTS_VERSION 6             /* v6 : ajout option daltonisme (colorblind) */
 
 typedef struct { unsigned int magic; int version; AppOptions opts; } OptsFile;
 

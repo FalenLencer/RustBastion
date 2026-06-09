@@ -134,6 +134,17 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
                     g_fx.enabled = m->opts.fx_effects;   // application immédiate
                 }
             }
+            y += 20;
+            draw_text_boxed("Accessibilite", content_x, y, 11, C_GOLD);
+            y += 16;
+            {
+                const char *cb_lbl = m->opts.colorblind
+                    ? "[*] Daltonisme (couleurs ennemis distinctes)"
+                    : "[ ] Daltonisme (couleurs ennemis distinctes)";
+                if (draw_btn(cb_lbl, content_x, y, content_w, BTN_H,
+                             C_BLUE, m->opts.colorblind))
+                    m->opts.colorblind ^= 1;   // appliqué via g_colorblind (app.c)
+            }
         }
         break;
 

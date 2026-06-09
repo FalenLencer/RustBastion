@@ -27,6 +27,18 @@ MenuAction draw_title(MenuState *m, int vw, int vh) {
     draw_bg(m, vw, vh);
     menu_anim_render(&m->anim, vw, vh);
 
+    /* Vignettage des bords : cadre la scène (rendu plus fini) sans masquer
+       l'animation centrale. Dégradés transparent→sombre sur chaque bord. */
+    {
+        int e = 110;                                  /* épaisseur du dégradé   */
+        Color dk = (Color){0, 0, 0, 120};
+        Color tr = (Color){0, 0, 0, 0};
+        DrawRectangleGradientV(0, 0,      vw, e, dk, tr);          /* haut */
+        DrawRectangleGradientV(0, vh - e, vw, e, tr, dk);          /* bas  */
+        DrawRectangleGradientH(0, 0,      e,  vh, dk, tr);         /* gauche */
+        DrawRectangleGradientH(vw - e, 0, e,  vh, tr, dk);         /* droite */
+    }
+
     txt_c_boxed("RUST BASTION", cx, vh/2 - 170, 46, C_GOLD);
     txt_c_boxed("Tower Defense Post-Apocalyptique", cx, vh/2 - 114, 13, C_DIM);
     draw_sep(cx - 180, vh/2 - 92, 360, C_BORDER);
@@ -85,6 +97,13 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
         push_back_screen(m);
         m->screen = MENU_ARCADE;
         m->back_screen = MENU_PLAY_HUB;
+    }
+    by += bh + gap;
+
+    if (draw_nav_btn("T", "TUTORIEL",
+                     "Apprenez les bases : tours, vagues, minerais, pause, zoom.",
+                     (Color){120, 200, 230, 255}, bx, by, bw, bh)) {
+        act.start_tutorial = 1;   // lancé par app.c
     }
     by += bh + gap;
 

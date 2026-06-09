@@ -311,6 +311,7 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
     switch (wm->state) {
 
         case WAVE_IDLE:
+            if (wm->suppress_auto) break;   // Asym pur : aucune vague d'arcade auto
             wm->prep_timer -= dt;
             if (wm->prep_timer <= 0.0f)
                 wave_start(wm);

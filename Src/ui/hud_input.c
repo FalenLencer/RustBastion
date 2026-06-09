@@ -593,7 +593,8 @@ void ui_update(UIState *ui, GameState *gs) {
                 gs->units.selected_unit = -1;
             }
         }
-        else if (CheckCollisionPointRec(mouse, ui->wave_btn)) {
+        else if (!gs->wave_manager.lock_manual &&
+                 CheckCollisionPointRec(mouse, ui->wave_btn)) {
             if (gs->phase == PHASE_PREP) {
                 int bonus = (int)(gs->wave_manager.prep_timer / 20.0f * 15.0f);
                 gs->gold += bonus;

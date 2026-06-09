@@ -11,6 +11,38 @@
 #include "../engine/paths.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
+
+/* ════════════════════════════════════════════════════════════════
+   SÉRIALISATION ROBUSTE — sections préfixées par leur taille.
+   Chaque struct/tableau est écrit comme [taille:u32][octets]. À la lecture :
+     • taille identique  → lecture normale ;
+     • taille différente → la struct a changé entre versions → on SAUTE la
+       section (valeur par défaut) sans désaligner le reste ;
+     • section absente (EOF) → défaut.
+   → un changement de struct n'invalide plus toute la sauvegarde ; or, vies,
+   position de campagne, perks, inventaire… survivent. (Pas de migration.)
+   ════════════════════════════════════════════════════════════════ */
+static int wsec(FILE *f, const void *p, size_t n) {
+    uint32_t len = (uint32_t)n;
+    if (fwrite(&len, sizeof(len), 1, f) != 1) return 0;
+    if (n > 0 && fwrite(p, n, 1, f) != 1)     return 0;
+    return 1;
+}
+static void rsec(FILE *f, void *p, size_t n) {
+    uint32_t len = 0;
+    if (fread(&len, sizeof(len), 1, f) != 1) { if (p && n) memset(p, 0, n); return; }
+    if (len == (uint32_t)n) {
+        if (n > 0 && fread(p, n, 1, f) != 1) { if (p && n) memset(p, 0, n); }
+    } else {                                  /* struct changée → défaut + saut */
+        if (p && n) memset(p, 0, n);
+        fseek(f, (long)len, SEEK_CUR);
+    }
+}
+/* Scalaire à lecture TOLÉRANTE : champ absent (anciennes saves) → défaut. */
+static void rscalar(FILE *f, void *p, size_t n) {
+    if (fread(p, n, 1, f) != 1) memset(p, 0, n);
+}
 
 /* ── Entête de fichier ──────────────────────────────────────── */
 typedef struct {
@@ -93,35 +125,35 @@ int save_write(const GameState *gs, int slot) {
     };
 
     int ok = 1;
-    ok &= (fwrite(&hdr,              sizeof(hdr),              1, f) == 1);
-    ok &= (fwrite(&gs->map,          sizeof(gs->map),          1, f) == 1);
-    ok &= (fwrite(&gs->enemy_paths,  sizeof(gs->enemy_paths),  1, f) == 1);
-    ok &= (fwrite(&gs->enemies,      sizeof(gs->enemies),      1, f) == 1);
-    ok &= (fwrite(&gs->wave_manager, sizeof(gs->wave_manager), 1, f) == 1);
-    ok &= (fwrite(&gs->towers,       sizeof(gs->towers),       1, f) == 1);
-    ok &= (fwrite(&gs->units,        sizeof(gs->units),        1, f) == 1);
-    ok &= (fwrite(&gs->inventory,    sizeof(gs->inventory),    1, f) == 1);
-    ok &= (fwrite(&gs->inventory_count, sizeof(gs->inventory_count), 1, f) == 1);
-    ok &= (fwrite(&gs->bonuses,      sizeof(gs->bonuses),      1, f) == 1);
-    ok &= (fwrite(&gs->phase,        sizeof(gs->phase),        1, f) == 1);
-    ok &= (fwrite(&gs->gold,         sizeof(gs->gold),         1, f) == 1);
-    ok &= (fwrite(&gs->lives,        sizeof(gs->lives),        1, f) == 1);
-    ok &= (fwrite(&gs->kills,        sizeof(gs->kills),        1, f) == 1);
-    ok &= (fwrite(&gs->is_campaign,  sizeof(gs->is_campaign),  1, f) == 1);
-    ok &= (fwrite(&gs->campaign_num, sizeof(gs->campaign_num), 1, f) == 1);
-    ok &= (fwrite(&gs->campaign_stage,      sizeof(gs->campaign_stage),      1, f) == 1);
-    ok &= (fwrite(&gs->campaign_order_seed,      sizeof(gs->campaign_order_seed),      1, f) == 1);
-    ok &= (fwrite(&gs->is_endless,               sizeof(gs->is_endless),               1, f) == 1);
-    ok &= (fwrite(&gs->endless_series,           sizeof(gs->endless_series),           1, f) == 1);
-    ok &= (fwrite(&gs->endless_multiplier,       sizeof(gs->endless_multiplier),       1, f) == 1);
-    ok &= (fwrite(&gs->endless_pending_extract,  sizeof(gs->endless_pending_extract),  1, f) == 1);
-    /* Champs suivi objectifs campagne (act_* réinitialisés si save manquant) */
-    ok &= (fwrite(&gs->act_no_unit_lost,         sizeof(gs->act_no_unit_lost),         1, f) == 1);
-    ok &= (fwrite(&gs->act_materials_collected,  sizeof(gs->act_materials_collected),  1, f) == 1);
-    ok &= (fwrite(&gs->act_objective_done,       sizeof(gs->act_objective_done),       1, f) == 1);
-    /* Slots achetés en cours de partie (SAVE_VERSION 10) */
-    ok &= (fwrite(&gs->slots_tower_bought,       sizeof(gs->slots_tower_bought),       1, f) == 1);
-    ok &= (fwrite(&gs->slots_unit_bought,        sizeof(gs->slots_unit_bought),        1, f) == 1);
+    ok &= (fwrite(&hdr, sizeof(hdr), 1, f) == 1);
+    /* Sections (préfixées en taille → robustes aux changements de struct) */
+    ok &= wsec(f, &gs->map,          sizeof(gs->map));
+    ok &= wsec(f, &gs->enemy_paths,  sizeof(gs->enemy_paths));
+    ok &= wsec(f, &gs->enemies,      sizeof(gs->enemies));
+    ok &= wsec(f, &gs->wave_manager, sizeof(gs->wave_manager));
+    ok &= wsec(f, &gs->towers,       sizeof(gs->towers));
+    ok &= wsec(f, &gs->units,        sizeof(gs->units));
+    ok &= wsec(f, &gs->inventory,    sizeof(gs->inventory));
+    ok &= wsec(f, &gs->bonuses,      sizeof(gs->bonuses));
+    /* Scalaires (ajout futur = à la fin → lecture tolérante) */
+    ok &= (fwrite(&gs->inventory_count,         sizeof(gs->inventory_count),          1, f) == 1);
+    ok &= (fwrite(&gs->phase,                   sizeof(gs->phase),                    1, f) == 1);
+    ok &= (fwrite(&gs->gold,                    sizeof(gs->gold),                     1, f) == 1);
+    ok &= (fwrite(&gs->lives,                   sizeof(gs->lives),                    1, f) == 1);
+    ok &= (fwrite(&gs->kills,                   sizeof(gs->kills),                    1, f) == 1);
+    ok &= (fwrite(&gs->is_campaign,             sizeof(gs->is_campaign),              1, f) == 1);
+    ok &= (fwrite(&gs->campaign_num,            sizeof(gs->campaign_num),             1, f) == 1);
+    ok &= (fwrite(&gs->campaign_stage,          sizeof(gs->campaign_stage),           1, f) == 1);
+    ok &= (fwrite(&gs->campaign_order_seed,     sizeof(gs->campaign_order_seed),      1, f) == 1);
+    ok &= (fwrite(&gs->is_endless,              sizeof(gs->is_endless),               1, f) == 1);
+    ok &= (fwrite(&gs->endless_series,          sizeof(gs->endless_series),           1, f) == 1);
+    ok &= (fwrite(&gs->endless_multiplier,      sizeof(gs->endless_multiplier),       1, f) == 1);
+    ok &= (fwrite(&gs->endless_pending_extract, sizeof(gs->endless_pending_extract),  1, f) == 1);
+    ok &= (fwrite(&gs->act_no_unit_lost,        sizeof(gs->act_no_unit_lost),         1, f) == 1);
+    ok &= (fwrite(&gs->act_materials_collected, sizeof(gs->act_materials_collected),  1, f) == 1);
+    ok &= (fwrite(&gs->act_objective_done,      sizeof(gs->act_objective_done),       1, f) == 1);
+    ok &= (fwrite(&gs->slots_tower_bought,      sizeof(gs->slots_tower_bought),       1, f) == 1);
+    ok &= (fwrite(&gs->slots_unit_bought,       sizeof(gs->slots_unit_bought),        1, f) == 1);
 
     fclose(f);
     return ok;
@@ -145,53 +177,39 @@ int save_read(GameState *gs, int slot) {
         fclose(f); return 0;
     }
 
-    /* CORRECTIF #13 : vérification des tailles de structs avant lecture */
-    if (hdr.sz_map          != (int)sizeof(gs->map)          ||
-        hdr.sz_enemy_pool   != (int)sizeof(gs->enemies)      ||
-        hdr.sz_wave_manager != (int)sizeof(gs->wave_manager) ||
-        hdr.sz_tower_pool   != (int)sizeof(gs->towers)       ||
-        hdr.sz_unit_pool    != (int)sizeof(gs->units)        ||
-        hdr.sz_inventory    != (int)sizeof(gs->inventory)    ||
-        hdr.sz_meta_bonuses != (int)sizeof(gs->bonuses)) {
-        fclose(f); return 0;
-    }
-
     if (!meta_load(&gs->meta)) meta_init(&gs->meta);
-    meta_compute(&gs->meta, &gs->bonuses);
 
-    int ok = 1;
-    ok &= (fread(&gs->map,                  sizeof(gs->map),                  1, f) == 1);
-    ok &= (fread(&gs->enemy_paths,          sizeof(gs->enemy_paths),          1, f) == 1);
-    ok &= (fread(&gs->enemies,              sizeof(gs->enemies),              1, f) == 1);
-    ok &= (fread(&gs->wave_manager,         sizeof(gs->wave_manager),         1, f) == 1);
-    ok &= (fread(&gs->towers,               sizeof(gs->towers),               1, f) == 1);
-    ok &= (fread(&gs->units,                sizeof(gs->units),                1, f) == 1);
-    ok &= (fread(&gs->inventory,            sizeof(gs->inventory),            1, f) == 1);
-    ok &= (fread(&gs->inventory_count,      sizeof(gs->inventory_count),      1, f) == 1);
-    ok &= (fread(&gs->bonuses,              sizeof(gs->bonuses),              1, f) == 1);
-    ok &= (fread(&gs->phase,                sizeof(gs->phase),                1, f) == 1);
-    ok &= (fread(&gs->gold,                 sizeof(gs->gold),                 1, f) == 1);
-    ok &= (fread(&gs->lives,                sizeof(gs->lives),                1, f) == 1);
-    ok &= (fread(&gs->kills,                sizeof(gs->kills),                1, f) == 1);
-    ok &= (fread(&gs->is_campaign,          sizeof(gs->is_campaign),          1, f) == 1);
-    ok &= (fread(&gs->campaign_num,         sizeof(gs->campaign_num),         1, f) == 1);
-    ok &= (fread(&gs->campaign_stage,       sizeof(gs->campaign_stage),       1, f) == 1);
-    ok &= (fread(&gs->campaign_order_seed,      sizeof(gs->campaign_order_seed),      1, f) == 1);
-    ok &= (fread(&gs->is_endless,               sizeof(gs->is_endless),               1, f) == 1);
-    ok &= (fread(&gs->endless_series,           sizeof(gs->endless_series),           1, f) == 1);
-    ok &= (fread(&gs->endless_multiplier,       sizeof(gs->endless_multiplier),       1, f) == 1);
-    ok &= (fread(&gs->endless_pending_extract,  sizeof(gs->endless_pending_extract),  1, f) == 1);
-    /* Champs suivi objectifs campagne */
-    ok &= (fread(&gs->act_no_unit_lost,         sizeof(gs->act_no_unit_lost),         1, f) == 1);
-    ok &= (fread(&gs->act_materials_collected,  sizeof(gs->act_materials_collected),  1, f) == 1);
-    ok &= (fread(&gs->act_objective_done,       sizeof(gs->act_objective_done),       1, f) == 1);
-    /* Slots achetés en cours de partie (SAVE_VERSION 10) */
-    ok &= (fread(&gs->slots_tower_bought,       sizeof(gs->slots_tower_bought),       1, f) == 1);
-    ok &= (fread(&gs->slots_unit_bought,        sizeof(gs->slots_unit_bought),        1, f) == 1);
+    /* Sections (robustes) + scalaires (tolérants) */
+    rsec(f, &gs->map,          sizeof(gs->map));
+    rsec(f, &gs->enemy_paths,  sizeof(gs->enemy_paths));
+    rsec(f, &gs->enemies,      sizeof(gs->enemies));
+    rsec(f, &gs->wave_manager, sizeof(gs->wave_manager));
+    rsec(f, &gs->towers,       sizeof(gs->towers));
+    rsec(f, &gs->units,        sizeof(gs->units));
+    rsec(f, &gs->inventory,    sizeof(gs->inventory));
+    rsec(f, &gs->bonuses,      sizeof(gs->bonuses));
+    rscalar(f, &gs->inventory_count,         sizeof(gs->inventory_count));
+    rscalar(f, &gs->phase,                   sizeof(gs->phase));
+    rscalar(f, &gs->gold,                    sizeof(gs->gold));
+    rscalar(f, &gs->lives,                   sizeof(gs->lives));
+    rscalar(f, &gs->kills,                   sizeof(gs->kills));
+    rscalar(f, &gs->is_campaign,             sizeof(gs->is_campaign));
+    rscalar(f, &gs->campaign_num,            sizeof(gs->campaign_num));
+    rscalar(f, &gs->campaign_stage,          sizeof(gs->campaign_stage));
+    rscalar(f, &gs->campaign_order_seed,     sizeof(gs->campaign_order_seed));
+    rscalar(f, &gs->is_endless,              sizeof(gs->is_endless));
+    rscalar(f, &gs->endless_series,          sizeof(gs->endless_series));
+    rscalar(f, &gs->endless_multiplier,      sizeof(gs->endless_multiplier));
+    rscalar(f, &gs->endless_pending_extract, sizeof(gs->endless_pending_extract));
+    rscalar(f, &gs->act_no_unit_lost,        sizeof(gs->act_no_unit_lost));
+    rscalar(f, &gs->act_materials_collected, sizeof(gs->act_materials_collected));
+    rscalar(f, &gs->act_objective_done,      sizeof(gs->act_objective_done));
+    rscalar(f, &gs->slots_tower_bought,      sizeof(gs->slots_tower_bought));
+    rscalar(f, &gs->slots_unit_bought,       sizeof(gs->slots_unit_bought));
 
     fclose(f);
-    if (!ok) return 0;
 
+    meta_compute(&gs->meta, &gs->bonuses);   /* bonus autoritaires (recalcul depuis meta) */
     ui_init(&gs->ui);
     return 1;
 }
@@ -330,38 +348,31 @@ int campaign_save_write(const GameState *gs, int slot,
     };
 
     int ok = 1;
-    ok &= (fwrite(&hdr,                   sizeof(hdr),                   1, f) == 1);
-    ok &= (fwrite(&gs->map,               sizeof(gs->map),               1, f) == 1);
-    ok &= (fwrite(&gs->enemy_paths,       sizeof(gs->enemy_paths),       1, f) == 1);
-    ok &= (fwrite(&gs->enemies,           sizeof(gs->enemies),           1, f) == 1);
-    ok &= (fwrite(&gs->wave_manager,      sizeof(gs->wave_manager),      1, f) == 1);
-    ok &= (fwrite(&gs->towers,            sizeof(gs->towers),            1, f) == 1);
-    ok &= (fwrite(&gs->units,             sizeof(gs->units),             1, f) == 1);
-    ok &= (fwrite(&gs->inventory,         sizeof(gs->inventory),         1, f) == 1);
-    ok &= (fwrite(&gs->inventory_count,   sizeof(gs->inventory_count),   1, f) == 1);
-    ok &= (fwrite(&gs->phase,             sizeof(gs->phase),             1, f) == 1);
-    ok &= (fwrite(&gs->gold,              sizeof(gs->gold),              1, f) == 1);
-    ok &= (fwrite(&gs->lives,             sizeof(gs->lives),             1, f) == 1);
-    ok &= (fwrite(&gs->kills,             sizeof(gs->kills),             1, f) == 1);
-    ok &= (fwrite(&gs->campaign_num,      sizeof(gs->campaign_num),      1, f) == 1);
-    ok &= (fwrite(&gs->campaign_stage,    sizeof(gs->campaign_stage),    1, f) == 1);
-    ok &= (fwrite(&gs->campaign_order_seed,
-                  sizeof(gs->campaign_order_seed), 1, f) == 1);
-    ok &= (fwrite(&gs->act_no_unit_lost,
-                  sizeof(gs->act_no_unit_lost), 1, f) == 1);
-    ok &= (fwrite(&gs->act_materials_collected,
-                  sizeof(gs->act_materials_collected), 1, f) == 1);
-    ok &= (fwrite(&gs->act_objective_done,
-                  sizeof(gs->act_objective_done), 1, f) == 1);
-    /* Slots achetés en cours de partie (SAVE_CAMPAIGN_VERSION 4) */
-    ok &= (fwrite(&gs->slots_tower_bought,
-                  sizeof(gs->slots_tower_bought), 1, f) == 1);
-    ok &= (fwrite(&gs->slots_unit_bought,
-                  sizeof(gs->slots_unit_bought), 1, f) == 1);
-    /* Build de run rogue-lite (SAVE_CAMPAIGN_VERSION 5) */
-    ok &= (fwrite(&gs->run, sizeof(gs->run), 1, f) == 1);
-    /* Drapeaux narratifs (SAVE_CAMPAIGN_VERSION 6) */
-    ok &= (fwrite(&gs->campaign_flags, sizeof(gs->campaign_flags), 1, f) == 1);
+    ok &= (fwrite(&hdr, sizeof(hdr), 1, f) == 1);
+    /* Sections (préfixées en taille → robustes) */
+    ok &= wsec(f, &gs->map,          sizeof(gs->map));
+    ok &= wsec(f, &gs->enemy_paths,  sizeof(gs->enemy_paths));
+    ok &= wsec(f, &gs->enemies,      sizeof(gs->enemies));
+    ok &= wsec(f, &gs->wave_manager, sizeof(gs->wave_manager));
+    ok &= wsec(f, &gs->towers,       sizeof(gs->towers));
+    ok &= wsec(f, &gs->units,        sizeof(gs->units));
+    ok &= wsec(f, &gs->inventory,    sizeof(gs->inventory));
+    ok &= wsec(f, &gs->run,          sizeof(gs->run));    /* build rogue-lite */
+    /* Scalaires (ajout futur = à la fin → lecture tolérante) */
+    ok &= (fwrite(&gs->inventory_count,         sizeof(gs->inventory_count),         1, f) == 1);
+    ok &= (fwrite(&gs->phase,                   sizeof(gs->phase),                   1, f) == 1);
+    ok &= (fwrite(&gs->gold,                    sizeof(gs->gold),                    1, f) == 1);
+    ok &= (fwrite(&gs->lives,                   sizeof(gs->lives),                   1, f) == 1);
+    ok &= (fwrite(&gs->kills,                   sizeof(gs->kills),                   1, f) == 1);
+    ok &= (fwrite(&gs->campaign_num,            sizeof(gs->campaign_num),            1, f) == 1);
+    ok &= (fwrite(&gs->campaign_stage,          sizeof(gs->campaign_stage),          1, f) == 1);
+    ok &= (fwrite(&gs->campaign_order_seed,     sizeof(gs->campaign_order_seed),     1, f) == 1);
+    ok &= (fwrite(&gs->act_no_unit_lost,        sizeof(gs->act_no_unit_lost),        1, f) == 1);
+    ok &= (fwrite(&gs->act_materials_collected, sizeof(gs->act_materials_collected), 1, f) == 1);
+    ok &= (fwrite(&gs->act_objective_done,      sizeof(gs->act_objective_done),      1, f) == 1);
+    ok &= (fwrite(&gs->slots_tower_bought,      sizeof(gs->slots_tower_bought),      1, f) == 1);
+    ok &= (fwrite(&gs->slots_unit_bought,       sizeof(gs->slots_unit_bought),       1, f) == 1);
+    ok &= (fwrite(&gs->campaign_flags,          sizeof(gs->campaign_flags),          1, f) == 1);
     fclose(f);
     return ok;
 }
@@ -381,57 +392,36 @@ int campaign_save_read(GameState *gs, int slot,
     if (hdr.magic   != SAVE_CAMPAIGN_MAGIC ||
         hdr.version != SAVE_CAMPAIGN_VERSION) { fclose(f); return 0; }
 
-    /* Vérification de compatibilité des structs */
-    if (hdr.sz_map          != (int)sizeof(gs->map)          ||
-        hdr.sz_enemy_pool   != (int)sizeof(gs->enemies)      ||
-        hdr.sz_wave_manager != (int)sizeof(gs->wave_manager) ||
-        hdr.sz_tower_pool   != (int)sizeof(gs->towers)       ||
-        hdr.sz_unit_pool    != (int)sizeof(gs->units)        ||
-        hdr.sz_inventory    != (int)sizeof(gs->inventory)) {
-        fclose(f); return 0;
-    }
-
-    /* Méta rechargée depuis le fichier séparé, bonus recalculés.
-       On n'écrase JAMAIS les bonus avec des valeurs en cache. */
+    /* Méta rechargée depuis le fichier séparé ; bonus recalculés à la fin
+       (jamais écrasés par des valeurs en cache). */
     if (!meta_load(&gs->meta)) meta_init(&gs->meta);
-    meta_compute(&gs->meta, &gs->bonuses);
 
-    int ok = 1;
-    ok &= (fread(&gs->map,          sizeof(gs->map),          1, f) == 1);
-    ok &= (fread(&gs->enemy_paths,  sizeof(gs->enemy_paths),  1, f) == 1);
-    ok &= (fread(&gs->enemies,      sizeof(gs->enemies),      1, f) == 1);
-    ok &= (fread(&gs->wave_manager, sizeof(gs->wave_manager), 1, f) == 1);
-    ok &= (fread(&gs->towers,       sizeof(gs->towers),       1, f) == 1);
-    ok &= (fread(&gs->units,        sizeof(gs->units),        1, f) == 1);
-    ok &= (fread(&gs->inventory,    sizeof(gs->inventory),    1, f) == 1);
-    ok &= (fread(&gs->inventory_count,   sizeof(gs->inventory_count),   1, f) == 1);
-    ok &= (fread(&gs->phase,        sizeof(gs->phase),        1, f) == 1);
-    ok &= (fread(&gs->gold,         sizeof(gs->gold),         1, f) == 1);
-    ok &= (fread(&gs->lives,        sizeof(gs->lives),        1, f) == 1);
-    ok &= (fread(&gs->kills,        sizeof(gs->kills),        1, f) == 1);
-    ok &= (fread(&gs->campaign_num, sizeof(gs->campaign_num), 1, f) == 1);
-    ok &= (fread(&gs->campaign_stage,
-                 sizeof(gs->campaign_stage), 1, f) == 1);
-    ok &= (fread(&gs->campaign_order_seed,
-                 sizeof(gs->campaign_order_seed), 1, f) == 1);
-    ok &= (fread(&gs->act_no_unit_lost,
-                 sizeof(gs->act_no_unit_lost), 1, f) == 1);
-    ok &= (fread(&gs->act_materials_collected,
-                 sizeof(gs->act_materials_collected), 1, f) == 1);
-    ok &= (fread(&gs->act_objective_done,
-                 sizeof(gs->act_objective_done), 1, f) == 1);
-    /* Slots achetés en cours de partie (SAVE_CAMPAIGN_VERSION 4) */
-    ok &= (fread(&gs->slots_tower_bought,
-                 sizeof(gs->slots_tower_bought), 1, f) == 1);
-    ok &= (fread(&gs->slots_unit_bought,
-                 sizeof(gs->slots_unit_bought), 1, f) == 1);
-    /* Build de run rogue-lite (SAVE_CAMPAIGN_VERSION 5) */
-    ok &= (fread(&gs->run, sizeof(gs->run), 1, f) == 1);
-    /* Drapeaux narratifs (SAVE_CAMPAIGN_VERSION 6) */
-    ok &= (fread(&gs->campaign_flags, sizeof(gs->campaign_flags), 1, f) == 1);
+    /* Sections (robustes) + scalaires (tolérants) — même ordre qu'à l'écriture */
+    rsec(f, &gs->map,          sizeof(gs->map));
+    rsec(f, &gs->enemy_paths,  sizeof(gs->enemy_paths));
+    rsec(f, &gs->enemies,      sizeof(gs->enemies));
+    rsec(f, &gs->wave_manager, sizeof(gs->wave_manager));
+    rsec(f, &gs->towers,       sizeof(gs->towers));
+    rsec(f, &gs->units,        sizeof(gs->units));
+    rsec(f, &gs->inventory,    sizeof(gs->inventory));
+    rsec(f, &gs->run,          sizeof(gs->run));
+    rscalar(f, &gs->inventory_count,         sizeof(gs->inventory_count));
+    rscalar(f, &gs->phase,                   sizeof(gs->phase));
+    rscalar(f, &gs->gold,                    sizeof(gs->gold));
+    rscalar(f, &gs->lives,                   sizeof(gs->lives));
+    rscalar(f, &gs->kills,                   sizeof(gs->kills));
+    rscalar(f, &gs->campaign_num,            sizeof(gs->campaign_num));
+    rscalar(f, &gs->campaign_stage,          sizeof(gs->campaign_stage));
+    rscalar(f, &gs->campaign_order_seed,     sizeof(gs->campaign_order_seed));
+    rscalar(f, &gs->act_no_unit_lost,        sizeof(gs->act_no_unit_lost));
+    rscalar(f, &gs->act_materials_collected, sizeof(gs->act_materials_collected));
+    rscalar(f, &gs->act_objective_done,      sizeof(gs->act_objective_done));
+    rscalar(f, &gs->slots_tower_bought,      sizeof(gs->slots_tower_bought));
+    rscalar(f, &gs->slots_unit_bought,       sizeof(gs->slots_unit_bought));
+    rscalar(f, &gs->campaign_flags,          sizeof(gs->campaign_flags));
     fclose(f);
-    if (!ok) return 0;
 
+    meta_compute(&gs->meta, &gs->bonuses);   /* bonus autoritaires (recalcul depuis meta) */
     gs->is_campaign = 1;
     /* Restitution de l'état interlude pour éviter le bug double-ferraille */
     if (out_interlude) *out_interlude = hdr.interlude;

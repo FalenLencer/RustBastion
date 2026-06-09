@@ -82,6 +82,10 @@ typedef struct {
     int            mp_drag;          /* 0=aucun, 1=rival, 2=duel      */
     Vector2        mp_drag_grab;     /* décalage souris→coin au drag  */
     int            tactical_pause;   /* solo : gel pour réfléchir (ESPACE), on peut agir */
+    int            tutorial_active;  /* 1 = tutoriel guidé en cours */
+    int            tutorial_step;    /* étape courante du tutoriel */
+    float          mp_asym_timer;    /* Asym pur : temps de survie écoulé (défenseur) */
+    int            show_help;        /* 1 = panneau d'aide des commandes (touche H) */
 } AppContext;
 
 // ────────────────────────────────────────────────────────────────

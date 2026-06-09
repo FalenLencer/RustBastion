@@ -37,6 +37,7 @@ extern float g_map_render_scale;
 // passent par les helpers ci-dessous (source unique → alignement garanti).
 extern float g_map_zoom;             // 1..3
 extern float g_map_pan_x, g_map_pan_y;
+extern int   g_colorblind;           // 1 = palette ennemis daltonien-safe
 float   map_eff_scale(void);                 // g_map_render_scale * g_map_zoom
 Vector2 map_origin(void);                    // (OX, OY) du rendu carte
 Vector2 map_screen_to_world(Vector2 s);      // souris (coords canvas) → monde (px)

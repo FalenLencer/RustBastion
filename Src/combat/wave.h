@@ -45,6 +45,13 @@ typedef struct {
     // au lancement de chaque partie.  Vaut 1.0 en campagne (neutre).
     // >1 = type plus fréquent, <1 = type plus rare.
     float      arcade_bias[ENEMY_TYPE_COUNT];
+
+    // 1 = pas de lancement AUTOMATIQUE des vagues (timer de prep désactivé).
+    //   Utilisé par l'Asym pur (défenseur) ET le tutoriel (lancement guidé).
+    int        suppress_auto;
+    // 1 = lancement MANUEL interdit (bouton masqué + clic ignoré).
+    //   Utilisé seulement par l'Asym pur (le tutoriel garde le bouton).
+    int        lock_manual;
 } WaveManager;
 
 void wave_init             (WaveManager *wm);

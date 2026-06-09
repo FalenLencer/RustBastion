@@ -9,6 +9,7 @@ SRC = Src/main.c                                                              \
       Src/engine/assets.c      Src/engine/paths.c                            \
       Src/game/game_state.c    Src/game/game_init.c   Src/game/save.c       \
       Src/game/meta.c          Src/game/app.c         Src/game/runperks.c   \
+      Src/game/app_tutorial.c  Src/game/app_mp.c                            \
       Src/game/campaign_data.c                                              \
       Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c       \
       Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c    \

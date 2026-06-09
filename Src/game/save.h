@@ -9,7 +9,7 @@
 
 #define SAVE_SLOT_COUNT   3
 #define SAVE_MAGIC        0x52425356u
-#define SAVE_VERSION      11           /* bump : champ Tower.mat_dmg_mult (impact minerais) */
+#define SAVE_VERSION      12           /* bump : format robuste (sections préfixées en taille) */
 #define SAVE_FILE_PREFIX  "saves/rustbastion_slot"
 
 /* ── Mode de jeu d'un slot ──────────────────────────────────── */
@@ -50,7 +50,7 @@ void save_scan  (SaveInfo infos[SAVE_SLOT_COUNT]);
 //   Magic et version propres pour éviter toute confusion
 // ════════════════════════════════════════════════════
 #define SAVE_CAMPAIGN_MAGIC    0x52424343u   // "RBCC"
-#define SAVE_CAMPAIGN_VERSION  7       /* bump : champ Tower.mat_dmg_mult (impact minerais) */
+#define SAVE_CAMPAIGN_VERSION  8       /* bump : format robuste (sections préfixées en taille) */
 
 // Écriture avec état interlude inclus (évite le bug double-ferraille)
 int  campaign_save_write (const GameState *gs, int slot,

@@ -418,9 +418,9 @@ void ui_render(const UIState *ui, const GameState *gs) {
     }
 
     // ════════════════════════════════════════════════
-    // BOUTON LANCER VAGUE
+    // BOUTON LANCER VAGUE (masqué en Asym pur : pas de lancement manuel)
     // ════════════════════════════════════════════════
-    {
+    if (!gs->wave_manager.lock_manual) {
         const Rectangle *wb = &ui->wave_btn;
         int   in_prep = (gs->phase == PHASE_PREP);
         float ratio   = gs->wave_manager.prep_timer / 20.0f;

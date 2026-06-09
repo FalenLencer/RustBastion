@@ -60,6 +60,7 @@ int   g_canvas_virt_w      = MAP_W * TILE_SIZE;
 int   g_canvas_virt_w_base = MAP_W * TILE_SIZE;
 int   g_canvas_virt_h      = MAP_H * TILE_SIZE + UI_HUD_HEIGHT;
 float g_map_render_scale   = 1.0f;   // zoom de la carte (1 = standard, <1 = grande carte)
+int   g_colorblind         = 0;      // 1 = palette ennemis daltonien-safe (Okabe-Ito)
 float g_map_zoom           = 1.0f;   // zoom JOUEUR (molette), 1..3
 float g_map_pan_x          = 0.0f;   // décalage horizontal (en pixels canvas) quand zoom>1
 float g_map_pan_y          = 0.0f;   // décalage vertical
@@ -94,8 +95,21 @@ Color renderer_enemy_color(EnemyType type) {
         [ENEMY_HUNTER]      = {255, 165,   0, 255},
         [ENEMY_ARTILLERY]   = { 90,  90, 100, 255},
     };
+    // Palette daltonien-safe (Okabe-Ito) — activée par l'option « Daltonisme ».
+    static const Color CB[ENEMY_TYPE_COUNT] = {
+        [ENEMY_RAIDER]      = {213,  94,   0, 255},   // vermillon
+        [ENEMY_BRUTE]       = {230, 159,   0, 255},   // orange
+        [ENEMY_RUNNER]      = {240, 228,  66, 255},   // jaune
+        [ENEMY_VEHICLE]     = {150, 150, 150, 255},   // gris
+        [ENEMY_MUTANT]      = {  0, 158, 115, 255},   // vert bleuté
+        [ENEMY_GHOST]       = { 86, 180, 233, 255},   // bleu ciel
+        [ENEMY_PATHBREAKER] = {204, 121, 167, 255},   // mauve
+        [ENEMY_HEALER]      = {  0, 114, 178, 255},   // bleu
+        [ENEMY_HUNTER]      = {245, 245, 245, 255},   // blanc
+        [ENEMY_ARTILLERY]   = {140, 110, 180, 255},   // violet
+    };
     if (type < 0 || type >= ENEMY_TYPE_COUNT) return WHITE;
-    return C[type];
+    return g_colorblind ? CB[type] : C[type];
 }
 
 // Couleur d'identité par base : vert pour la principale, palette distincte

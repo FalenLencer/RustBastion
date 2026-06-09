@@ -81,6 +81,7 @@ typedef struct {
     int sfx_volume;
     int show_fps;      // 1 = afficher le compteur FPS (touche [F] en jeu)
     int fx_effects;    // 1 = effets de jus (particules, secousse, pops) activés
+    int colorblind;    // 1 = palette ennemis daltonien-safe (Okabe-Ito)
     char player_name[24]; // pseudo affiché en multijoueur
     char relay_addr[32];  // serveur relais "IP:port" (vide = connexion directe)
 } AppOptions;
@@ -142,6 +143,7 @@ typedef struct {
     int          start_arcade;
     int          start_campaign;
     int          start_custom;        // 1 = lancer une partie personnalisée
+    int          start_tutorial;      // 1 = lancer le tutoriel guidé
     int          resume_slot;
     int          resume_is_campaign;  // 1 = le slot à reprendre est une save campagne
     int          go_game;
