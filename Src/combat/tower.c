@@ -293,6 +293,21 @@ static int find_target(const Tower *tw, const EnemyPool *ep) {
     return best_idx;
 }
 
+/* Vitesse de rotation de visée des tours (rad/s) : la tourelle tourne vers
+   la cible en CONTINU, pas seulement au tir (sinon elle « saute » à chaque
+   coup au lieu de suivre l'ennemi qui bouge). */
+#define TOWER_TURN_SPEED  9.0f
+
+/* Fait tourner `cur` vers `tgt` d'au plus `max_d` rad (chemin le plus court). */
+static float angle_approach(float cur, float tgt, float max_d) {
+    float d = tgt - cur;
+    while (d >  3.14159265f) d -= 6.28318531f;
+    while (d < -3.14159265f) d += 6.28318531f;
+    if (d >  max_d) d =  max_d;
+    if (d < -max_d) d = -max_d;
+    return cur + d;
+}
+
 /* ════════════════════════════════════════════════════
    MISE À JOUR
    ════════════════════════════════════════════════════ */
@@ -307,14 +322,18 @@ void tower_pool_update(TowerPool *tp, EnemyPool *ep, float dt) {
             continue;
         }
 
+        // ── VISÉE CONTINUE : on cherche la cible CHAQUE frame et la tourelle
+        //    pivote vers elle progressivement (même entre deux tirs). ──
+        int target = find_target(tw, ep);
+        if (target != -1) {
+            const Enemy *e = &ep->enemies[target];
+            float desired = atan2f(e->y - tw->cy, e->x - tw->cx);
+            tw->angle = angle_approach(tw->angle, desired, TOWER_TURN_SPEED * dt);
+        }
+
         tw->fire_timer -= dt;
         if (tw->fire_timer > 0.0f) continue;
-
-        int target = find_target(tw, ep);
         if (target == -1) continue;
-
-        const Enemy *e = &ep->enemies[target];
-        tw->angle = atan2f(e->y - tw->cy, e->x - tw->cx);
 
         projectile_spawn(tp, tw, target, ep);
         switch (tw->type) {

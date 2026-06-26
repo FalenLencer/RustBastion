@@ -405,6 +405,9 @@ static void game_do_input(AppContext *ctx) {
     // Aide des commandes (touche H) — affiche/masque le panneau.
     if (IsKeyPressed(KEY_H) && ctx->interlude == INTER_NONE)
         ctx->show_help ^= 1;
+    // Mode de vue (F4) : bascule unités/ennemis entre sprites 2D et modèles 3D.
+    if (IsKeyPressed(KEY_F4))
+        g_units_3d ^= 1;
     /* Bouton pause cliqué dans le HUD */
     if (!ctx->menu.paused && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         Vector2 vm = virt_mouse();
@@ -617,8 +620,9 @@ static void game_handle_dialog_after(AppContext *ctx) {
     int new_chapter = (next_ch > cur_ch);
 
     /* Renfort de l'acte accompli (ajouté AVANT la transition → préservé).
-       ~75-110 par acte → ~2-3 achats communs (ou 1 épique) par chapitre. */
-    int gain = 25 + ctx->gs.wave_manager.number * 3 + (obj_ok ? 25 : 0);
+       ~90-130 par acte → ~4-6 achats communs (ou 2 épiques) par chapitre :
+       la boutique à rachat infini doit permettre PLUSIEURS achats. */
+    int gain = 40 + ctx->gs.wave_manager.number * 4 + (obj_ok ? 30 : 0);
     ctx->gs.run.renfort += gain;
 
     game_goto_campaign_node(&ctx->gs, next_node);

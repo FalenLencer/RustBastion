@@ -7,6 +7,9 @@
 // renderer.c
 #include "renderer.h"
 #include "tile_art.h"   // pixel-art procédural : routes, spawns, bunkers
+#include "render3d.h"   // rendu 3D des tours (textures pré-rendues)
+#include "render3d_units.h"   // rendu 3D des unités (mode de vue 3D)
+#include "render3d_enemies.h" // rendu 3D des ennemis (mode de vue 3D)
 #include "../engine/assets.h"  // splash arts tours/unités
 #include "raylib.h"
 #include "ui_utils.h"   // DrawText/MeasureText → g_font (support accents)
@@ -61,6 +64,7 @@ int   g_canvas_virt_w_base = MAP_W * TILE_SIZE;
 int   g_canvas_virt_h      = MAP_H * TILE_SIZE + UI_HUD_HEIGHT;
 float g_map_render_scale   = 1.0f;   // zoom de la carte (1 = standard, <1 = grande carte)
 int   g_colorblind         = 0;      // 1 = palette ennemis daltonien-safe (Okabe-Ito)
+int   g_units_3d           = 0;      // 1 = unités/ennemis en 3D ; 0 = sprites 2D (défaut)
 float g_map_zoom           = 1.0f;   // zoom JOUEUR (molette), 1..3
 float g_map_pan_x          = 0.0f;   // décalage horizontal (en pixels canvas) quand zoom>1
 float g_map_pan_y          = 0.0f;   // décalage vertical
@@ -390,9 +394,19 @@ void render_enemies(const EnemyPool *pool) {
                             (Color){231, 76, 60, 80});
         }
 
-        // ── Corps : splash art (repli cercle coloré si absent) ─
+        // ── Corps : modèle 3D animé (mode vue 3D) sinon splash art 2D ─
         int e_drawn = 0;
-        if (e->type < ENEMY_TYPE_COUNT)
+        if (g_units_3d && render3d_enemy_has_model(e->type)) {
+            Texture2D t3d = render3d_enemy_tex(i);
+            if (t3d.id != 0) {
+                Rectangle dst = render3d_enemy_dst(i, e->x, e->y, e->size);
+                DrawTexturePro(t3d,
+                    (Rectangle){0, 0, (float)t3d.width, -(float)t3d.height},
+                    dst, (Vector2){0, 0}, 0.0f, tint);   // tint = gel/spectre
+                e_drawn = 1;
+            }
+        }
+        if (!e_drawn && e->type < ENEMY_TYPE_COUNT)
             e_drawn = draw_sprite_fit(g_enemy_splash[e->type], e->x, e->y,
                                       e->size * ENEMY_SPRITE_SCALE,
                                       e->size * ENEMY_SPRITE_SCALE, tint);
@@ -446,34 +460,108 @@ void render_enemies(const EnemyPool *pool) {
 // ════════════════════════════════════════════════════
 // TOURS ET PROJECTILES
 // ════════════════════════════════════════════════════
+
+// Arcs électriques de la Tesla : éclairs jagged qui crépitent autour de l'orbe
+// (plus nombreux/longs quand la tour tire). Dessinés en 2D par-dessus le sprite.
+static float tesla_hash(unsigned x) {
+    x = (x ^ 61u) ^ (x >> 16); x *= 9u; x ^= x >> 4; x *= 0x27d4eb2du; x ^= x >> 15;
+    return (float)(x & 0xffffu) / 65535.0f;
+}
+static void draw_tesla_arcs(float ox, float oy, float tile, int idx, float phase) {
+    // Éclairs SEULEMENT au tir : phase = fire_timer*fire_rate ≈ 1 juste après le
+    // tir puis décroît. On n'affiche rien hors de la fenêtre de décharge.
+    if (phase < 0.70f) return;
+    float inten = (phase - 0.70f) / 0.30f;            // 1 au tir → 0 en fin de fenêtre
+    if (inten > 1.0f) inten = 1.0f;
+    int           nb = 6 + (int)(inten * 4.0f);
+    unsigned      tb = (unsigned)(GetTime() * 30.0);  // scintillement rapide
+    unsigned char ha = (unsigned char)( 40.0f + 150.0f*inten);   // alpha halo
+    unsigned char ca = (unsigned char)( 80.0f + 175.0f*inten);   // alpha cœur
+    for (int b = 0; b < nb; b++) {
+        unsigned seed = (unsigned)idx*131u + (unsigned)b*17u + tb*7u;
+        float ang = tesla_hash(seed) * 6.2832f;
+        float len = (0.50f + 0.55f*tesla_hash(seed+1u)) * tile * (0.85f + 0.25f*inten);
+        int   segs = 4;
+        Vector2 prev = {ox, oy};
+        for (int sx = 1; sx <= segs; sx++) {
+            float t  = (float)sx / segs;
+            float px = ox + cosf(ang)*len*t;
+            float py = oy + sinf(ang)*len*t;
+            float j  = (tesla_hash(seed + (unsigned)sx*13u)*2.0f - 1.0f) * len*0.16f*(1.2f - t);
+            px += cosf(ang + 1.5708f)*j;
+            py += sinf(ang + 1.5708f)*j;
+            Vector2 cur = {px, py};
+            DrawLineEx(prev, cur, 3.0f, (Color){ 90, 150, 255, ha});   // halo bleu
+            DrawLineEx(prev, cur, 1.3f, (Color){200, 230, 255, ca});   // cœur clair
+            prev = cur;
+        }
+    }
+}
+
 void render_towers(const TowerPool *tp) {
-    for (int i = 0; i < MAX_TOWERS; i++) {
+    /* Tri par profondeur (cy croissant) : les tours à l'AVANT (cy grand) sont
+       dessinées EN DERNIER, donc au-dessus. Indispensable depuis que le Sniper
+       a un sprite 3D HAUT qui dépasse au-dessus de sa case : sans ce tri, une
+       tour située derrière mais dessinée après masquerait une tour de devant. */
+    int order[MAX_TOWERS], nord = 0;
+    for (int i = 0; i < MAX_TOWERS; i++)
+        if (tp->towers[i].active) order[nord++] = i;
+    for (int a = 1; a < nord; a++) {           /* insertion sort (nord petit) */
+        int   key = order[a];
+        float ky  = tp->towers[key].cy;
+        int   b   = a - 1;
+        while (b >= 0 && tp->towers[order[b]].cy > ky) { order[b+1] = order[b]; b--; }
+        order[b+1] = key;
+    }
+
+    for (int o = 0; o < nord; o++) {
+        int i = order[o];
         const Tower *tw = &tp->towers[i];
-        if (!tw->active) continue;
 
         int px = tw->tile_x * TILE_SIZE;
         int py = tw->tile_y * TILE_SIZE;
         int s  = TILE_SIZE;
         Color col = TOWER_FILL[tw->type];
 
-        // Socle sombre
-        DrawRectangle(px+2, py+2, s-4, s-4, (Color){30,20,10,255});
-
-        // Corps : splash art à la place du rectangle central.
-        // Repli sur le rectangle coloré si la texture est absente.
         float cx = tw->cx, cy = tw->cy;
-        if (!draw_sprite_fit(g_tower_splash[tw->type], cx, cy,
-                             (float)(s-8), (float)(s-8), WHITE)) {
-            DrawRectangle(px+6, py+6, s-12, s-12, col);
+
+        // Corps : modèle 3D live si disponible (tourelle orientée vers la cible),
+        // sinon socle sombre + splash art (repli rect coloré).
+        Texture2D t3d   = render3d_tower_tex(i);
+        int       drew3d = 0;
+        if (t3d.id != 0) {
+            // RenderTexture raylib : verticalement retournée → hauteur source négative.
+            // Destination calculée par render3d (carré pour la Mitrailleuse, HAUT
+            // ancré par le bas pour le Sniper qui dépasse au-dessus de la case).
+            Rectangle dst = render3d_tower_dst(i, cx, cy, (float)s);
+            DrawTexturePro(t3d,
+                (Rectangle){0, 0, (float)t3d.width, -(float)t3d.height},
+                dst,
+                (Vector2){0, 0}, 0.0f, WHITE);
+            drew3d = 1;
+            // Tesla : éclairs électriques qui crépitent autour de l'orbe.
+            if (tw->type == TOWER_TESLA) {
+                float ox    = dst.x + dst.width  * 0.5f;
+                float oy    = dst.y + dst.height * 0.27f;   // ~position de l'orbe
+                float phase = (tw->fire_rate > 0.0f) ? tw->fire_timer * tw->fire_rate : 0.0f;
+                draw_tesla_arcs(ox, oy, (float)s, i, phase);
+            }
+        } else {
+            DrawRectangle(px+2, py+2, s-4, s-4, (Color){30,20,10,255});
+            if (!draw_sprite_fit(g_tower_splash[tw->type], cx, cy,
+                                 (float)(s-8), (float)(s-8), WHITE)) {
+                DrawRectangle(px+6, py+6, s-12, s-12, col);
+            }
         }
 
-        // Canon : conserve sa couleur d'équipe et pivote vers la cible.
-        float ex = cx + cosf(tw->angle) * (s*0.4f);
-        float ey = cy + sinf(tw->angle) * (s*0.4f);
-        DrawLineEx((Vector2){cx,cy}, (Vector2){ex,ey}, 3.0f, col);
-        // Embout du canon
-        DrawCircle((int)ex, (int)ey, 2.5f, col);
-        DrawRectangleLines(px+6, py+6, s-12, s-12, (Color){255,255,255,40});
+        if (!drew3d) {
+            // Canon 2D : pivote vers la cible (le modèle 3D a déjà ses canons).
+            float ex = cx + cosf(tw->angle) * (s*0.4f);
+            float ey = cy + sinf(tw->angle) * (s*0.4f);
+            DrawLineEx((Vector2){cx,cy}, (Vector2){ex,ey}, 3.0f, col);
+            DrawCircle((int)ex, (int)ey, 2.5f, col);
+            DrawRectangleLines(px+6, py+6, s-12, s-12, (Color){255,255,255,40});
+        }
 
         for (int l = 0; l < tw->level && l < 3; l++)
             DrawRectangle(px+4+l*4, py+s-6, 3, 3, (Color){255,215,0,255});
@@ -526,12 +614,24 @@ void render_projectiles(const TowerPool *tp) {
             col = PROJ_COLOR[p->origin];
         }
 
+        // ── Traçante lumineuse : traînée orientée vers la cible +
+        //    halo coloré + cœur brillant (animation de balle).
+        float dx = p->tx - p->x, dy = p->ty - p->y;
+        float len = sqrtf(dx*dx + dy*dy);
+        if (len < 0.001f) len = 0.001f;
+        float ux = dx/len, uy = dy/len;
+        Vector2 head = { p->x, p->y };
+        Vector2 tail = { p->x - ux*16.0f, p->y - uy*16.0f };
+
+        DrawLineEx(tail, head, 2.4f, (Color){col.r, col.g, col.b, 110});
         if (p->splash) {
-            DrawCircle((int)p->x, (int)p->y, 5, col);
-            DrawCircleLines((int)p->x, (int)p->y, 8,
-                            (Color){col.r, col.g, col.b, 100});
+            DrawCircleV(head, 8.0f, (Color){col.r, col.g, col.b, 90});
+            DrawCircleV(head, 5.0f, col);
+            DrawCircleV(head, 2.5f, (Color){255, 255, 235, 255});
         } else {
-            DrawCircle((int)p->x, (int)p->y, 3, col);
+            DrawCircleV(head, 6.0f, (Color){col.r, col.g, col.b, 90});
+            DrawCircleV(head, 3.2f, col);
+            DrawCircleV(head, 1.6f, (Color){255, 255, 235, 255});
         }
     }
 }
@@ -675,9 +775,19 @@ void render_units(const UnitPool *up) {
                     (int)(rad*0.8f), (int)(rad*0.3f),
                     (Color){0,0,0,70});
 
-        // ── Corps : splash art (cercle = gabarit d'origine) ───────
+        // ── Corps : modèle 3D animé (mode vue 3D) sinon splash art 2D ──
         int drawn = 0;
-        if (u->type < UNIT_TYPE_COUNT)
+        if (g_units_3d && render3d_unit_has_model(u->type)) {
+            Texture2D t3d = render3d_unit_tex(i);
+            if (t3d.id != 0) {
+                Rectangle dst = render3d_unit_dst(i, u->x, u->y, u->size);
+                DrawTexturePro(t3d,
+                    (Rectangle){0, 0, (float)t3d.width, -(float)t3d.height},
+                    dst, (Vector2){0, 0}, 0.0f, WHITE);
+                drawn = 1;
+            }
+        }
+        if (!drawn && u->type < UNIT_TYPE_COUNT)
             drawn = draw_sprite_fit(g_unit_splash[u->type], u->x, u->y,
                                     u->size * UNIT_SPRITE_SCALE,
                                     u->size * UNIT_SPRITE_SCALE, WHITE);

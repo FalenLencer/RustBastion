@@ -1,7 +1,8 @@
 /*
  * RUST BASTION — auto-test headless du transport réseau.
  * Compilation autonome (hors jeu) :
- *   gcc -Wall -Wextra Src/net/net_transport.c Src/net/net_selftest.c -o /tmp/net_test
+ *   gcc -Wall -Wextra Src/net/net_transport.c Src/net/net_session.c \
+ *       Src/net/net_selftest.c -o /tmp/net_test
  *   /tmp/net_test
  * Vérifie loopback + TCP localhost SANS rendu (respecte « pas d'affichage »).
  */
@@ -158,7 +159,7 @@ static void test_session(void) {
     }
     CHECK(both_ready, "ready-up propage");
 
-    net_session_start(&host);
+    net_session_start(&host, NULL, 0);
     int started = 0;
     for (int i = 0; i < 100000 && !started; i++) {
         pump2(&host, &join);

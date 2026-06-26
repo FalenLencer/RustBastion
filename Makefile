@@ -16,6 +16,7 @@ SRC = Src/main.c                                                              \
       Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
       Src/combat/fx.c                                                        \
       Src/ui/renderer.c        Src/ui/ui_utils.c      Src/ui/tile_art.c     \
+      Src/ui/render3d.c        Src/ui/render3d_units.c Src/ui/render3d_enemies.c \
       Src/ui/perk_art.c                                                     \
       Src/ui/hud.c             Src/ui/hud_input.c     Src/ui/hud_render.c   \
       Src/ui/menu.c            Src/ui/menu_screens.c  Src/ui/menu_campaign.c \
@@ -127,6 +128,11 @@ package_linux: linux
 		cp -r $(ASSETS_DIR)/textures $(LINUX_DIR)/assets/ 2>/dev/null || true; \
 		cp -r $(ASSETS_DIR)/sounds   $(LINUX_DIR)/assets/ 2>/dev/null || true; \
 		cp -r $(ASSETS_DIR)/fonts    $(LINUX_DIR)/assets/ 2>/dev/null || true; \
+		mkdir -p $(LINUX_DIR)/assets/3d/3D_Tours $(LINUX_DIR)/assets/3d/3D_Troupes $(LINUX_DIR)/assets/3d/3D_enemies; \
+		cp $(ASSETS_DIR)/3d/*.glb              $(LINUX_DIR)/assets/3d/           2>/dev/null || true; \
+		cp $(ASSETS_DIR)/3d/3D_Tours/*.glb     $(LINUX_DIR)/assets/3d/3D_Tours/   2>/dev/null || true; \
+		cp $(ASSETS_DIR)/3d/3D_Troupes/*.glb   $(LINUX_DIR)/assets/3d/3D_Troupes/ 2>/dev/null || true; \
+		cp $(ASSETS_DIR)/3d/3D_enemies/*.glb   $(LINUX_DIR)/assets/3d/3D_enemies/ 2>/dev/null || true; \
 	fi
 
 	@# Script de lancement (gère audio WSLg + répertoire de travail)
@@ -172,6 +178,11 @@ package_win: win
 		cp -r $(ASSETS_DIR)/textures $(WIN_DIR)/assets/ 2>/dev/null || true; \
 		cp -r $(ASSETS_DIR)/sounds   $(WIN_DIR)/assets/ 2>/dev/null || true; \
 		cp -r $(ASSETS_DIR)/fonts    $(WIN_DIR)/assets/ 2>/dev/null || true; \
+		mkdir -p $(WIN_DIR)/assets/3d/3D_Tours $(WIN_DIR)/assets/3d/3D_Troupes $(WIN_DIR)/assets/3d/3D_enemies; \
+		cp $(ASSETS_DIR)/3d/*.glb              $(WIN_DIR)/assets/3d/           2>/dev/null || true; \
+		cp $(ASSETS_DIR)/3d/3D_Tours/*.glb     $(WIN_DIR)/assets/3d/3D_Tours/   2>/dev/null || true; \
+		cp $(ASSETS_DIR)/3d/3D_Troupes/*.glb   $(WIN_DIR)/assets/3d/3D_Troupes/ 2>/dev/null || true; \
+		cp $(ASSETS_DIR)/3d/3D_enemies/*.glb   $(WIN_DIR)/assets/3d/3D_enemies/ 2>/dev/null || true; \
 		cp -r $(ASSETS_DIR)/win_ico  $(WIN_DIR)/assets/ 2>/dev/null || true; \
 		cp $(ASSETS_DIR)/icon.png    $(WIN_DIR)/assets/ 2>/dev/null || true; \
 	fi

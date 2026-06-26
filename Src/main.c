@@ -18,6 +18,9 @@
 #include "game/save.h"
 #include "game/app.h"
 #include "ui/renderer.h"
+#include "ui/render3d.h"     /* rendu 3D des tours (pré-passe hors canvas) */
+#include "ui/render3d_units.h" /* rendu 3D des unités (mode de vue 3D) */
+#include "ui/render3d_enemies.h" /* rendu 3D des ennemis (mode de vue 3D) */
 #include "net/net_relay.h"   /* mode serveur relais (headless) */
 #include <math.h>
 #include <string.h>
@@ -50,6 +53,9 @@ int main(int argc, char **argv) {
     /* ── Audio / Assets / Saves ─────────────────────────────────── */
     audio_init();
     assets_load();
+    render3d_init();          /* charge les GLB des tours (repli sprites si absents) */
+    render3d_units_init();    /* charge les GLB des unités (mode de vue 3D) */
+    render3d_enemies_init();  /* charge les GLB des ennemis (mode de vue 3D) */
     save_init();
 
     /* ── Icône ──────────────────────────────────────────────────── */
@@ -121,6 +127,16 @@ int main(int argc, char **argv) {
         canvas_set_mouse_offset(pres_x, pres_y, scale, scale);
         menu_set_mouse_offset  (pres_x, pres_y, scale, scale);
 
+        /* Pré-passe 3D : rend les tours articulées (visée + tir) en textures
+           AVANT la passe canvas (raylib interdit les RenderTexture imbriqués). */
+        if (ctx.screen == SCREEN_GAME) {
+            render3d_prepass(&ctx.gs.towers, &ctx.gs.enemies);
+            if (g_units_3d) {
+                render3d_units_prepass(&ctx.gs.units, &ctx.gs.enemies);   /* mode de vue 3D */
+                render3d_enemies_prepass(&ctx.gs.enemies);
+            }
+        }
+
         /* Frame */
         BeginTextureMode(canvas);
         int keep_running = app_update(&ctx, dt);
@@ -143,6 +159,9 @@ int main(int argc, char **argv) {
     /* ── Nettoyage ──────────────────────────────────────────────── */
     app_save_on_exit(&ctx);
     app_cleanup(&ctx);
+    render3d_shutdown();
+    render3d_units_shutdown();
+    render3d_enemies_shutdown();
     audio_shutdown();
     assets_unload();
     UnloadRenderTexture(canvas);

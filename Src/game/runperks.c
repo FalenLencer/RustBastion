@@ -163,6 +163,9 @@ int runbuild_reroll_slot(const RunBuild *rb, int *offers, int n, int slot) {
     for (int i = 0; i < PERK_COUNT; i++) picked[i] = 0;
     for (int k = 0; k < n; k++)                 // exclut les autres offres en cours
         if (k != slot && offers[k] >= 0 && offers[k] < PERK_COUNT) picked[offers[k]] = 1;
+    // Exclut aussi l'article qui occupait CE slot → le remplaçant est toujours
+    // visiblement UN AUTRE article (sinon on croit que rien n'a changé).
+    if (offers[slot] >= 0 && offers[slot] < PERK_COUNT) picked[offers[slot]] = 1;
 
     int  weights[PERK_COUNT];
     long total = 0;
