@@ -11,6 +11,7 @@
    slot actif) et expose les fonctions de boucle principale.
    ════════════════════════════════════════════════════════════════ */
 #include "game_state.h"
+#include "hero.h"
 #include "../ui/menu.h"
 #include "../ui/interlude.h"
 #include "../net/net_session.h"
@@ -27,7 +28,7 @@ typedef enum {
 // Contexte global de l'application
 // Instancié en static dans main() pour éviter un débordement de pile.
 // ────────────────────────────────────────────────────────────────
-typedef struct {
+typedef struct AppContext {
     GameState      gs;
     MenuState      menu;
 
@@ -86,6 +87,10 @@ typedef struct {
     int            tutorial_step;    /* étape courante du tutoriel */
     float          mp_asym_timer;    /* Asym pur : temps de survie écoulé (défenseur) */
     int            show_help;        /* 1 = panneau d'aide des commandes (touche H) */
+
+    /* ── MODE HÉROS (TD incarné 3D, beta) ───────────────────── */
+    int            hero_mode;        /* 1 = boucle héros active (hero_frame) */
+    HeroState      hero;             /* avatar / arme / placement            */
 } AppContext;
 
 // ────────────────────────────────────────────────────────────────

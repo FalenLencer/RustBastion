@@ -150,3 +150,5 @@ void unit_pool_update  (UnitPool *up, EnemyPool *ep, Map *map, float dt,
 void unit_damage       (Unit *u, float dmg);
 void unit_assign_deposit(UnitPool *up, int unit_idx, int deposit_idx);
 int unit_active_limit(const MetaBonuses *bonuses, int base_count);
+/* Médics rattachés à la base (bpx,bpy) — pour le cap MAX_MEDICS_PER_BASE. */
+int unit_medic_count_at_base(const UnitPool *up, float bpx, float bpy);

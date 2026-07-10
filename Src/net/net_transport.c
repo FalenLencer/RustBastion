@@ -90,6 +90,11 @@ void transport_loopback_pair(Transport **pa, Transport **pb) {
     LoopPipe *pipe = calloc(1, sizeof(LoopPipe));
     Transport *a = calloc(1, sizeof(Transport));
     Transport *b = calloc(1, sizeof(Transport));
+    if (!pipe || !a || !b) {        // alloc echouee : aucun transport publie
+        free(pipe); free(a); free(b);
+        *pa = NULL; *pb = NULL;
+        return;
+    }
     pipe->refs = 2;
     a->kind = 0; a->connected = 1; a->pipe = pipe; a->tx = &pipe->a2b; a->rx = &pipe->b2a;
     b->kind = 0; b->connected = 1; b->pipe = pipe; b->tx = &pipe->b2a; b->rx = &pipe->a2b;
@@ -111,6 +116,7 @@ Transport *transport_tcp_host(int port) {
     if (listen(ls, 1) != 0) { closesock(ls); return NULL; }
     sock_nonblock(ls);
     Transport *t = calloc(1, sizeof(Transport));
+    if (!t) { closesock(ls); return NULL; }   // pas de fuite du socket d'ecoute
     t->kind = 1; t->is_host = 1; t->listen_fd = ls; t->fd = SOCK_INVALID;
     return t;
 }
@@ -126,6 +132,7 @@ Transport *transport_tcp_join(const char *ip, int port) {
     addr.sin_port = htons((unsigned short)port);
     if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) { closesock(s); return NULL; }
     Transport *t = calloc(1, sizeof(Transport));
+    if (!t) { closesock(s); return NULL; }     // pas de fuite du socket
     t->kind = 1; t->is_host = 0; t->listen_fd = SOCK_INVALID; t->fd = s;
     t->connect_deadline = time(NULL) + 8;   // abandon après 8 s sans connexion
     int r = connect(s, (struct sockaddr *)&addr, sizeof(addr));

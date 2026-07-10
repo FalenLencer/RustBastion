@@ -135,7 +135,14 @@ static void wave_type_probs(int wave_num, ThemeID theme,
         p_healer      *= bias[ENEMY_HEALER];
         p_hunter      *= bias[ENEMY_HUNTER];
         p_artillery   *= bias[ENEMY_ARTILLERY];
+    }
 
+    // ── Renormalisation COMMUNE (arcade ET campagne) ──────────────
+    // Aux vagues tardives, les caps + modificateurs de theme peuvent faire
+    // depasser 1.0 : les derniers types de l'ordre cumulatif (hunter,
+    // artillerie, raider) devenaient INTIRABLES alors que l'apercu de
+    // prochaine vague les annoncait. On garantit sum <= 0.95 (raider >= 5%).
+    {
         float total = p_vehicle + p_brute + p_runner + p_mutant + p_ghost
                     + p_pathbreaker + p_healer + p_hunter + p_artillery;
         if (total > WAVE_RAIDER_RESERVE) {
@@ -383,6 +390,16 @@ void wave_update(WaveManager *wm, EnemyPool *pool,
 
 int wave_ready(const WaveManager *wm) {
     return wm->state == WAVE_IDLE;
+}
+
+/* Or max offert quand on lance dès le début de la prépa. */
+#define WAVE_EARLY_BONUS_MAX 15
+
+int wave_early_launch_bonus(const WaveManager *wm) {
+    float ratio = wm->prep_timer / PREP_TIME;
+    if (ratio < 0.0f) ratio = 0.0f;
+    if (ratio > 1.0f) ratio = 1.0f;
+    return (int)(ratio * (float)WAVE_EARLY_BONUS_MAX);
 }
 
 void wave_start(WaveManager *wm) {

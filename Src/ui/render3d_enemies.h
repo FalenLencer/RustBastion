@@ -34,3 +34,9 @@ Texture2D render3d_enemy_tex(int enemy_index);
 /* Rectangle de destination pour blitter la texture 3D de l'ennemi i
    (centre x,y ; rayon size px). Cadrage propre à chaque type. */
 Rectangle render3d_enemy_dst(int enemy_index, float x, float y, float size);
+
+/* MODE HÉROS : dessine l'ennemi `type` DIRECTEMENT dans la scène 3D courante
+   (BeginMode3D actif). heading_rad = cap monde (atan2(x, z)) ; anim_kind :
+   0=repos 1=marche 2=attaque. Retourne 1 si un modèle existait.            */
+int render3d_enemies_draw_world(int type, Vector3 pos, float heading_rad,
+                                float scale, int anim_kind, float anim_time);

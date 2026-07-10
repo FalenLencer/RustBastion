@@ -6,6 +6,7 @@
 
 #include "interlude.h"
 #include "ui_utils.h"
+#include "ui_anim.h"
 #include "perk_art.h"
 #include "../game/campaign_data.h"
 #include "../game/meta.h"
@@ -19,13 +20,36 @@ static const char *rar_name(PerkRarity r) {
     return (r == RAR_EPIC) ? "EPIQUE" : (r == RAR_RARE) ? "RARE" : "COMMUN";
 }
 
+// ── Réglages de la mise en scène (butin / boutique) ───────────
+#define IL_OPEN_DUR    0.25f   // slide-up + fondu du panneau (s)
+#define IL_OPEN_RISE   20.0f   // hauteur du slide-up (px)
+#define IL_HDR_T0      0.10f   // apparition de l'en-tête (s)
+#define IL_HDR_DUR     0.15f   // durée de son fondu (s)
+#define IL_RIVET_STEP  0.02f   // délai entre rivets (s)
+#define IL_RIVET_DUR   0.10f   // fondu d'un rivet (s)
+#define IL_CARD_T0     0.15f   // 1re carte (s)
+#define IL_CARD_STEP   0.08f   // délai entre cartes (s)
+#define IL_CARD_DUR    0.22f   // entrée du contenu d'une carte (s)
+#define IL_CARD_SLIDE  14.0f   // glissement du contenu (px)
+#define IL_SHIM_PERIOD 2.2f    // période du shimmer épique (s)
+#define IL_SHIM_CROSS  0.6f    // durée de la traversée (s)
+#define IL_SHIM_W      24      // largeur de la bande (px)
+
 // ── Helpers pixel-art partagés (butin / boutique) ─────────────
-static void il_rivets_h(int x0, int x1, int y, Color c) {
-    for (int x = x0; x <= x1; x += 24) DrawRectangle(x, y, 2, 2, c);
+// Rivets : apparaissent un par un (délai idx*IL_RIVET_STEP sur t).
+static void il_rivets_h(int x0, int x1, int y, Color c, float t) {
+    int idx = 0;
+    for (int x = x0; x <= x1; x += 24, idx++) {
+        float k = (t - (float)idx * IL_RIVET_STEP) / IL_RIVET_DUR;
+        if (k <= 0.0f) continue;
+        if (k > 1.0f) k = 1.0f;
+        DrawRectangle(x, y, 2, 2,
+                      (Color){c.r, c.g, c.b, (unsigned char)((float)c.a * k)});
+    }
 }
 static void il_brackets(Rectangle r, Color c, int L) {
     int x0=(int)r.x+4, y0=(int)r.y+4, x1=(int)(r.x+r.width)-4, y1=(int)(r.y+r.height)-4;
-    Color cc={c.r,c.g,c.b,225};
+    Color cc={c.r,c.g,c.b,(unsigned char)(225.0f * ((float)c.a / 255.0f))};
     DrawRectangle(x0,y0,L,2,cc); DrawRectangle(x0,y0,2,L,cc);
     DrawRectangle(x1-L,y0,L,2,cc); DrawRectangle(x1-2,y0,2,L,cc);
     DrawRectangle(x0,y1-2,L,2,cc); DrawRectangle(x0,y1-L,2,L,cc);
@@ -70,11 +94,26 @@ static void il_cat_glyph(int cx, int cy, int cat, Color col) {
 }
 // Petite caisse de ravitaillement (icône d'en-tête).
 static void il_crate(int cx, int cy, Color col) {
-    Color sh = {(unsigned char)(col.r/2),(unsigned char)(col.g/2),(unsigned char)(col.b/2),255};
+    Color sh = {(unsigned char)(col.r/2),(unsigned char)(col.g/2),(unsigned char)(col.b/2),col.a};
     DrawRectangle(cx-8, cy-7, 16, 14, sh);
     DrawRectangleLines(cx-8, cy-7, 16, 14, col);
     DrawLine(cx-8, cy-7, cx+8, cy+7, col);
     DrawLine(cx+8, cy-7, cx-8, cy+7, col);
+}
+
+// Shimmer épique : bande claire qui balaye la carte toutes les
+// IL_SHIM_PERIOD s (clip manuel aux bords — pas de scissor, il opère
+// en coordonnées écran et se désalignerait du canvas virtuel).
+static void il_shimmer(Rectangle r, float t) {
+    float ph = fmodf(t, IL_SHIM_PERIOD);
+    if (ph >= IL_SHIM_CROSS) return;
+    float sx  = r.x + (r.width + IL_SHIM_W) * (ph / IL_SHIM_CROSS) - IL_SHIM_W;
+    int   sx0 = (int)sx, sx1 = sx0 + IL_SHIM_W;
+    if (sx0 < (int)r.x) sx0 = (int)r.x;
+    if (sx1 > (int)(r.x + r.width)) sx1 = (int)(r.x + r.width);
+    if (sx1 > sx0)
+        DrawRectangle(sx0, (int)r.y + 1, sx1 - sx0, (int)r.height - 2,
+                      (Color){255, 255, 255, 18});
 }
 
 // ── Constantes layout ────────────────────────────────────────
@@ -451,66 +490,124 @@ static DraftL draft_layout(const RunBuild *rb, int vw, int vh) {
 
 void interlude_render_draft(const RunBuild *rb, Vector2 vm, int vw, int vh) {
     DraftL L = draft_layout(rb, vw, vh);
-    DrawRectangle(0, 0, vw, vh, (Color){0,0,0,212});
-    Color accent = (Color){232,200,80,255};
-    Rectangle pr = {L.cx-L.pw/2.0f, L.cy-L.ph/2.0f, (float)L.pw, (float)L.ph};
 
-    // Corps métal + volume
-    DrawRectangleRounded(pr, 6.0f/L.ph, 8, (Color){13,10,5,253});
-    DrawRectangle((int)pr.x+3, (int)pr.y+3, L.pw-6, L.ph/3, (Color){255,255,255,6});
-    DrawRectangle((int)pr.x+3, (int)pr.y+L.ph-L.ph/4, L.pw-6, L.ph/4-3, (Color){0,0,0,45});
-    DrawRectangleRoundedLinesEx(pr, 6.0f/L.ph, 8, 2.0f, accent);
+    /* ── Timer d'ouverture : nouvelle offre → rejoue la mise en scène.
+       HITBOX INTACTES : draft_layout reste la seule source des rects
+       cliquables ; seuls dessins internes, alphas et scales bougent. */
+    static int   prev_o0 = -999, prev_nn = -999;
+    static float open_t  = 1e9f;
+    if (rb->draft_offer[0] != prev_o0 || rb->draft_n != prev_nn) {
+        prev_o0 = rb->draft_offer[0];
+        prev_nn = rb->draft_n;
+        open_t  = 0.0f;
+    }
+    open_t += ui_dt();
 
-    // En-tête : bandeau + caisse + titre + rivets + équerres
+    float pa = open_t / IL_OPEN_DUR;                 // panneau (slide + fondu)
+    if (pa > 1.0f) pa = 1.0f;
+    int   pdy = -(int)(IL_OPEN_RISE * (1.0f - ea_out_cubic(pa)));
+    float ha  = (open_t - IL_HDR_T0) / IL_HDR_DUR;   // en-tête
+    ha = ha < 0.0f ? 0.0f : ha > 1.0f ? 1.0f : ha;
+
+    DrawRectangle(0, 0, vw, vh, (Color){0,0,0,(unsigned char)(212.0f * pa)});
+    Color accent = (Color){232,200,80,(unsigned char)(255.0f * ha)};
+    /* Le CADRE glisse (pdy) ; les cartes restent aux positions du layout. */
+    Rectangle pr = {L.cx-L.pw/2.0f, L.cy-L.ph/2.0f + (float)pdy,
+                    (float)L.pw, (float)L.ph};
+
+    // Corps métal + volume (fondus avec pa)
+    DrawRectangleRounded(pr, 6.0f/L.ph, 8,
+                         (Color){13,10,5,(unsigned char)(253.0f * pa)});
+    DrawRectangle((int)pr.x+3, (int)pr.y+3, L.pw-6, L.ph/3,
+                  (Color){255,255,255,(unsigned char)(6.0f * pa)});
+    DrawRectangle((int)pr.x+3, (int)pr.y+L.ph-L.ph/4, L.pw-6, L.ph/4-3,
+                  (Color){0,0,0,(unsigned char)(45.0f * pa)});
+    DrawRectangleRoundedLinesEx(pr, 6.0f/L.ph, 8, 2.0f,
+        (Color){232,200,80,(unsigned char)(255.0f * pa)});
+
+    // En-tête : bandeau + caisse + titre + rivets + équerres (dès 0.10 s)
     int hy = (int)pr.y;
-    DrawRectangle((int)pr.x+3, hy+3, L.pw-6, 30,
-                  (Color){(unsigned char)(accent.r/6),(unsigned char)(accent.g/6),10,255});
-    DrawRectangle((int)pr.x+3, hy+33, L.pw-6, 1, accent);
-    il_rivets_h((int)pr.x+14, (int)pr.x+L.pw-14, hy+9,
-                (Color){(unsigned char)(accent.r/2),(unsigned char)(accent.g/2),20,200});
-    il_crate(L.px+14, hy+18, accent);
-    txt_c("BUTIN DE GUERRE", L.cx, hy+9, 18, accent);
-    il_brackets(pr, accent, 12);
-    txt_c("Recupere un renfort  —  clic ou touches 1-3",
-          L.cx, hy+38, 9, (Color){175,150,100,235});
+    if (ha > 0.0f) {
+        DrawRectangle((int)pr.x+3, hy+3, L.pw-6, 30,
+                      (Color){(unsigned char)(accent.r/6),(unsigned char)(accent.g/6),10,
+                              (unsigned char)(255.0f * ha)});
+        DrawRectangle((int)pr.x+3, hy+33, L.pw-6, 1, accent);
+        il_rivets_h((int)pr.x+14, (int)pr.x+L.pw-14, hy+9,
+                    (Color){(unsigned char)(232/2),(unsigned char)(200/2),20,200},
+                    open_t - IL_HDR_T0);
+        il_crate(L.px+14, hy+18 + pdy, accent);
+        txt_c("BUTIN DE GUERRE", L.cx, hy+9, 18, accent);
+        il_brackets(pr, accent, 12);
+        txt_c("Recupere un renfort  —  clic ou touches 1-3",
+              L.cx, hy+38, 9,
+              (Color){175,150,100,(unsigned char)(235.0f * ha)});
+    }
 
-    float pulse = (sinf((float)GetTime()*4.0f) + 1.0f) * 0.5f;
     for (int i = 0; i < L.n; i++) {
         int id = rb->draft_offer[i];
         if (id < 0 || id >= PERK_COUNT) continue;
         const PerkDef *pd = &RUN_PERKS[id];
         RunColor rc = runperk_rarity_color(pd->rarity);
-        Color cc = {rc.r, rc.g, rc.b, 255};
         int ry = L.py0 + i*L.row, ch = L.row - 6;
         Rectangle r = {(float)L.px, (float)ry, (float)L.iw, (float)ch};
         int hov = CheckCollisionPointRec(vm, r);
 
+        /* Cadre : fondu commun dès IL_CARD_T0 ; contenu : cascade par carte */
+        float fa = (open_t - IL_CARD_T0) / 0.10f;
+        fa = fa < 0.0f ? 0.0f : fa > 1.0f ? 1.0f : fa;
+        float kc = (open_t - (IL_CARD_T0 + (float)i * IL_CARD_STEP)) / IL_CARD_DUR;
+        kc = kc < 0.0f ? 0.0f : kc > 1.0f ? 1.0f : kc;
+        int  cdx = -(int)(IL_CARD_SLIDE * (1.0f - ea_out_cubic(kc)));
+        unsigned char ca = (unsigned char)(255.0f * kc);
+        Color cc = {rc.r, rc.g, rc.b, ca};
+
+        if (fa <= 0.0f) continue;
+
+        /* Fond : éclaircissement progressif au survol (ui_hover_t) */
+        float hk = ui_hover_t(L.px, ry, hov);
         DrawRectangleRounded(r, 0.16f, 5,
-            hov ? (Color){(unsigned char)(rc.r/4),(unsigned char)(rc.g/4),(unsigned char)(rc.b/4),255}
-                : (Color){(unsigned char)(rc.r/9),(unsigned char)(rc.g/9),(unsigned char)(rc.b/9),255});
-        DrawRectangleRoundedLinesEx(r, 0.16f, 5, hov ? 2.4f : 1.5f, cc);
-        DrawRectangle(L.px+2, ry+2, 4, ch-4, cc);                    // liseré de rareté
-        if (pd->rarity == RAR_EPIC)                                   // halo pulsé épique
-            DrawRectangleRoundedLinesEx(r, 0.16f, 5, 1.0f,
-                (Color){rc.r, rc.g, rc.b, (unsigned char)(60 + pulse*130)});
+            (Color){(unsigned char)(rc.r/9 + (rc.r/4 - rc.r/9) * hk),
+                    (unsigned char)(rc.g/9 + (rc.g/4 - rc.g/9) * hk),
+                    (unsigned char)(rc.b/9 + (rc.b/4 - rc.b/9) * hk),
+                    (unsigned char)(255.0f * fa)});
+        DrawRectangleRoundedLinesEx(r, 0.16f, 5, 1.5f + 0.9f * hk,
+            (Color){rc.r, rc.g, rc.b, (unsigned char)(255.0f * fa)});
+        /* Liseré de rareté : grandit du haut vers le bas */
+        DrawRectangle(L.px+2, ry+2, 4, (int)((float)(ch-4) * kc), cc);
+        if (pd->rarity == RAR_EPIC)   // shimmer épique (remplace le pulse)
+            il_shimmer(r, open_t);
 
-        il_keycap(L.px+12, ry+ch/2-11, 22, 22, TextFormat("%d", i+1), cc, hov);
-        perk_art_draw(id, L.px+52, ry+ch/2, 11, cc);
-        dtxt(pd->name, L.px+70, ry+6, 13, cc);
+        if (kc > 0.0f) {
+            il_keycap(L.px+12 + cdx, ry+ch/2-11, 22, 22,
+                      TextFormat("%d", i+1), cc, hov);
+            int psz = (int)(11.0f * (1.0f + 0.15f * ea_out_back(hk)) + 0.5f);
+            perk_art_draw(id, L.px+52 + cdx, ry+ch/2, psz, cc);
+            dtxt(pd->name, L.px+70 + cdx, ry+6, 13, cc);
 
-        const char *rn = rar_name(pd->rarity);
-        int rw = mtxt(rn, 8) + 10;
-        DrawRectangleRounded(
-            (Rectangle){(float)(L.px+L.iw-rw-6), (float)(ry+5), (float)rw, 14.0f},
-            0.45f, 4, (Color){(unsigned char)(rc.r/3),(unsigned char)(rc.g/3),(unsigned char)(rc.b/3),255});
-        dtxt(rn, L.px+L.iw-rw-1, ry+7, 8, cc);
+            const char *rn = rar_name(pd->rarity);
+            int rw = mtxt(rn, 8) + 10;
+            DrawRectangleRounded(
+                (Rectangle){(float)(L.px+L.iw-rw-6 + cdx), (float)(ry+5),
+                            (float)rw, 14.0f},
+                0.45f, 4,
+                (Color){(unsigned char)(rc.r/3),(unsigned char)(rc.g/3),
+                        (unsigned char)(rc.b/3),ca});
+            dtxt(rn, L.px+L.iw-rw-1 + cdx, ry+7, 8, cc);
 
-        char db[96]; clip_text(pd->desc, L.iw-72-rw-10, 9, db, sizeof(db));
-        dtxt(db, L.px+70, ry+26, 9, (Color){185,168,135,255});
+            char db[96]; clip_text(pd->desc, L.iw-72-rw-10, 9, db, sizeof(db));
+            dtxt(db, L.px+70 + cdx, ry+26, 9, (Color){185,168,135,ca});
+        }
+
+        /* Feedback de sélection : flash 1 frame (app.c ferme l'écran) */
+        if (hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            DrawRectangleRounded(r, 0.16f, 5, (Color){255,255,255,120});
+            DrawCircleLines((int)(r.x + r.width/2), ry + ch/2, 26,
+                            (Color){255,255,255,180});
+        }
     }
 
     txt_c("La rarete depend de la voie choisie.", L.cx, L.cy+L.ph/2-M-11, 8,
-          (Color){115,98,62,235});
+          (Color){115,98,62,(unsigned char)(235.0f * pa)});
 }
 
 int interlude_draft_pick_at(const RunBuild *rb, Vector2 vm, int vw, int vh) {
@@ -541,91 +638,153 @@ static ShopL shop_layout(const RunBuild *rb, int vw, int vh) {
 
 void interlude_render_shop(const RunBuild *rb, int reroll_cost, Vector2 vm, int vw, int vh) {
     ShopL L = shop_layout(rb, vw, vh);
-    DrawRectangle(0, 0, vw, vh, (Color){0,0,0,214});
-    Color accent = (Color){120,200,140,255};
-    Color gold   = (Color){232,200,80,255};
-    Rectangle pr = {L.cx-L.pw/2.0f, L.cy-L.ph/2.0f, (float)L.pw, (float)L.ph};
 
-    DrawRectangleRounded(pr, 6.0f/L.ph, 8, (Color){10,12,6,253});
-    DrawRectangle((int)pr.x+3, (int)pr.y+3, L.pw-6, L.ph/3, (Color){255,255,255,6});
-    DrawRectangle((int)pr.x+3, (int)pr.y+L.ph-L.ph/4, L.pw-6, L.ph/4-3, (Color){0,0,0,45});
-    DrawRectangleRoundedLinesEx(pr, 6.0f/L.ph, 8, 2.0f, accent);
+    /* ── Timer d'ouverture (cf. draft) : hitbox du layout intactes ── */
+    static int   prev_s0 = -999, prev_sn = -999;
+    static float open_t  = 1e9f;
+    if (rb->shop_offer[0] != prev_s0 || rb->shop_n != prev_sn) {
+        prev_s0 = rb->shop_offer[0];
+        prev_sn = rb->shop_n;
+        open_t  = 0.0f;
+    }
+    open_t += ui_dt();
 
-    // En-tête
+    float pa = open_t / IL_OPEN_DUR;
+    if (pa > 1.0f) pa = 1.0f;
+    int   pdy = -(int)(IL_OPEN_RISE * (1.0f - ea_out_cubic(pa)));
+    float ha  = (open_t - IL_HDR_T0) / IL_HDR_DUR;
+    ha = ha < 0.0f ? 0.0f : ha > 1.0f ? 1.0f : ha;
+
+    DrawRectangle(0, 0, vw, vh, (Color){0,0,0,(unsigned char)(214.0f * pa)});
+    Color accent = (Color){120,200,140,(unsigned char)(255.0f * ha)};
+    Color gold   = (Color){232,200,80,(unsigned char)(255.0f * ha)};
+    Rectangle pr = {L.cx-L.pw/2.0f, L.cy-L.ph/2.0f + (float)pdy,
+                    (float)L.pw, (float)L.ph};
+
+    DrawRectangleRounded(pr, 6.0f/L.ph, 8,
+                         (Color){10,12,6,(unsigned char)(253.0f * pa)});
+    DrawRectangle((int)pr.x+3, (int)pr.y+3, L.pw-6, L.ph/3,
+                  (Color){255,255,255,(unsigned char)(6.0f * pa)});
+    DrawRectangle((int)pr.x+3, (int)pr.y+L.ph-L.ph/4, L.pw-6, L.ph/4-3,
+                  (Color){0,0,0,(unsigned char)(45.0f * pa)});
+    DrawRectangleRoundedLinesEx(pr, 6.0f/L.ph, 8, 2.0f,
+        (Color){120,200,140,(unsigned char)(255.0f * pa)});
+
+    // En-tête (dès 0.10 s)
     int hy = (int)pr.y;
-    DrawRectangle((int)pr.x+3, hy+3, L.pw-6, 30,
-                  (Color){(unsigned char)(accent.r/7),(unsigned char)(accent.g/7),(unsigned char)(accent.b/7),255});
-    DrawRectangle((int)pr.x+3, hy+33, L.pw-6, 1, accent);
-    il_rivets_h((int)pr.x+14, (int)pr.x+L.pw-14, hy+9,
-                (Color){(unsigned char)(accent.r/2),(unsigned char)(accent.g/2),(unsigned char)(accent.b/2),200});
-    il_crate(L.px+14, hy+18, accent);
-    txt_c("RAVITAILLEMENT", L.cx, hy+9, 18, accent);
-    il_brackets(pr, accent, 12);
-
-    // Compteur de Renfort (pièce + valeur) + aide
-    int rny = hy + 40;
-    il_cat_glyph(L.px+10, rny+6, 1, gold);
-    dtxt(TextFormat("RENFORT  %d", rb->renfort), L.px+24, rny, 12, gold);
-    {
-        const char *h = "clic / touches 1-4   ·   [R] relancer   ·   [ESPACE] partir";
-        dtxt(h, L.px+L.iw - mtxt(h,9), rny+3, 9, (Color){135,130,100,235});
+    if (ha > 0.0f) {
+        DrawRectangle((int)pr.x+3, hy+3, L.pw-6, 30,
+                      (Color){(unsigned char)(accent.r/7),(unsigned char)(accent.g/7),
+                              (unsigned char)(accent.b/7),(unsigned char)(255.0f * ha)});
+        DrawRectangle((int)pr.x+3, hy+33, L.pw-6, 1, accent);
+        il_rivets_h((int)pr.x+14, (int)pr.x+L.pw-14, hy+9,
+                    (Color){(unsigned char)(120/2),(unsigned char)(200/2),
+                            (unsigned char)(140/2),200},
+                    open_t - IL_HDR_T0);
+        il_crate(L.px+14, hy+18 + pdy, accent);
+        txt_c("RAVITAILLEMENT", L.cx, hy+9, 18, accent);
+        il_brackets(pr, accent, 12);
     }
 
-    float pulse = (sinf((float)GetTime()*4.0f) + 1.0f) * 0.5f;
+    // Compteur de Renfort (pièce + valeur) + aide — fondus avec l'en-tête
+    int rny = hy + 40;
+    if (ha > 0.0f) {
+        il_cat_glyph(L.px+10, rny+6, 1, gold);
+        dtxt(TextFormat("RENFORT  %d", rb->renfort), L.px+24, rny, 12, gold);
+        const char *h = "clic / touches 1-4   ·   [R] relancer   ·   [ESPACE] partir";
+        dtxt(h, L.px+L.iw - mtxt(h,9), rny+3, 9,
+             (Color){135,130,100,(unsigned char)(235.0f * ha)});
+    }
+
     for (int i = 0; i < L.n; i++) {
         int id = rb->shop_offer[i];
         if (id < 0 || id >= PERK_COUNT) continue;
         const PerkDef *pd = &RUN_PERKS[id];
         RunColor rc = runperk_rarity_color(pd->rarity);
-        Color cc = {rc.r, rc.g, rc.b, 255};
         int maxed  = (rb->count[id] >= pd->max_stack);
         int afford = (rb->renfort >= pd->shop_cost) && !maxed;
-        Color tc   = afford ? cc : (Color){100,100,100,225};
         int ry = L.py0 + i*L.row, ch = L.row - 6;
         Rectangle r = {(float)L.px, (float)ry, (float)L.iw, (float)ch};
         int hov = CheckCollisionPointRec(vm, r);
 
-        DrawRectangleRounded(r, 0.16f, 5,
-            hov ? (Color){(unsigned char)(rc.r/5),(unsigned char)(rc.g/5),(unsigned char)(rc.b/5),255}
-                : (Color){(unsigned char)(rc.r/9),(unsigned char)(rc.g/9),(unsigned char)(rc.b/9),255});
-        DrawRectangleRoundedLinesEx(r, 0.16f, 5, hov ? 2.2f : 1.3f,
-            afford ? cc : (Color){70,70,70,210});
-        DrawRectangle(L.px+2, ry+2, 4, ch-4, afford ? cc : (Color){80,80,80,200});
-        if (afford && pd->rarity == RAR_EPIC)
-            DrawRectangleRoundedLinesEx(r, 0.16f, 5, 1.0f,
-                (Color){rc.r, rc.g, rc.b, (unsigned char)(60 + pulse*130)});
+        float fa = (open_t - IL_CARD_T0) / 0.10f;
+        fa = fa < 0.0f ? 0.0f : fa > 1.0f ? 1.0f : fa;
+        float kc = (open_t - (IL_CARD_T0 + (float)i * IL_CARD_STEP)) / IL_CARD_DUR;
+        kc = kc < 0.0f ? 0.0f : kc > 1.0f ? 1.0f : kc;
+        int  cdx = -(int)(IL_CARD_SLIDE * (1.0f - ea_out_cubic(kc)));
+        unsigned char ca = (unsigned char)(255.0f * kc);
+        Color cc = {rc.r, rc.g, rc.b, ca};
+        Color tc = afford ? cc : (Color){100,100,100,(unsigned char)(225.0f * kc)};
 
-        il_keycap(L.px+12, ry+ch/2-10, 20, 20, TextFormat("%d", i+1), tc, hov && afford);
-        perk_art_draw(id, L.px+48, ry+ch/2, 11, tc);
-        dtxt(pd->name, L.px+66, ry+5, 12, tc);
+        if (fa <= 0.0f) continue;
+
+        float hk = ui_hover_t(L.px, ry, hov);
+        DrawRectangleRounded(r, 0.16f, 5,
+            (Color){(unsigned char)(rc.r/9 + (rc.r/5 - rc.r/9) * hk),
+                    (unsigned char)(rc.g/9 + (rc.g/5 - rc.g/9) * hk),
+                    (unsigned char)(rc.b/9 + (rc.b/5 - rc.b/9) * hk),
+                    (unsigned char)(255.0f * fa)});
+        DrawRectangleRoundedLinesEx(r, 0.16f, 5, 1.3f + 0.9f * hk,
+            afford ? (Color){rc.r, rc.g, rc.b, (unsigned char)(255.0f * fa)}
+                   : (Color){70,70,70,(unsigned char)(210.0f * fa)});
+        DrawRectangle(L.px+2, ry+2, 4, (int)((float)(ch-4) * kc),
+                      afford ? cc : (Color){80,80,80,(unsigned char)(200.0f * kc)});
+        if (afford && pd->rarity == RAR_EPIC)
+            il_shimmer(r, open_t);
+
+        if (kc <= 0.0f) continue;
+        il_keycap(L.px+12 + cdx, ry+ch/2-10, 20, 20,
+                  TextFormat("%d", i+1), tc, hov && afford);
+        int psz = (int)(11.0f * (1.0f + 0.15f * ea_out_back(hk)) + 0.5f);
+        perk_art_draw(id, L.px+48 + cdx, ry+ch/2, psz, tc);
+        dtxt(pd->name, L.px+66 + cdx, ry+5, 12, tc);
+
+        /* Feedback de sélection (achat possible seulement) */
+        if (afford && hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            DrawRectangleRounded(r, 0.16f, 5, (Color){255,255,255,120});
+            DrawCircleLines((int)(r.x + r.width/2), ry + ch/2, 26,
+                            (Color){255,255,255,180});
+        }
 
         const char *cs = maxed ? "MAX" : TextFormat("%d", pd->shop_cost);
-        Color costc = maxed ? (Color){120,120,120,225} : afford ? gold : (Color){150,110,60,225};
+        Color costc = maxed  ? (Color){120,120,120,(unsigned char)(225.0f * kc)}
+                    : afford ? (Color){232,200,80,ca}
+                             : (Color){150,110,60,(unsigned char)(225.0f * kc)};
         int cw = mtxt(cs, 10) + (maxed ? 0 : mtxt(" RNF", 9));
-        DrawRectangleRounded((Rectangle){(float)(L.px+L.iw-cw-16),(float)(ry+5),(float)(cw+12),14.0f},
-                             0.45f, 4, (Color){18,18,10,230});
-        dtxt(cs, L.px+L.iw-cw-10, ry+6, 10, costc);
-        if (!maxed) dtxt(" RNF", L.px+L.iw-cw-10+mtxt(cs,10), ry+7, 9, costc);
+        DrawRectangleRounded((Rectangle){(float)(L.px+L.iw-cw-16 + cdx),(float)(ry+5),(float)(cw+12),14.0f},
+                             0.45f, 4, (Color){18,18,10,(unsigned char)(230.0f * kc)});
+        dtxt(cs, L.px+L.iw-cw-10 + cdx, ry+6, 10, costc);
+        if (!maxed) dtxt(" RNF", L.px+L.iw-cw-10+mtxt(cs,10) + cdx, ry+7, 9, costc);
 
         char db[96]; clip_text(pd->desc, L.iw-66-cw-18, 9, db, sizeof(db));
-        dtxt(db, L.px+66, ry+25, 9, (Color){165,160,140,255});
+        dtxt(db, L.px+66 + cdx, ry+25, 9, (Color){165,160,140,ca});
     }
 
-    // Boutons Relancer / Partir (pleine largeur des bandes cliquables)
+    // Boutons Relancer / Partir (pleine largeur des bandes cliquables ;
+    // positions FIXES — seul le fondu d'ouverture s'applique)
     {
+        unsigned char ba2 = (unsigned char)(255.0f * pa);
         Rectangle rrr = {(float)L.px, (float)(L.reroll_y-3), (float)L.iw, 16.0f};
         int rrhov = CheckCollisionPointRec(vm, rrr);
-        Color rcol = (rb->renfort >= reroll_cost) ? (Color){205,172,92,255} : (Color){110,95,60,220};
-        DrawRectangleRounded(rrr, 0.45f, 4, rrhov ? (Color){36,28,10,235} : (Color){18,14,7,190});
+        Color rcol = (rb->renfort >= reroll_cost)
+                   ? (Color){205,172,92,ba2}
+                   : (Color){110,95,60,(unsigned char)(220.0f * pa)};
+        DrawRectangleRounded(rrr, 0.45f, 4,
+            rrhov ? (Color){36,28,10,(unsigned char)(235.0f * pa)}
+                  : (Color){18,14,7,(unsigned char)(190.0f * pa)});
         DrawRectangleRoundedLinesEx(rrr, 0.45f, 4, rrhov ? 1.6f : 1.0f, rcol);
         char rr[56]; snprintf(rr, sizeof(rr), "[R]  Relancer les offres  (%d RNF)", reroll_cost);
         txt_c(rr, L.cx, L.reroll_y, 10, rcol);
 
         Rectangle dnr = {(float)L.px, (float)(L.done_y-3), (float)L.iw, 16.0f};
         int dnhov = CheckCollisionPointRec(vm, dnr);
-        DrawRectangleRounded(dnr, 0.45f, 4, dnhov ? (Color){10,40,16,235} : (Color){8,20,10,190});
-        DrawRectangleRoundedLinesEx(dnr, 0.45f, 4, dnhov ? 1.6f : 1.0f, accent);
-        txt_c("[ESPACE]  Partir au combat", L.cx, L.done_y, 11, accent);
+        DrawRectangleRounded(dnr, 0.45f, 4,
+            dnhov ? (Color){10,40,16,(unsigned char)(235.0f * pa)}
+                  : (Color){8,20,10,(unsigned char)(190.0f * pa)});
+        DrawRectangleRoundedLinesEx(dnr, 0.45f, 4, dnhov ? 1.6f : 1.0f,
+            (Color){120,200,140,ba2});
+        txt_c("[ESPACE]  Partir au combat", L.cx, L.done_y, 11,
+              (Color){120,200,140,ba2});
     }
 }
 

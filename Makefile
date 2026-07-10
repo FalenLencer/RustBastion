@@ -10,13 +10,16 @@ SRC = Src/main.c                                                              \
       Src/game/game_state.c    Src/game/game_init.c   Src/game/save.c       \
       Src/game/meta.c          Src/game/app.c         Src/game/runperks.c   \
       Src/game/app_tutorial.c  Src/game/app_mp.c                            \
+      Src/game/hero.c          Src/game/hero_actions.c Src/game/hero_hud.c  \
       Src/game/campaign_data.c                                              \
       Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c       \
       Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c    \
       Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
-      Src/combat/fx.c                                                        \
+      Src/combat/fx.c          Src/combat/move.c                             \
       Src/ui/renderer.c        Src/ui/ui_utils.c      Src/ui/tile_art.c     \
+      Src/ui/ui_anim.c                                                       \
       Src/ui/render3d.c        Src/ui/render3d_units.c Src/ui/render3d_enemies.c \
+      Src/ui/render3d_world.c                                                \
       Src/ui/perk_art.c                                                     \
       Src/ui/hud.c             Src/ui/hud_input.c     Src/ui/hud_render.c   \
       Src/ui/menu.c            Src/ui/menu_screens.c  Src/ui/menu_campaign.c \
@@ -76,7 +79,7 @@ ICON_OBJ = $(OBJ_DIR)/icon.o
 #  CIBLES PRINCIPALES
 # ════════════════════════════════════════════════════════════════
 .PHONY: all linux win package package_win package_linux \
-        zip zip_win zip_linux clean help
+	zip zip_win zip_linux clean help selftest
 
 all: linux
 
@@ -243,3 +246,19 @@ help:
 	@echo "  make release       — les deux plateformes en une commande"
 	@echo "  make clean         — supprime tous les fichiers générés"
 	@echo ""
+
+# -----------------------------
+# Self-tests (optional, not in main build)
+# -----------------------------
+.PHONY: selftest
+selftest: tests/net_selftest tests/net_relay_selftest tests/save_selftest
+	@echo "✓ selftests built: ./tests/net_selftest, ./tests/net_relay_selftest, ./tests/save_selftest"
+
+tests/net_selftest: tests/net_selftest.c Src/net/net_transport.c Src/net/net_session.c
+	$(CC_LINUX) $(CFLAGS_LINUX) -ISrc/net -ISrc Src/net/net_transport.c Src/net/net_session.c tests/net_selftest.c -o tests/net_selftest
+
+tests/net_relay_selftest: tests/net_relay_selftest.c Src/net/net_transport.c Src/net/net_session.c Src/net/net_relay.c
+	$(CC_LINUX) $(CFLAGS_LINUX) -pthread -ISrc/net -ISrc Src/net/net_transport.c Src/net/net_session.c Src/net/net_relay.c tests/net_relay_selftest.c -o tests/net_relay_selftest
+
+tests/save_selftest: tests/save_selftest.c
+	$(CC_LINUX) $(CFLAGS_LINUX) tests/save_selftest.c -o tests/save_selftest

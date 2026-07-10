@@ -143,9 +143,33 @@ static int handle_menu(AppContext *ctx) {
         audio_play_theme_music(ctx->gs.map.theme);
     }
 
+    if (act.start_hero) {
+        ctx->active_slot = -1;                   /* beta : pas de sauvegarde */
+        game_init_arcade(&ctx->gs,
+                         (ThemeID)GetRandomValue(0, THEME_COUNT - 1), -1);
+        hero_start(ctx);                         /* capture curseur + mode   */
+        ctx->menu.screen  = MENU_TITLE;
+        ctx->screen       = SCREEN_GAME;
+        ctx->banner_timer = 0.0f;                /* bannière 2D non rendue   */
+        audio_play_theme_music(ctx->gs.map.theme);
+    }
+
     if (act.start_tutorial) {
         ctx->active_slot   = -1;                 // pas de sauvegarde
-        game_init_arcade(&ctx->gs, (ThemeID)0, -1);
+        {
+            CustomConfig tut_cfg;
+            memset(&tut_cfg, 0, sizeof(tut_cfg));
+            tut_cfg.theme         = 0;
+            tut_cfg.min_dist      = 10;
+            tut_cfg.forced_bases  = 1;
+            tut_cfg.forced_spawns = 1;
+            tut_cfg.scale_cap     = 3.0f;
+            tut_cfg.count_mult    = 0.65f;
+            tut_cfg.forced_deposits = 2;
+            game_init_custom(&ctx->gs, &tut_cfg);
+        }
+        ctx->gs.ui.selected_tool = TOOL_NONE;
+        ctx->gs.ui.selection.active = 0;
         ctx->gs.wave_manager.suppress_auto = 1;  // pas d'auto-lancement : le joueur lance (étape 2)
         ctx->tutorial_active = 1;
         ctx->tutorial_step   = 0;
@@ -433,8 +457,14 @@ static void game_do_update(AppContext *ctx, float dt) {
     // Pause tactique : on a pu agir (ui_update ci-dessus) mais la SIMULATION ne
     // s'avance pas → temps de réfléchir/placer.
     if (ctx->tactical_pause) return;
+    // Equite / anti-desync : l'avance rapide (X) est un outil SOLO. En MP chaque
+    // joueur simule son propre plateau → accelerer le sien = triche (Course/Duel)
+    // ou desynchronise le plateau partage (Asym). On force x1 en multijoueur.
+    if (ctx->mp_in_game && ctx->gs.ui.speed_mult != 1) ctx->gs.ui.speed_mult = 1;
     game_state_update(&ctx->gs, dt);
-    fx_update(dt);   // particules / popups / secousse
+    // FX au meme rythme que la sim : en avance rapide (X), particules/popups
+    // suivent le jeu au lieu de trainer a x1 (et de saturer le pool de popups).
+    fx_update(dt * (float)ctx->gs.ui.speed_mult);
 
     /* Déclenchement extraction endless toutes les 10 vagues (désactivé en MP) */
     if (!ctx->mp_in_game                  &&
@@ -1172,7 +1202,8 @@ static int game_do_render(AppContext *ctx) {
 // POINT D'ENTRÉE DE FRAME
 // ════════════════════════════════════════════════════════════════
 int app_update(AppContext *ctx, float dt) {
-    g_colorblind = ctx->menu.opts.colorblind;   // option daltonisme (palette ennemis)
+    g_colorblind        = ctx->menu.opts.colorblind;        // palette daltonisme
+    g_show_entity_names = ctx->menu.opts.show_entity_names; // noms des ennemis
 
     /* Ajustement FPS si l'option a changé */
     int wfps = ctx->menu.opts.target_fps ? ctx->menu.opts.target_fps : 0;
@@ -1197,6 +1228,13 @@ int app_update(AppContext *ctx, float dt) {
         mp_invader_render(ctx);
         ctx->interlude_prev = ctx->interlude;
         return 1;
+    }
+
+    /* SCREEN_GAME — MODE HÉROS : boucle dédiée (input + sim + rendu 3D) */
+    if (ctx->hero_mode) {
+        int keep = hero_frame(ctx, dt);
+        ctx->interlude_prev = ctx->interlude;
+        return keep;
     }
 
     /* SCREEN_GAME */

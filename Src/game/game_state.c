@@ -369,8 +369,12 @@ void game_state_update(GameState *gs, float dt) {
         // Nouveaux matériaux livrés ce frame → révélation dans le bestiaire
         for (int _mi = inv_cnt_before; _mi < gs->inventory_count; _mi++) {
             MaterialType _mt = gs->inventory[_mi];
-            if (_mt >= 0 && _mt < MAT_COUNT)
+            if (_mt >= 0 && _mt < MAT_COUNT &&
+                !gs->meta.material_discovered[(int)_mt]) {
                 gs->meta.material_discovered[(int)_mt] = 1;
+                meta_save(&gs->meta);
+                ui_disc_push(&gs->ui, DISC_MATERIAL, (int)_mt);   // fiche 1re fois
+            }
         }
     }
 

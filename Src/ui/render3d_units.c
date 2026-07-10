@@ -53,11 +53,12 @@ static const char *FS_VC =
 "in vec3 fragNormal;\n"
 "in vec4 fragColor;\n"
 "uniform vec3 lightDir;\n"
+"uniform float gain;\n"                              // normalisation luminosite PAR MODELE
 "out vec4 finalColor;\n"
 "void main(){\n"
 "    float d = max(dot(normalize(fragNormal), normalize(-lightDir)), 0.0);\n"
 "    float l = 0.58 + 0.48*d;\n"                      // ombres relevees (moins sombre)
-"    vec3 c = clamp(fragColor.rgb*l, 0.0, 1.0);\n"
+"    vec3 c = clamp(fragColor.rgb*gain*l, 0.0, 1.0);\n"
 "    c = pow(c, vec3(1.0/1.8));\n"                     // remontee gamma : couleurs lineaires -> affichage
 "    finalColor = vec4(c, 1.0);\n"
 "}\n";
@@ -72,10 +73,12 @@ typedef struct {
     Camera3D        cam;                          /* caméra de rendu      */
     float           dst_scale, dst_yanchor;       /* blit sur la case     */
     float           rest_phi, yaw_off;            /* orientation PAR TYPE  */
+    float           gain;                          /* normalisation luminosité */
 } UnitModel;
 
 static int             g_loaded = 0;
 static Shader          g_shader_vc;
+static int             g_loc_gain = -1;            /* uniform "gain" du shader */
 static UnitModel       g_um[UNIT_TYPE_COUNT];
 
 static RenderTexture2D g_rt[MAX_UNITS];
@@ -120,6 +123,31 @@ static void shade_vc(Model *m) {
     }
 }
 
+/* Gain de luminosité par modèle : ramène la luminance moyenne des vertex-
+   colors vers une cible commune (certains modèles sont exportés très sombres). */
+#define GAIN_TARGET 0.34f
+#define GAIN_MIN    0.75f
+#define GAIN_MAX    4.5f
+static float model_gain(const Model *m) {
+    double sum = 0.0; long n = 0;
+    for (int j = 0; j < m->meshCount; j++) {
+        const unsigned char *c = m->meshes[j].colors;
+        if (!c) continue;
+        int vc = m->meshes[j].vertexCount;
+        for (int v = 0; v < vc; v++) {
+            double r = c[v*4]/255.0, g = c[v*4+1]/255.0, b = c[v*4+2]/255.0;
+            sum += 0.299*r + 0.587*g + 0.114*b; n++;
+        }
+    }
+    if (n == 0) return 1.0f;
+    double mean = sum / (double)n;
+    if (mean < 1e-4) return 1.0f;
+    double gain = GAIN_TARGET / mean;
+    if (gain < GAIN_MIN) gain = GAIN_MIN;
+    if (gain > GAIN_MAX) gain = GAIN_MAX;
+    return (float)gain;
+}
+
 static void load_unit(int type, const char *path, Camera3D cam,
                       float dst_scale, float dst_yanchor,
                       float rest_phi, float yaw_off) {
@@ -127,6 +155,7 @@ static void load_unit(int type, const char *path, Camera3D cam,
     um->model = LoadModel(path);
     if (um->model.meshCount == 0) { um->have = 0; return; }
     shade_vc(&um->model);
+    um->gain = model_gain(&um->model);
     um->anims = LoadModelAnimations(path, &um->anim_count);   /* 0 = modèle statique */
     static const char *KW_IDLE[]   = {"idle","stand","rest"};
     static const char *KW_WALK[]   = {"walk","run","move"};
@@ -151,6 +180,7 @@ void render3d_units_init(void) {
     int loc = GetShaderLocation(g_shader_vc, "lightDir");
     Vector3 ld = U_LIGHT;
     if (loc >= 0) SetShaderValue(g_shader_vc, loc, &ld, SHADER_UNIFORM_VEC3);
+    g_loc_gain = GetShaderLocation(g_shader_vc, "gain");
 
     /* ── Modèles 3D PROPRES (assets/3d/3D_Troupes/) ───────────────────
        Les anciennes versions sont archivées dans assets/3d/test/.
@@ -280,6 +310,8 @@ void render3d_units_prepass(const UnitPool *up, const EnemyPool *ep) {
                    maillage (effet semi-transparent, ex. iron_juggernaut). Les
                    NORMAL du GLB restent corrects donc l'éclairage est bon. */
                 rlDisableBackfaceCulling();
+                if (g_loc_gain >= 0)
+                    SetShaderValue(g_shader_vc, g_loc_gain, &um->gain, SHADER_UNIFORM_FLOAT);
                 float yaw = render3d_yaw_for_aim(um->cam, g_facing[i], um->rest_phi) + um->yaw_off;
                 rlPushMatrix();
                     rlRotatef(yaw, 0, 1, 0);
@@ -310,4 +342,36 @@ Rectangle render3d_unit_dst(int unit_index, float cx, float cy, float size) {
     float w   = box * ds;
     float h   = w * ((float)U_RT_H / (float)U_RT_W);
     return (Rectangle){ cx - w*0.5f, cy + box*0.5f - h*ya, w, h };
+}
+
+/* ════════════════════════════════════════════════════
+   MODE HÉROS — dessin direct dans la scène 3D courante
+   (pas de RenderTexture : anim + gain + orientation ici)
+   ════════════════════════════════════════════════════ */
+int render3d_units_draw_world(int type, Vector3 pos, float heading_rad,
+                              float scale, int anim_kind, float anim_time) {
+    if (!g_loaded || type < 0 || type >= UNIT_TYPE_COUNT) return 0;
+    UnitModel *um = &g_um[type];
+    if (!um->have) return 0;
+
+    int aidx = (anim_kind == 2) ? um->a_attack
+             : (anim_kind == 1) ? um->a_walk : um->a_idle;
+    if (um->anim_count > 0 && aidx >= 0) {
+        int fc = um->anims[aidx].keyframeCount;
+        int fr = (fc > 0) ? (int)fmodf(anim_time * U_ANIM_FPS, (float)fc) : 0;
+        UpdateModelAnimation(um->model, um->anims[aidx], fr);
+    }
+    if (g_loc_gain >= 0)
+        SetShaderValue(g_shader_vc, g_loc_gain, &um->gain, SHADER_UNIFORM_FLOAT);
+
+    rlDisableBackfaceCulling();
+    rlPushMatrix();
+        rlTranslatef(pos.x, pos.y, pos.z);
+        rlRotatef((heading_rad - um->rest_phi) * RAD2DEG + um->yaw_off,
+                  0.0f, 1.0f, 0.0f);
+        rlScalef(scale, scale, scale);
+        DrawModel(um->model, (Vector3){0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+    rlPopMatrix();
+    rlEnableBackfaceCulling();
+    return 1;
 }

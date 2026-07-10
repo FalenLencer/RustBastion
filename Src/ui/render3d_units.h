@@ -39,3 +39,10 @@ void      render3d_units_prepass(const UnitPool *up, const EnemyPool *ep);
 Texture2D render3d_unit_tex(int unit_index);
 /* Rectangle de blit (centré sur cx,cy=position monde, ancré par le bas).*/
 Rectangle render3d_unit_dst(int unit_index, float cx, float cy, float size);
+
+/* MODE HÉROS : dessine l'unité `type` DIRECTEMENT dans la scène 3D courante
+   (BeginMode3D actif) — anim + gain + orientation gérés ici. heading_rad =
+   cap monde (atan2(x, z)) ; anim_kind : 0=repos 1=marche 2=attaque.
+   Retourne 1 si un modèle existait (0 → repli de l'appelant).           */
+int render3d_units_draw_world(int type, Vector3 pos, float heading_rad,
+                              float scale, int anim_kind, float anim_time);

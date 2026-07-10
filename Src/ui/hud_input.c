@@ -596,7 +596,7 @@ void ui_update(UIState *ui, GameState *gs) {
         else if (!gs->wave_manager.lock_manual &&
                  CheckCollisionPointRec(mouse, ui->wave_btn)) {
             if (gs->phase == PHASE_PREP) {
-                int bonus = (int)(gs->wave_manager.prep_timer / 20.0f * 15.0f);
+                int bonus = wave_early_launch_bonus(&gs->wave_manager);
                 gs->gold += bonus;
                 wave_start(&gs->wave_manager);
                 gs->phase = PHASE_WAVE;
@@ -904,14 +904,8 @@ void ui_update(UIState *ui, GameState *gs) {
                             /* Limite médics par base — vérifiée avant l'appel
                                pour afficher une notification spécifique.       */
                             if (_put == UNIT_MEDIC) {
-                                int _mc = 0;
-                                for (int _j = 0; _j < MAX_UNITS; _j++) {
-                                    const Unit *_u = &gs->units.units[_j];
-                                    if (_u->active && _u->type == UNIT_MEDIC &&
-                                        _u->home_base_px == spawn_bpx &&
-                                        _u->home_base_py == spawn_bpy)
-                                        _mc++;
-                                }
+                                int _mc = unit_medic_count_at_base(
+                                              &gs->units, spawn_bpx, spawn_bpy);
                                 if (_mc >= MAX_MEDICS_PER_BASE) {
                                     ui_push_notif(ui, "Max 4 medics par base !",
                                                   (Color){231, 76, 60, 255});

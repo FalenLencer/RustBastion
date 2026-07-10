@@ -17,15 +17,150 @@
  */
 
 #include "menu_internal.h"
+#include "ui_anim.h"
+
+#define GAME_VERSION "v0.1"
 
 // ════════════════════════════════════════════════════
-// ÉCRAN TITRE
+// ÉCRAN TITRE — animation d'entrée + braises de fond
 // ════════════════════════════════════════════════════
+
+// ── Réglages de l'entrée en scène ────────────────────────────────
+#define SLOT_TITLE        0       // slot ui_timer réservé à l'écran titre
+#define SLOT_PAUSE        1       // slot ui_timer réservé au menu pause
+#define TITLE_FALL_DUR    0.45f   // chute du titre (s)
+#define TITLE_FALL_H      28.0f   // hauteur de chute (px)
+#define TITLE_FADE_DUR    0.25f   // fondu du titre (s)
+#define TITLE_SUB_DELAY   0.15f   // retard du sous-titre (s)
+#define TITLE_SEP_DELAY   0.30f   // retard du séparateur (s)
+#define TITLE_SEP_DUR     0.35f   // étirement du séparateur (s)
+#define TITLE_SEP_W       360     // largeur finale du séparateur (px)
+#define TITLE_BTN_DUR     0.30f   // glissement d'un bouton (s)
+#define TITLE_BTN_SLIDE   24.0f   // distance de glissement (px)
+
+// ── Braises dérivantes (cendres du fond peint) ───────────────────
+#define EMBER_COUNT       24
+#define EMBER_VY_MIN      8.0f    // vitesse de montée min (px/s)
+#define EMBER_VY_MAX      18.0f   // vitesse de montée max (px/s)
+#define EMBER_DRIFT       6.0f    // amplitude de dérive horizontale (px)
+#define EMBER_DRIFT_FREQ  0.8f    // fréquence de la dérive (rad/s)
+#define EMBER_FLICK_FREQ  3.0f    // fréquence du scintillement (rad/s)
+
+typedef struct {
+    float x, y;      // position (px canvas)
+    float vy;        // vitesse de montée (négative)
+    float phase;     // déphasage dérive/scintillement
+    float hot;       // 0 = braise sombre {200,80,30} … 1 = vive {255,150,60}
+    int   size;      // côté du pixel (1–2)
+} Ember;
+
+static void ember_respawn(Ember *e, int vw, int y) {
+    e->x     = (float)GetRandomValue(0, vw);
+    e->y     = (float)y;
+    e->vy    = -(EMBER_VY_MIN + (float)GetRandomValue(0, 100) * 0.01f
+                               * (EMBER_VY_MAX - EMBER_VY_MIN));
+    e->phase = (float)GetRandomValue(0, 628) * 0.01f;
+    e->hot   = (float)GetRandomValue(0, 100) * 0.01f;
+    e->size  = GetRandomValue(1, 2);
+}
+
+static void embers_draw(int vw, int vh) {
+    static Ember g_embers[EMBER_COUNT];
+    static int   g_init = 0;
+    static float g_time = 0.0f;
+
+    if (!g_init) {   // premier passage : semées sur tout l'écran
+        g_init = 1;
+        for (int i = 0; i < EMBER_COUNT; i++)
+            ember_respawn(&g_embers[i], vw, GetRandomValue(0, vh));
+    }
+    g_time += ui_dt();
+
+    for (int i = 0; i < EMBER_COUNT; i++) {
+        Ember *e = &g_embers[i];
+        e->y += e->vy * ui_dt();
+        if (e->y < -4.0f) ember_respawn(e, vw, vh + 4);
+
+        float dx    = sinf(g_time * EMBER_DRIFT_FREQ + e->phase) * EMBER_DRIFT;
+        float flick = (sinf(g_time * EMBER_FLICK_FREQ + e->phase * 2.0f) + 1.0f) * 0.5f;
+        unsigned char a = (unsigned char)(40.0f + flick * 80.0f);   // 40..120
+        Color col = {(unsigned char)(200.0f + e->hot * 55.0f),
+                     (unsigned char)( 80.0f + e->hot * 70.0f),
+                     (unsigned char)( 30.0f + e->hot * 30.0f), a};
+        DrawRectangle((int)(e->x + dx), (int)e->y, e->size, e->size, col);
+    }
+}
+
+// Texte centré + cadre sombre, avec facteur de fondu (réplique locale de
+// txt_c_boxed : le helper partagé n'expose pas d'alpha global).
+static void boxed_txt_fade(const char *s, int cx, int y, int fs,
+                           Color col, float af) {
+    if (af <= 0.0f) return;
+    if (af > 1.0f) af = 1.0f;
+    int tw = mtxt(s, fs);
+    int rh = fh(fs);
+    int px = 8, py = 3;
+    Rectangle r = {(float)(cx - tw/2 - px), (float)(y - py),
+                   (float)(tw + px*2), (float)(rh + py*2)};
+    DrawRectangleRounded(r, 0.25f, 4, (Color){5, 3, 1, (unsigned char)(210 * af)});
+    DrawRectangleRoundedLinesEx(r, 0.25f, 4, 1.0f,
+                                (Color){55, 36, 12, (unsigned char)(120 * af)});
+    dtxt(s, cx - tw/2, y, fs,
+         (Color){col.r, col.g, col.b, (unsigned char)(col.a * af)});
+}
+
+// Bouton à entrée animée : glisse depuis la gauche en fondu, hitbox FINALE
+// (mini draw_btn local — on ne modifie pas le helper partagé). Une fois
+// installé, délègue au draw_btn normal (hover, press, reflet…).
+// click_during_anim : 1 = cliquable dès la 1re frame (écran titre),
+//                     0 = cliquable seulement après son délai (pause).
+static int fade_btn(const char *label, int x, int y, int w, int h,
+                    Color col, float t, float delay, float dur,
+                    float slide, int click_during_anim) {
+    if (t >= delay + dur)
+        return draw_btn(label, x, y, w, h, col, 0);
+
+    float k = (t <= delay) ? 0.0f : ea_out_cubic((t - delay) / dur);
+    if (k > 0.0f) {
+        int dx = x - (int)((1.0f - k) * slide);
+        Rectangle rd  = {(float)dx, (float)y, (float)w, (float)h};
+        float     rnd = (float)BTN_R / h;
+        unsigned char a = (unsigned char)(k * 255.0f);
+        DrawRectangleRounded(rd, rnd, 6, (Color){14, 9, 4, a});        // C_PANEL
+        DrawRectangleRoundedLinesEx(rd, rnd, 6, 1.2f,
+                                    (Color){55, 36, 12, a});           // C_BORDER
+        int fs2 = 14;
+        int tw2 = mtxt(label, fs2);
+        dtxt(label, dx + w/2 - tw2/2, y + h/2 - fh(fs2)/2, fs2,
+             (Color){col.r, col.g, col.b, a});
+    }
+    if (!click_during_anim && t <= delay) return 0;
+    if (vclick_r((Rectangle){(float)x, (float)y, (float)w, (float)h})) {
+        audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+        return 1;
+    }
+    return 0;
+}
+
 MenuAction draw_title(MenuState *m, int vw, int vh) {
     MenuAction act = {0};
     int cx = vw/2;
+
+    /* Détection d'arrivée : la transition (menu.c) remet trans_t à 0 à
+       chaque entrée d'écran ; si trans_t recule alors que NOUS sommes
+       l'écran rendu, une nouvelle entrée sur le titre commence. */
+    {
+        static float prev_trans = 1e9f;
+        if (m->trans_t < prev_trans) ui_timer(SLOT_TITLE, 1);
+        prev_trans = m->trans_t;
+    }
+    float at = ui_timer(SLOT_TITLE, 0);   // temps depuis l'entrée sur l'écran
+
     draw_bg(m, vw, vh);
     menu_anim_render(&m->anim, vw, vh);
+
+    /* Braises dérivantes : devant la scène, sous le vignettage. */
+    embers_draw(vw, vh);
 
     /* Vignettage des bords : cadre la scène (rendu plus fini) sans masquer
        l'animation centrale. Dégradés transparent→sombre sur chaque bord. */
@@ -39,41 +174,117 @@ MenuAction draw_title(MenuState *m, int vw, int vh) {
         DrawRectangleGradientH(vw - e, 0, e,  vh, tr, dk);         /* droite */
     }
 
-    txt_c_boxed("RUST BASTION", cx, vh/2 - 170, 46, C_GOLD);
-    txt_c_boxed("Tower Defense Post-Apocalyptique", cx, vh/2 - 114, 13, C_DIM);
-    draw_sep(cx - 180, vh/2 - 92, 360, C_BORDER);
+    /* ── Titre : tombe de 28px avec rebond + fondu ──────────────── */
+    {
+        float fall = ea_out_back(at / TITLE_FALL_DUR);          // entrée clampée
+        int   ty   = vh/2 - 170 - (int)((1.0f - fall) * TITLE_FALL_H);
+        boxed_txt_fade("RUST BASTION", cx, ty, 46, C_GOLD,
+                       at / TITLE_FADE_DUR);
+    }
+    /* ── Sous-titre : même chute, +0.15s de retard ──────────────── */
+    {
+        float st   = at - TITLE_SUB_DELAY;
+        float fall = ea_out_back(st / TITLE_FALL_DUR);
+        int   sy   = vh/2 - 114 - (int)((1.0f - fall) * TITLE_FALL_H);
+        boxed_txt_fade("Tower Defense Post-Apocalyptique", cx, sy, 13, C_DIM,
+                       st / TITLE_FADE_DUR);
+    }
+    /* ── Séparateur : s'étire du centre ─────────────────────────── */
+    {
+        float k = ea_out_cubic((at - TITLE_SEP_DELAY) / TITLE_SEP_DUR);
+        int   w = (int)(TITLE_SEP_W * k);
+        if (w > 1) draw_sep(cx - w/2, vh/2 - 92, w, C_BORDER);
+    }
 
+    /* ── Boutons : cascade glissée depuis la gauche ─────────────── */
     int bw = 240, bh = BTN_H + 4;
     int bx = cx - bw/2;
     int by = vh/2 - 52;
 
-    if (draw_btn("JOUER",   bx, by, bw, bh, C_GREEN, 0)) {
+    if (fade_btn("JOUER",   bx, by, bw, bh, C_GREEN, at, 0.45f,
+                 TITLE_BTN_DUR, TITLE_BTN_SLIDE, 1)) {
         m->screen = MENU_PLAY_HUB;
         m->back_screen = MENU_TITLE;
     }
     by += bh + M_IN;
 
-    if (draw_btn("OPTIONS", bx, by, bw, bh, C_BLUE, 0)) {
+    if (fade_btn("OPTIONS", bx, by, bw, bh, C_BLUE, at, 0.55f,
+                 TITLE_BTN_DUR, TITLE_BTN_SLIDE, 1)) {
         m->screen = MENU_OPTIONS;
         m->back_screen = MENU_TITLE;
     }
     by += bh + M_IN;
 
-    if (draw_btn("QUITTER", bx, by, bw, bh, C_RED, 0))
+    if (fade_btn("QUITTER", bx, by, bw, bh, C_RED, at, 0.65f,
+                 TITLE_BTN_DUR, TITLE_BTN_SLIDE, 1))
         act.quit_app = 1;
 
-    dtxt("v0.1", vw - M_PAD - 28, vh - M_PAD - 12, 9, C_DIM);
+    dtxt(GAME_VERSION, vw - M_PAD - mtxt(GAME_VERSION, 9),
+         vh - M_PAD - 12, 9, C_DIM);
     return act;
 }
 
 // ════════════════════════════════════════════════════
-// HUB JOUER
+// HUB JOUER — cascade d'entrée + compteur + badge
 // ════════════════════════════════════════════════════
+#define SLOT_HUB          2       // slot ui_timer : entrée du hub
+#define SLOT_HUB_PULSE    3       // slot ui_timer : pulse du bestiaire
+#define HUB_BTN_DUR       0.25f   // glissement d'un nav-bouton (s)
+#define HUB_BTN_STEP      0.04f   // décalage entre boutons (s)
+#define HUB_BTN_SLIDE     18.0f   // distance de glissement vertical (px)
+#define HUB_SCRAP_ROLL    0.4f    // durée du compteur roulant (s)
+#define HUB_PULSE_PERIOD  0.8f    // période d'une pulsation bestiaire (s)
+#define HUB_PULSE_COUNT   3       // nombre de pulsations
+
+// Nav-bouton à entrée animée : glisse de +18px vers le haut en fondu.
+// Réplique simplifiée de draw_nav_btn (qui n'expose pas d'alpha) pendant
+// l'anim ; clics IGNORÉS tant que l'entrée n'est pas finie, puis délègue
+// au vrai draw_nav_btn (hover, press, reflet…). Hitbox finale intacte.
+static int fade_nav_btn(const char *icon, const char *title,
+                        const char *desc, Color col,
+                        int x, int y, int w, int h,
+                        float t, float delay) {
+    if (t >= delay + HUB_BTN_DUR)
+        return draw_nav_btn(icon, title, desc, col, x, y, w, h);
+
+    float k = (t <= delay) ? 0.0f : ea_out_cubic((t - delay) / HUB_BTN_DUR);
+    if (k > 0.0f) {
+        int yd = y + (int)((1.0f - k) * HUB_BTN_SLIDE);
+        Rectangle rd  = {(float)x, (float)yd, (float)w, (float)h};
+        float     rnd = (float)BTN_R / h;
+        unsigned char a = (unsigned char)(k * 255.0f);
+        DrawRectangleRounded(rd, rnd, 6, (Color){14, 9, 4, a});   // C_PANEL
+        DrawRectangleRoundedLinesEx(rd, rnd, 6, 1.2f,
+            (Color){col.r/3, col.g/3, col.b/3, (unsigned char)(180.0f * k)});
+        DrawRectangleRounded(
+            (Rectangle){(float)x, (float)(yd+4), 4, (float)(h-8)},
+            0.5f, 4, (Color){col.r, col.g, col.b, (unsigned char)(110.0f * k)});
+        dtxt(icon, x + M_PAD + 4, yd + h/2 - fh(26)/2, 26,
+             (Color){col.r, col.g, col.b, a});
+        dtxt(title, x + M_PAD + 36, yd + M_IN + 2, 16,
+             (Color){C_TEXT.r, C_TEXT.g, C_TEXT.b, a});
+        char dbuf[72];
+        clip_text(desc, w - M_PAD - 36 - M_IN, 10, dbuf, sizeof(dbuf));
+        dtxt(dbuf, x + M_PAD + 36, yd + M_IN + 22, 10,
+             (Color){130, 110, 72, a});
+    }
+    return 0;   // pas de clic pendant l'entrée
+}
+
 MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
                          int vw, int vh)
 {
     MenuAction act = {0};
     int cx = vw/2;
+
+    /* Détection d'arrivée (même principe que l'écran titre) */
+    {
+        static float prev_trans = 1e9f;
+        if (m->trans_t < prev_trans) ui_timer(SLOT_HUB, 1);
+        prev_trans = m->trans_t;
+    }
+    float t = ui_timer(SLOT_HUB, 0);
+
     draw_bg(m, vw, vh);
     draw_header("CHOISIR UN MODE", vw);
 
@@ -81,9 +292,9 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     int bx = cx - bw/2;
     int by = M_PAD + 76;
 
-    if (draw_nav_btn("C", "CAMPAGNE",
+    if (fade_nav_btn("C", "CAMPAGNE",
                      "Carte de progression — 5 chapitres, 15 actes.",
-                     C_GOLD, bx, by, bw, bh)) {
+                     C_GOLD, bx, by, bw, bh, t, 0*HUB_BTN_STEP)) {
         push_back_screen(m);
         m->selected_campaign_act = -1;   // reset : aucun acte pre-selectionne
         m->screen      = MENU_WORLD_MAP;
@@ -91,25 +302,34 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     }
     by += bh + gap;
 
-    if (draw_nav_btn("A", "ARCADE",
+    if (fade_nav_btn("A", "ARCADE",
                      "Choisissez un environnement et jouez librement.",
-                     C_BLUE, bx, by, bw, bh)) {
+                     C_BLUE, bx, by, bw, bh, t, 1*HUB_BTN_STEP)) {
         push_back_screen(m);
         m->screen = MENU_ARCADE;
         m->back_screen = MENU_PLAY_HUB;
     }
     by += bh + gap;
 
-    if (draw_nav_btn("T", "TUTORIEL",
+    if (fade_nav_btn("T", "TUTORIEL",
                      "Apprenez les bases : tours, vagues, minerais, pause, zoom.",
-                     (Color){120, 200, 230, 255}, bx, by, bw, bh)) {
+                     (Color){120, 200, 230, 255}, bx, by, bw, bh,
+                     t, 2*HUB_BTN_STEP)) {
         act.start_tutorial = 1;   // lancé par app.c
     }
     by += bh + gap;
 
-    if (draw_nav_btn("M", "MULTIJOUEUR",
+    if (fade_nav_btn("H", "MODE HEROS 3D (beta)",
+                     "Incarnez un heros sur le terrain : tirez, recrutez, batissez.",
+                     (Color){235, 130, 60, 255}, bx, by, bw, bh,
+                     t, 3*HUB_BTN_STEP)) {
+        act.start_hero = 1;       // lancé par app.c
+    }
+    by += bh + gap;
+
+    if (fade_nav_btn("M", "MULTIJOUEUR",
                      "Jouez ensemble ou l'un contre l'autre (code de session).",
-                     C_GREEN, bx, by, bw, bh)) {
+                     C_GREEN, bx, by, bw, bh, t, 4*HUB_BTN_STEP)) {
         push_back_screen(m);
         m->screen      = MENU_MP_HUB;
         m->back_screen = MENU_PLAY_HUB;
@@ -118,24 +338,39 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     }
     by += bh + gap;
 
-    if (draw_nav_btn("X", "CUSTOM GAME",
+    if (fade_nav_btn("X", "CUSTOM GAME",
                      "Carte, spawns, bases, terrain et difficulte sur mesure.",
-                     C_ORANGE, bx, by, bw, bh)) {
+                     C_ORANGE, bx, by, bw, bh, t, 5*HUB_BTN_STEP)) {
         push_back_screen(m);
         m->screen = MENU_CUSTOM;
         m->back_screen = MENU_PLAY_HUB;
     }
     by += bh + gap;
 
-    char upg_desc[80];
-    snprintf(upg_desc, sizeof(upg_desc),
-             "Depensez vos %d ferrailles pour ameliorer vos defenses.",
-             meta->scrap);
-    if (draw_nav_btn("*", "AMELIORATIONS", upg_desc,
-                     C_ORANGE, bx, by, bw, bh)) {
-        push_back_screen(m);
-        m->screen = MENU_UPGRADES;
-        m->back_screen = MENU_PLAY_HUB;
+    /* Compteur ferraille « roulant » : la valeur affichée court vers la
+       vraie valeur en ~HUB_SCRAP_ROLL s (au moins 1 unite/s). */
+    {
+        static float disp_scrap = -1.0f;
+        if (disp_scrap < 0.0f) disp_scrap = (float)meta->scrap;  // 1er passage
+        float target = (float)meta->scrap;
+        float diff   = target - disp_scrap;
+        if (diff != 0.0f) {
+            float speed = fabsf(diff) / HUB_SCRAP_ROLL;          // unités/s
+            if (speed < 1.0f) speed = 1.0f;
+            float step = speed * ui_dt();
+            if (fabsf(diff) <= step) disp_scrap = target;
+            else disp_scrap += (diff > 0.0f) ? step : -step;
+        }
+        char upg_desc[80];
+        snprintf(upg_desc, sizeof(upg_desc),
+                 "Depensez vos %d ferrailles pour ameliorer vos defenses.",
+                 (int)(disp_scrap + 0.5f));
+        if (fade_nav_btn("*", "AMELIORATIONS", upg_desc,
+                         C_ORANGE, bx, by, bw, bh, t, 6*HUB_BTN_STEP)) {
+            push_back_screen(m);
+            m->screen = MENU_UPGRADES;
+            m->back_screen = MENU_PLAY_HUB;
+        }
     }
     by += bh + gap;
 
@@ -146,12 +381,38 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     snprintf(best_desc, sizeof(best_desc),
              "%d/%d ennemis identifies. Resistances et faiblesses.",
              nb_disc, ENEMY_TYPE_COUNT);
-    if (draw_nav_btn("B", "BESTIAIRE", best_desc,
-                     C_RED, bx, by, bw, bh)) {
+    if (fade_nav_btn("B", "BESTIAIRE", best_desc,
+                     C_RED, bx, by, bw, bh, t, 7*HUB_BTN_STEP)) {
         push_back_screen(m);
         m->screen      = MENU_BESTIARY;
         m->back_screen = MENU_PLAY_HUB;
         if (m->sel_bestiary < 0) m->sel_bestiary = 0;
+    }
+
+    /* Badge bestiaire : nouvelles découvertes depuis la dernière visite
+       → la bordure pulse HUB_PULSE_COUNT fois puis s'arrête. */
+    {
+        static int prev_disc = -1;
+        static int pulsing   = 0;
+        if (prev_disc < 0) prev_disc = nb_disc;          // 1er passage : muet
+        if (nb_disc > prev_disc) {
+            pulsing   = 1;
+            prev_disc = nb_disc;
+            ui_timer(SLOT_HUB_PULSE, 1);
+        }
+        if (pulsing) {
+            float pt = ui_timer(SLOT_HUB_PULSE, 0);
+            if (pt >= HUB_PULSE_PERIOD * HUB_PULSE_COUNT) {
+                pulsing = 0;
+            } else {
+                /* (1-cos)/2 : part de 0, culmine à mi-période */
+                float ph = (1.0f - cosf(pt * 2.0f * PI / HUB_PULSE_PERIOD)) * 0.5f;
+                Rectangle br = {(float)bx, (float)by, (float)bw, (float)bh};
+                DrawRectangleRoundedLinesEx(br, (float)BTN_R/bh, 6, 2.5f,
+                    (Color){C_RED.r, C_RED.g, C_RED.b,
+                            (unsigned char)(ph * 200.0f)});
+            }
+        }
     }
 
     if (draw_back_btn(vw, vh)) {
@@ -488,52 +749,114 @@ MenuAction draw_confirm_del(MenuState *m, int vw, int vh) {
 }
 
 // ════════════════════════════════════════════════════
-// MENU PAUSE
+// MENU PAUSE — ouverture théâtrale
 // ════════════════════════════════════════════════════
+#define PAUSE_OPEN_DUR   0.28f   // installation du panneau (s)
+#define PAUSE_BACK_DUR   0.15f   // montée du voile de fond (s)
+#define PAUSE_BTN_DUR    0.20f   // glissement d'un bouton (s)
+#define PAUSE_BTN_DELAY0 0.10f   // délai du premier bouton (s)
+#define PAUSE_BTN_STEP   0.05f   // décalage entre boutons (s)
+#define PAUSE_BTN_SLIDE  12.0f   // distance de glissement (px)
+#define PAUSE_RES_DELAY  0.40f   // apparition de la ligne résolution (s)
+#define PAUSE_RES_DUR    0.15f   // durée de son fondu (s)
+
 MenuAction draw_pause(MenuState *m, int vw, int vh) {
     MenuAction act = {0};
     int cx = vw/2, cy = vh/2;
 
-    DrawRectangle(0, 0, vw, vh, (Color){0,0,0,155});
+    /* Détection d'ouverture : le slot n'a pas été lu pendant au moins
+       une frame complète (cf. ui_timer_gap : écart normal ≤ 2 en pause
+       à cause du double tick HUD+menu). ESC reste géré par app.c,
+       indépendamment de cette animation (actif dès la 1re frame). */
+    if (ui_timer_gap(SLOT_PAUSE) > 2) ui_timer(SLOT_PAUSE, 1);
+    float t = ui_timer(SLOT_PAUSE, 0);
+    float k = ea_out_back(t / PAUSE_OPEN_DUR);   // entrée clampée, overshoot ok
+
+    /* Voile de fond : 0 → 155 en 0.15 s (linéaire) */
+    float ba = t / PAUSE_BACK_DUR;
+    if (ba > 1.0f) ba = 1.0f;
+    DrawRectangle(0, 0, vw, vh, (Color){0, 0, 0, (unsigned char)(155.0f * ba)});
 
     int pw = 260, ph = 340;
-    draw_panel(cx, cy, pw, ph, C_GOLD);
+
+    /* Panneau : échelle 0.90 → 1.0 (léger dépassement) pour le DESSIN.
+       Le layout du CONTENU (boutons, hitbox) reste sur pw/ph finaux. */
+    float sc = 0.90f + 0.10f * k;
+    draw_panel(cx, cy, (int)(pw * sc), (int)(ph * sc), C_GOLD);
 
     int px = cx - pw/2 + M_PAD;
     int iw = pw - M_PAD*2;
-    int py = cy - ph/2 + M_PAD;
+    int py = cy - (int)(ph * sc)/2 + M_PAD;   // le titre suit le panneau
 
-    txt_c("PAUSE", cx, py, 22, C_GOLD);
-    py += fh(22) + 3;
+    /* Titre "PAUSE" : tracking animé — les lettres se resserrent */
+    {
+        const char *word = "PAUSE";
+        int   fs      = 22;
+        float spacing = 4.0f + (1.0f - k) * 10.0f;
+        float total   = 0.0f;
+        for (int i = 0; word[i]; i++) {
+            char one[2] = {word[i], '\0'};
+            total += (float)mtxt(one, fs);
+            if (word[i+1]) total += spacing;
+        }
+        float lx = (float)cx - total * 0.5f;
+        for (int i = 0; word[i]; i++) {
+            char one[2] = {word[i], '\0'};
+            dtxt(one, (int)lx, py, fs, C_GOLD);
+            lx += (float)mtxt(one, fs) + spacing;
+        }
+    }
+
+    /* Contenu : positions FINALES (hitbox stables dès la 1re frame) */
+    py = cy - ph/2 + M_PAD + fh(22) + 3;
     draw_sep(px, py, iw, C_BORDER);
     py += M_IN + 4;
 
     int bh2 = BTN_H, gap = M_IN - 2;
 
-    if (draw_btn("REPRENDRE",     px, py, iw, bh2, C_GREEN, 0))
+    if (fade_btn("REPRENDRE",     px, py, iw, bh2, C_GREEN, t,
+                 PAUSE_BTN_DELAY0 + 0*PAUSE_BTN_STEP,
+                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0))
         { m->paused = 0; m->screen = MENU_TITLE; }
     py += bh2 + gap;
 
-    if (draw_btn("SAUVEGARDER",   px, py, iw, bh2, C_GOLD, 0))
+    if (fade_btn("SAUVEGARDER",   px, py, iw, bh2, C_GOLD, t,
+                 PAUSE_BTN_DELAY0 + 1*PAUSE_BTN_STEP,
+                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0))
         act.save_and_quit = 2;
     py += bh2 + gap;
 
-    if (draw_btn("OPTIONS",        px, py, iw, bh2, C_BLUE, 0))
+    if (fade_btn("OPTIONS",        px, py, iw, bh2, C_BLUE, t,
+                 PAUSE_BTN_DELAY0 + 2*PAUSE_BTN_STEP,
+                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0))
         m->screen = MENU_OPTIONS;
     py += bh2 + gap;
 
-    if (draw_btn("MENU PRINCIPAL", px, py, iw, bh2, C_DIM, 0))
+    if (fade_btn("MENU PRINCIPAL", px, py, iw, bh2, C_DIM, t,
+                 PAUSE_BTN_DELAY0 + 3*PAUSE_BTN_STEP,
+                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0))
         act.save_and_quit = 1;
     py += bh2 + gap;
 
-    if (draw_btn("QUITTER",        px, py, iw, bh2, C_RED, 0))
+    if (fade_btn("QUITTER",        px, py, iw, bh2, C_RED, t,
+                 PAUSE_BTN_DELAY0 + 4*PAUSE_BTN_STEP,
+                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0))
         act.quit_app = 1;
 
-    char sz[48];
-    snprintf(sz, sizeof(sz), "%dx%d  %s",
-             GetScreenWidth(), GetScreenHeight(),
-             IsWindowFullscreen() ? "Plein ecran" : "Fenetre");
-    txt_c(sz, cx, cy + ph/2 - M_PAD - 10, 9, C_DIM);
+    /* Ligne résolution : apparaît en dernier */
+    {
+        float ra = (t - PAUSE_RES_DELAY) / PAUSE_RES_DUR;
+        if (ra > 0.0f) {
+            if (ra > 1.0f) ra = 1.0f;
+            char sz[48];
+            snprintf(sz, sizeof(sz), "%dx%d  %s",
+                     GetScreenWidth(), GetScreenHeight(),
+                     IsWindowFullscreen() ? "Plein ecran" : "Fenetre");
+            txt_c(sz, cx, cy + ph/2 - M_PAD - 10, 9,
+                  (Color){C_DIM.r, C_DIM.g, C_DIM.b,
+                          (unsigned char)(255.0f * ra)});
+        }
+    }
 
     return act;
 }

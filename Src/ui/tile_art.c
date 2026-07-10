@@ -70,8 +70,10 @@ static void draw_base_fill(int px, int py, Color fill) {
 
 // ── Petit speck déterministe ──────────────────────────────────
 static void speck(int px, int py, unsigned int h, int k, int sz, Color c) {
-    int gx = px + 4 + (int)((h >> (k*5))     % (TILE_SIZE - 8));
-    int gy = py + 4 + (int)((h >> (k*5 + 7)) % (TILE_SIZE - 8));
+    // & 31 : borne le décalage sous la precision (32 bits) — evite l'UB quand
+    // k*5(+7) atteint 32 (ex. k=5). Sans effet visuel sur les k valides.
+    int gx = px + 4 + (int)((h >> ((k*5)     & 31)) % (TILE_SIZE - 8));
+    int gy = py + 4 + (int)((h >> ((k*5 + 7) & 31)) % (TILE_SIZE - 8));
     DrawRectangle(gx, gy, sz, sz, c);
 }
 

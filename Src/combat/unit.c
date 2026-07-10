@@ -6,6 +6,7 @@
 
 #include "unit.h"
 #include "tower.h"
+#include "move.h"               // collision-déplacement commune (anti-traversée)
 #include "combat_math.h"
 #include "../game/runperks.h"   // g_run_mods (build de run)
 #include "../engine/audio.h"
@@ -120,6 +121,19 @@ int unit_active_limit(const MetaBonuses *bonuses, int base_count) {
     int limit = base + extra * MAX_UNITS_UPGR;
     if (limit > MAX_UNITS) limit = MAX_UNITS;
     return limit;
+}
+
+/* Nombre de médics rattachés à la base (bpx,bpy) — source unique du cap
+   MAX_MEDICS_PER_BASE (HUD 2D + mode Héros). */
+int unit_medic_count_at_base(const UnitPool *up, float bpx, float bpy) {
+    int mc = 0;
+    for (int j = 0; j < MAX_UNITS; j++) {
+        const Unit *u = &up->units[j];
+        if (u->active && u->type == UNIT_MEDIC &&
+            u->home_base_px == bpx && u->home_base_py == bpy)
+            mc++;
+    }
+    return mc;
 }
 
 /* ════════════════════════════════════════════════════
@@ -339,11 +353,9 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     u->collect_duration = UNIT_WORKER_COLLECT_DURATION;
                     u->collect_timer    = u->collect_duration;
                 } else {
-                    float dx   = dep_x - u->x;
-                    float dy   = dep_y - u->y;
                     float step = u->speed * TILE_SIZE * dt;
-                    u->x += (dx / dist) * step;
-                    u->y += (dy / dist) * step;
+                    move_toward(map, towers, &u->x, &u->y,
+                                dep_x, dep_y, step, u->size, MOVE_F_ALLY);
                 }
                 break;
             }
@@ -408,11 +420,10 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     u->has_material = 0;
                     u->state        = USTATE_PATROL;
                 } else {
-                    float dx   = u->home_base_px - u->x;
-                    float dy   = u->home_base_py - u->y;
                     float step = u->speed * TILE_SIZE * dt;
-                    u->x += (dx / dist) * step;
-                    u->y += (dy / dist) * step;
+                    move_toward(map, towers, &u->x, &u->y,
+                                u->home_base_px, u->home_base_py,
+                                step, u->size, MOVE_F_ALLY);
                 }
                 break;
             }
@@ -428,11 +439,9 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                                  + sinf(u->patrol_angle) * (TILE_SIZE * UNIT_WORKER_PATROL_RADIUS);
                     float dist = gdist(u->x, u->y, tx, ty);
                     if (dist > UNIT_PATROL_SLACK) {
-                        float dx   = tx - u->x;
-                        float dy   = ty - u->y;
                         float step = u->speed * TILE_SIZE * UNIT_WORKER_PATROL_SPEED_FRAC * dt;
-                        u->x += (dx / dist) * step;
-                        u->y += (dy / dist) * step;
+                        move_toward(map, towers, &u->x, &u->y,
+                                    tx, ty, step, u->size, MOVE_F_ALLY);
                     }
                 }
                 break;
@@ -503,11 +512,10 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     u->manual_moving = 0;
                     u->state = USTATE_PATROL;
                 } else {
-                    float dx   = u->manual_x - u->x;
-                    float dy   = u->manual_y - u->y;
                     float step = u->speed * TILE_SIZE * dt;
-                    u->x += (dx / dist) * step;
-                    u->y += (dy / dist) * step;
+                    move_toward(map, towers, &u->x, &u->y,
+                                u->manual_x, u->manual_y,
+                                step, u->size, MOVE_F_ALLY);
                     u->state = USTATE_MOVE_MANUAL;
                 }
             }
@@ -560,11 +568,9 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 }
             } else {
                 u->state = USTATE_CHASE;
-                float dx   = e->x - u->x;
-                float dy   = e->y - u->y;
                 float step = u->speed * TILE_SIZE * dt;
-                u->x += (dx / dist) * step;
-                u->y += (dy / dist) * step;
+                move_toward(map, towers, &u->x, &u->y,
+                            e->x, e->y, step, u->size, MOVE_F_ALLY);
             }
         } else if (u->behavior != UBEH_MANUAL || !u->manual_moving) {
             // Pas d'ennemi et pas en déplacement manuel actif → patrouille
@@ -573,11 +579,9 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 // En mode manuel : rester au point de destination (pas d'orbite)
                 float dist = gdist(u->x, u->y, eff_hx, eff_hy);
                 if (dist > UNIT_PATROL_SLACK) {
-                    float dx   = eff_hx - u->x;
-                    float dy   = eff_hy - u->y;
                     float step = u->speed * TILE_SIZE * UNIT_PATROL_SPEED_FRAC * dt;
-                    u->x += (dx / dist) * step;
-                    u->y += (dy / dist) * step;
+                    move_toward(map, towers, &u->x, &u->y,
+                                eff_hx, eff_hy, step, u->size, MOVE_F_ALLY);
                 }
             } else {
                 // Orbite normale autour de eff_hx/hy
@@ -586,11 +590,9 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 float target_y = eff_hy + sinf(u->patrol_angle) * u->patrol_radius;
                 float dist     = gdist(u->x, u->y, target_x, target_y);
                 if (dist > UNIT_PATROL_SLACK) {
-                    float dx   = target_x - u->x;
-                    float dy   = target_y - u->y;
                     float step = u->speed * TILE_SIZE * UNIT_PATROL_SPEED_FRAC * dt;
-                    u->x += (dx / dist) * step;
-                    u->y += (dy / dist) * step;
+                    move_toward(map, towers, &u->x, &u->y,
+                                target_x, target_y, step, u->size, MOVE_F_ALLY);
                 }
             }
         }
@@ -600,11 +602,9 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             float max_dist = (u->intercept_range + 2.0f) * TILE_SIZE;
             float d_base   = gdist(u->x, u->y, eff_hx, eff_hy);
             if (d_base > max_dist && u->target_idx == -1) {
-                float dx   = eff_hx - u->x;
-                float dy   = eff_hy - u->y;
                 float step = u->speed * TILE_SIZE * dt;
-                u->x += (dx / d_base) * step;
-                u->y += (dy / d_base) * step;
+                move_toward(map, towers, &u->x, &u->y,
+                            eff_hx, eff_hy, step, u->size, MOVE_F_ALLY);
                 u->state = USTATE_RETURN;
             }
         }

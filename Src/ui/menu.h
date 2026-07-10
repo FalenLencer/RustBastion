@@ -71,6 +71,22 @@ typedef struct {
     int   map_w, map_h;      // taille de la carte en tuiles (0 = MAP_W × MAP_H)
 } CustomConfig;
 
+// ── Touches configurables du MODE HÉROS ──────────────────────
+// Codes raylib (position PHYSIQUE : KEY_W = Z sur AZERTY).
+typedef enum {
+    HK_FWD = 0,     // avancer
+    HK_BACK,        // reculer
+    HK_LEFT,        // pas à gauche
+    HK_RIGHT,       // pas à droite
+    HK_JUMP,        // saut
+    HK_SPRINT,      // sprint (maintenu)
+    HK_INTERACT,    // interagir (ouvrier → construire)
+    HK_WAVE,        // lancer la vague (près d'une base)
+    HK_WEAPON,      // changer d'arme (prépa)
+    HK_VIEW,        // vue 1re / 3e personne
+    HK_COUNT
+} HeroKeyBind;
+
 typedef struct {
     int fullscreen;
     int win_width;
@@ -82,9 +98,24 @@ typedef struct {
     int show_fps;      // 1 = afficher le compteur FPS (touche [F] en jeu)
     int fx_effects;    // 1 = effets de jus (particules, secousse, pops) activés
     int colorblind;    // 1 = palette ennemis daltonien-safe (Okabe-Ito)
+    int show_entity_names; // 1 = nom des ennemis au-dessus des sprites (defaut 0)
     char player_name[24]; // pseudo affiché en multijoueur
     char relay_addr[32];  // serveur relais "IP:port" (vide = connexion directe)
+    // ── Mode Héros ────────────────────────────────────────────
+    int hero_sens_x;             // sensibilité souris HORIZONTALE (5..100, 50=normale)
+    int hero_sens_y;             // sensibilité souris VERTICALE   (5..100, 50=normale)
+    int hero_accel;              // courbe d'accélération (50 = x1.0 = LINÉAIRE,
+                                 //   <50 = décélère, >50 = accélère)
+    int hero_mouse_native;       // 1 = souris verrouillée native (recommandé) ;
+                                 // 0 = mode compatible (recentrage manuel)
+    int hero_invert_y;           // 1 = inverser l'axe vertical de la souris
+    int hero_keys[HK_COUNT];     // codes raylib (0 = invalide → défauts)
 } AppOptions;
+
+// Défauts des commandes héros (WASD physique = ZQSD AZERTY, ESPACE saut…).
+void opts_hero_defaults(AppOptions *o);
+// Nom lisible d'un code de touche raylib → out ("ESPACE", "W", "F3"…).
+void opts_key_name(int key, char *out, int outsz);
 
 typedef struct {
     MenuScreen  screen;
@@ -111,8 +142,9 @@ typedef struct {
     float       msg_timer;
     char        msg_buf[128];
 
-    int         opt_tab;            // 0=General, 1=Audio, 2=Graphismes
+    int         opt_tab;            // 0=General, 1=Audio, 2=Graphismes, 3=Commandes
     int         opt_dropdown_open;  // -1=none, 0=FPS, 1=Resolution, etc
+    int         opt_rebind;         // 0=aucun, sinon 1+HK_* en attente d'une touche
 
     // Bestiaire
     int         sel_bestiary;       // index ennemi sélectionné (0..ENEMY_TYPE_COUNT-1)
@@ -124,6 +156,11 @@ typedef struct {
 
     // Animation cinématique de l'écran titre
     MenuAnimState anim;
+
+    // ── Transition entre écrans (fade + rise, cf. menu_render_and_act) ──
+    float       trans_t;           // temps écoulé dans la transition (s)
+    MenuScreen  trans_from;        // écran quitté (info pour les écrans)
+    MenuScreen  trans_last_drawn;  // dernier écran rendu (détection du changement)
 
     // ── Multijoueur ──────────────────────────────────────────
     int          mp_mode;            // MpMode choisi sur le hub
@@ -144,6 +181,7 @@ typedef struct {
     int          start_campaign;
     int          start_custom;        // 1 = lancer une partie personnalisée
     int          start_tutorial;      // 1 = lancer le tutoriel guidé
+    int          start_hero;          // 1 = lancer le MODE HÉROS 3D (beta)
     int          resume_slot;
     int          resume_is_campaign;  // 1 = le slot à reprendre est une save campagne
     int          go_game;

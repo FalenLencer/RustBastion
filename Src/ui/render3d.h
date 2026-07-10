@@ -70,3 +70,9 @@ Texture2D render3d_tower_tex(int tower_index);
    case cx,cy ; tile = TILE_SIZE). Carré pour la Mitrailleuse ; HAUT et ancré
    par le bas pour le Sniper (le sprite dépasse au-dessus de la case). */
 Rectangle render3d_tower_dst(int tower_index, float cx, float cy, float tile);
+
+/* MODE HÉROS : dessine la tour `type` (TowerType) DIRECTEMENT dans la scène
+   3D courante (BeginMode3D actif), tourelle orientée selon map_angle
+   (= tw->angle, repère écran). Retourne 1 si modèle dispo, 0 sinon.       */
+int render3d_tower_draw_world(int type, Vector3 pos, float map_angle,
+                              float scale);

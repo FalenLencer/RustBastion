@@ -58,7 +58,7 @@ int main(void) {
     /* 1) Round-trip normal */
     {
         FILE *g = fopen(path, "rb");
-        uint32_t m = 0; fread(&m, sizeof(m), 1, g);
+        uint32_t m = 0; if (fread(&m, sizeof(m), 1, g) != 1) m = 0;
         int ar[3]; double br; char cr[6]; int sr = 0;
         rsec(g, ar, sizeof(ar));
         rsec(g, &br, sizeof(br));
@@ -74,7 +74,7 @@ int main(void) {
     /* 2) Section du MILIEU (b) « grossie » → défaut + alignement preserve */
     {
         FILE *g = fopen(path, "rb");
-        uint32_t m = 0; fread(&m, sizeof(m), 1, g);
+        uint32_t m = 0; if (fread(&m, sizeof(m), 1, g) != 1) m = 0;
         int ar[3];
         struct { double x, y; } bbig;   /* 16 octets au lieu de 8 → mismatch */
         char cr[6]; int sr = 0;
@@ -93,7 +93,7 @@ int main(void) {
     /* 3) Scalaire absent (fichier tronque) → defaut */
     {
         FILE *g = fopen(path, "rb");
-        uint32_t m = 0; fread(&m, sizeof(m), 1, g);
+        uint32_t m = 0; if (fread(&m, sizeof(m), 1, g) != 1) m = 0;
         int ar[3]; double br; char cr[6];
         rsec(g, ar, sizeof(ar));
         rsec(g, &br, sizeof(br));

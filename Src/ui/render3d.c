@@ -527,3 +527,57 @@ Rectangle render3d_tower_dst(int tower_index, float cx, float cy, float tile) {
     }
     return (Rectangle){ cx - box*0.5f, cy - box*0.5f, box, box };
 }
+
+/* ════════════════════════════════════════════════════
+   MODE HÉROS — dessin direct d'une tour dans la scène 3D
+   (socle fixe + tourelle orientée vers map_angle)
+   ════════════════════════════════════════════════════ */
+/* Décalage constant du cap de tourelle en monde (réglage playtest). */
+#define R3D_TURRET_WORLD_YAW_OFF  0.0f
+
+int render3d_tower_draw_world(int type, Vector3 pos, float map_angle,
+                              float scale) {
+    if (!g_loaded) return 0;
+    /* Direction sim (cos a, sin a) → cap monde atan2(x, z). */
+    float yaw_deg = atan2f(cosf(map_angle), sinf(map_angle)) * RAD2DEG
+                  + R3D_TURRET_WORLD_YAW_OFF;
+    int drawn = 1;
+
+    rlPushMatrix();
+    rlTranslatef(pos.x, pos.y, pos.z);
+    rlScalef(scale, scale, scale);
+    switch (type) {
+        case TOWER_GUN:
+            if (!g_have_gun) { drawn = 0; break; }
+            DrawModel(g_base, (Vector3){0, 0, 0}, 1.0f, WHITE);
+            rlRotatef(yaw_deg, 0.0f, 1.0f, 0.0f);
+            DrawModel(g_turret, (Vector3){0, 0, 0}, 1.0f, WHITE);
+            DrawModel(g_gun,    (Vector3){0, 0, 0}, 1.0f, WHITE);
+            break;
+        case TOWER_SNIPER:
+            if (!g_have_snipr) { drawn = 0; break; }
+            DrawModel(g_sn_base, (Vector3){0, 0, 0}, 1.0f, WHITE);
+            rlRotatef(yaw_deg, 0.0f, 1.0f, 0.0f);
+            DrawModel(g_sn_mount,  (Vector3){0, 0, 0}, 1.0f, WHITE);
+            DrawModel(g_sn_barrel, (Vector3){0, 0, 0}, 1.0f, WHITE);
+            break;
+        case TOWER_TESLA:
+            if (!g_have_tesla) { drawn = 0; break; }
+            DrawModel(g_te_base, (Vector3){0, 0, 0}, 1.0f, WHITE);
+            /* Orbe : flottement lent (pas d'orientation nécessaire). */
+            rlTranslatef(0.0f, sinf((float)GetTime() * 2.2f) * 0.06f, 0.0f);
+            DrawModel(g_te_orb, (Vector3){0, 0, 0}, 1.0f, WHITE);
+            break;
+        case TOWER_FLAME:
+            if (!g_have_flame) { drawn = 0; break; }
+            DrawModel(g_fl_base, (Vector3){0, 0, 0}, 1.0f, WHITE);
+            rlRotatef(yaw_deg, 0.0f, 1.0f, 0.0f);
+            DrawModel(g_fl_turret, (Vector3){0, 0, 0}, 1.0f, WHITE);
+            break;
+        default:
+            drawn = 0;
+            break;
+    }
+    rlPopMatrix();
+    return drawn;
+}

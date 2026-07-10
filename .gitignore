@@ -11,3 +11,6 @@ Game.code-workspace
 CLAUDE.md
 ruvector.db
 /assets/3d/test/
+# graphify generated graph (regenerable via: graphify update .)
+graphify-out/
+docs/

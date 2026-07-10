@@ -7,6 +7,7 @@
 #include "enemy.h"
 #include "unit.h"
 #include "tower.h"
+#include "move.h"               // collision hors-chemin (raid/hunter/pathbreaker)
 #include "combat_math.h"
 #include "fx.h"                  // effets de jus (mort, secousse)
 #include "../game/runperks.h"   // g_run_mods (build de run)
@@ -439,12 +440,11 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                                 e->atk_timer = 1.0f / ENEMY_MELEE_RATE_DEFAULT;
                             }
                         } else {
-                            // Fonce sur l'ouvrier
-                            float dx   = wu->x - e->x;
-                            float dy   = wu->y - e->y;
+                            // Fonce sur l'ouvrier — en contournant les obstacles
                             float step = e->speed * TILE_SIZE * dt;
-                            e->x += (dx / dist) * step;
-                            e->y += (dy / dist) * step;
+                            move_toward(map, towers, &e->x, &e->y,
+                                        wu->x, wu->y, step, e->size,
+                                        MOVE_F_ENEMY);
                         }
                         continue; // ne suit pas le chemin normal
                     }
@@ -513,10 +513,11 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                     }
                     continue;
                 } else {
-                    /* Hors portée : se rapproche jusqu'à unit_atk_range */
+                    /* Hors portée : se rapproche — sans traverser d'obstacle */
                     float step = e->speed * TILE_SIZE * dt;
-                    e->x += (dx / dist) * step;
-                    e->y += (dy / dist) * step;
+                    (void)dx; (void)dy;
+                    move_toward(map, towers, &e->x, &e->y,
+                                u->x, u->y, step, e->size, MOVE_F_ENEMY);
                     continue;
                 }
             }
@@ -630,11 +631,13 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
             float dy   = e->target_y - e->y;
             float dist = sqrtf(dx*dx + dy*dy);
             float step = e->speed * TILE_SIZE * dt;
-            if (dist <= step)
+            if (dist <= step) {
                 e->reached_base = 1;
-            else {
-                e->x += (dx / dist) * step;
-                e->y += (dy / dist) * step;
+            } else {
+                /* Fonce vers la base — en contournant les obstacles */
+                move_toward(map, towers, &e->x, &e->y,
+                            e->target_x, e->target_y, step, e->size,
+                            MOVE_F_ENEMY);
             }
         } else {
             if (e->path_id < 0 || e->path_id >= paths->count) {

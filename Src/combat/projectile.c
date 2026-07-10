@@ -6,6 +6,7 @@
 
 #include "projectile.h"
 #include "combat_math.h"
+#include "fx.h"
 #include "../engine/audio.h"
 #include <math.h>
 #include <stddef.h>
@@ -21,9 +22,11 @@ static void apply_damage(Enemy *e, float dmg, DamageType dtype) {
     // ── Synergies d'état (matériaux) ──────────────────────────
     // Cryo : un ennemi ralenti (gelé) est vulnérable à TOUT.
     // Acide : un ennemi empoisonné (corrodé) prend +dégâts phys./feu.
-    if (e->slow_timer > 0.0f) dmg *= SYN_CRYO_VULN;
-    if (e->poison_timer > 0.0f && (dtype == DMG_PHYSICAL || dtype == DMG_FIRE))
-        dmg *= SYN_ACID_CORRODE;
+    int syn = 0;   // une synergie d'etat a-t-elle amplifie ce coup ? (feedback)
+    if (e->slow_timer > 0.0f) { dmg *= SYN_CRYO_VULN; syn = 1; }
+    if (e->poison_timer > 0.0f && (dtype == DMG_PHYSICAL || dtype == DMG_FIRE)) {
+        dmg *= SYN_ACID_CORRODE; syn = 1;
+    }
 
     if (dtype == DMG_POISON) {
         // ── Accumulation brûlure (lance-flammes) ────────────
@@ -40,8 +43,26 @@ static void apply_damage(Enemy *e, float dmg, DamageType dtype) {
         dmg *= mult;
     }
 
+    // ── Feedback pedagogique des CONTRES elementaires ────────────
+    // Apprend au joueur quel type de degats marche sur quel ennemi : on
+    // n'affiche un repere que si l'efficacite DIVERGE nettement du neutre
+    // (table de resistance). Throttle gratuit via hit_flash (un pop par cycle
+    // d'eclair, ~0.14 s), lu AVANT enemy_damage qui le remet a 1. On ne montre
+    // rien si un bouclier de boss bloque (sinon le repere mentirait).
+    if (g_fx.enabled && e->hit_flash <= 0.0f &&
+        !(e->is_boss && e->boss_shield > 0.0f)) {
+        if      (mult >= 1.30f) fx_popup(e->x, e->y - e->size, "EFFICACE", (Color){120, 240, 130, 255});
+        else if (mult <= 0.70f) fx_popup(e->x, e->y - e->size, "RESISTE",  (Color){235, 110,  90, 255});
+        else if (syn)           fx_popup(e->x, e->y - e->size, "SYNERGIE", (Color){120, 210, 245, 255});
+    }
+
     enemy_damage(e, dmg);
     audio_play_sfx(AUDIO_SFX_ENEMY_HIT);
+}
+
+/* Expose le chokepoint aux autres systèmes (arme du mode Héros). */
+void combat_apply_damage(Enemy *e, float dmg, DamageType dtype) {
+    apply_damage(e, dmg, dtype);
 }
 
 void projectile_spawn(TowerPool *tp, const Tower *tw,

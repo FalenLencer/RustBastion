@@ -53,6 +53,7 @@ typedef enum {
     DISC_ENEMY = 0,
     DISC_TOWER,
     DISC_UNIT,
+    DISC_MATERIAL,   // minerai : ferme la boucle minerai -> type de degats -> contre
 } DiscType;
 
 typedef struct {

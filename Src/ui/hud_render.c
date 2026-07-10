@@ -15,6 +15,7 @@
  */
 
 #include "hud_internal.h"
+#include "ui_anim.h"                 // horloge + hover animés de l'UI
 #include "../game/campaign_data.h"   // campaign_difficulty_stage (aperçu de vague)
 
 // ════════════════════════════════════════════════════
@@ -246,10 +247,82 @@ static void draw_wrapped(const char *txt, int x, int *py, int maxw,
     }
 }
 
+// ── Animation d'entrée du panneau droit (crossfade de sélection) ──
+// Quand le sujet affiché change (tour / unité / outil), le contenu
+// glisse de +10px et fond en 0.18 s. Les TEXTES passent par ptxt()
+// (offset + alpha) ; les BOUTONS gardent positions et hitbox fixes,
+// seule leur bordure est fondue via pal_c(). Pas de BeginScissorMode :
+// il opère en coordonnées écran et se désalignerait du canvas virtuel.
+#define SEL_FADE_DUR     0.18f   // entrée du contenu (s)
+#define SEL_PORTRAIT_DUR 0.22f   // pop du portrait (s)
+#define SEL_SLIDE_PX     10.0f   // glissement horizontal du texte (px)
+
+// ── Bouton LANCER VAGUE (PROMPT I) ────────────────────────────
+#define WAVE_BREATH_FREQ   3.2f   // respiration de la bordure (rad/s)
+#define WAVE_URGENT_FREQ   7.0f   // respiration accélérée (timer bonus bas)
+#define WAVE_URGENT_RATIO  0.2f   // seuil d'urgence sur le timer bonus
+#define WAVE_PV_IN_DUR     0.25f  // apparition du panneau d'aperçu (s)
+#define WAVE_PV_RISE       8.0f   // glissement du panneau depuis le bouton (px)
+#define WAVE_PV_ICON_STEP  0.05f  // délai entre icônes d'ennemis (s)
+#define WAVE_PV_ICON_DUR   0.20f  // pop d'une icône (s)
+#define WAVE_RING_DUR      0.30f  // anneau expansif au lancement (s)
+#define WAVE_RING_RADIUS   40.0f  // rayon final de l'anneau (px)
+
+// ── Fiche de découverte (PROMPT K) — séquence d'ouverture ─────
+#define SLOT_DISC        4        // slot ui_timer (0-3 : menus)
+#define DISC_BG_DUR      0.15f    // montée du fond + pop du panneau (s)
+#define DISC_HDR_T0      0.10f    // début du remplissage du bandeau (s)
+#define DISC_HDR_DUR     0.25f    // durée du remplissage (s)
+#define DISC_SPL_T0      0.20f    // début du slide du splash (s)
+#define DISC_SPL_DUR     0.25f    // durée du slide (s)
+#define DISC_FLASH_T0    0.45f    // flash blanc de révélation (s)
+#define DISC_FLASH_DUR   0.12f
+#define DISC_BADGE_T0    0.30f    // tampon du badge catégorie (s)
+#define DISC_BADGE_DUR   0.15f
+#define DISC_TXT_T0      0.35f    // 1re ligne de texte (s)
+#define DISC_TXT_STEP    0.05f    // délai entre lignes (s)
+#define DISC_LINE_DUR    0.15f    // fondu d'une ligne (s)
+#define DISC_BTN_T0      0.55f    // apparition du bouton CONTINUER (s)
+
+// Ligne de texte de la fiche : fondu + petite montée de 6 px.
+static void disc_txt(const char *s, int x, int y, int fs, Color c,
+                     float t, float delay) {
+    float k = (t - delay) / DISC_LINE_DUR;
+    if (k <= 0.0f) return;
+    if (k > 1.0f) k = 1.0f;
+    c.a = (unsigned char)((float)c.a * k);
+    dtxt(s, x, y + (int)(6.0f * (1.0f - ea_out_cubic(k))), fs, c);
+}
+
+static int   g_sel_dx = 0;       // offset x courant des textes du panneau
+static float g_sel_al = 1.0f;    // facteur alpha courant du contenu
+
+static void ptxt(const char *s, int x, int y, int fs, Color c) {
+    c.a = (unsigned char)((float)c.a * g_sel_al);
+    dtxt(s, x + g_sel_dx, y, fs, c);
+}
+static Color pal_c(Color c) {
+    c.a = (unsigned char)((float)c.a * g_sel_al);
+    return c;
+}
+
+// Portrait avec pop d'entrée : scale 0.85 → 1.0 (ea_out_back) + bordure
+// en fondu, centré dans la boîte psz × psz d'origine.
+static int draw_portrait_anim(Texture2D tex, int px, int py, int psz,
+                              Color border, float t) {
+    float k  = (t < SEL_PORTRAIT_DUR) ? ea_out_back(t / SEL_PORTRAIT_DUR) : 1.0f;
+    float af = (t < SEL_PORTRAIT_DUR) ? (t / SEL_PORTRAIT_DUR) : 1.0f;
+    int   sz = (int)((float)psz * (0.85f + 0.15f * k) + 0.5f);
+    border.a = (unsigned char)((float)border.a * af);
+    return draw_portrait(tex, px + (psz - sz)/2, py + (psz - sz)/2, sz, border);
+}
+
 // ════════════════════════════════════════════════════
 // RENDU
 // ════════════════════════════════════════════════════
 void ui_render(const UIState *ui, const GameState *gs) {
+    ui_anim_tick();   // horloge des animations UI (une fois par passe HUD)
+
     const int VIRT_W = g_canvas_virt_w;
     const int HUD_Y  = g_canvas_virt_h - UI_HUD_HEIGHT;
     const int HUD_H  = UI_HUD_HEIGHT;
@@ -427,11 +500,45 @@ void ui_render(const UIState *ui, const GameState *gs) {
         if (ratio < 0.0f) ratio = 0.0f;
         if (ratio > 1.0f) ratio = 1.0f;
 
+        /* ── Horloges locales (accumulées via ui_dt, jamais GetTime) ── */
+        static float wave_t   = 0.0f;   // respiration continue
+        static float pv_t     = 0.0f;   // apparition de l'aperçu (prep)
+        static float ring_t   = 1e9f;   // anneau de lancement
+        static int   was_prep = 0;
+        wave_t += ui_dt();
+        if (in_prep) pv_t += ui_dt(); else pv_t = 0.0f;
+        if (was_prep && !in_prep) ring_t = 0.0f;   // prep → vague : lancement
+        was_prep = in_prep;
+        ring_t += ui_dt();
+
+        /* Survol (lissé) : fond éclairci + texte grossi (seulement en prep) */
+        int   whov = CheckCollisionPointRec(virt_mouse(), *wb);
+        float whk  = ui_hover_t((int)wb->x, (int)wb->y, whov && in_prep);
+
         float wrnd = (float)UI_RADIUS / wb->height;
-        Color wbg  = in_prep ? (Color){5, 20, 8, 255} : (Color){7, 7, 7, 255};
-        Color wbrd = in_prep ? (Color){22, 72, 32, 255} : (Color){30, 30, 30, 255};
+        Color wbg  = in_prep ? (Color){(unsigned char)(5  + whk * 8.0f),
+                                       (unsigned char)(20 + whk * 22.0f),
+                                       (unsigned char)(8  + whk * 10.0f), 255}
+                             : (Color){7, 7, 7, 255};
         DrawRectangleRounded(*wb, wrnd, 6, wbg);
-        DrawRectangleRoundedLinesEx(*wb, wrnd, 6, 1.5f, wbrd);
+
+        if (in_prep) {
+            /* Bordure qui respire — verte, orange et rapide en urgence */
+            int   urgent = (ratio < WAVE_URGENT_RATIO);
+            float freq   = urgent ? WAVE_URGENT_FREQ : WAVE_BREATH_FREQ;
+            float p      = (sinf(wave_t * freq) + 1.0f) * 0.5f;
+            Color bc     = urgent ? (Color){243, 156, 18, 0}
+                                  : (Color){ 42, 188, 105, 0};
+            bc.a = (unsigned char)(200.0f + 55.0f * p);
+            DrawRectangleRoundedLinesEx(*wb, wrnd, 6, 1.5f + 0.8f * p, bc);
+            /* Halo : cadre 2 px plus large, alpha pulsé */
+            Rectangle hb = {wb->x - 2, wb->y - 2, wb->width + 4, wb->height + 4};
+            DrawRectangleRoundedLinesEx(hb, wrnd, 6, 2.0f,
+                (Color){bc.r, bc.g, bc.b, (unsigned char)(p * 60.0f)});
+        } else {
+            DrawRectangleRoundedLinesEx(*wb, wrnd, 6, 1.5f,
+                                        (Color){30, 30, 30, 255});
+        }
 
         Color tcol = ratio > 0.5f ? (Color){46,204,113,255}
                    : ratio > 0.2f ? (Color){243,156,18,255}
@@ -446,7 +553,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
         if (in_prep) {
             const char *l1 = "LANCER";
-            dtxt(l1, wx - mtxt(l1,13)/2, (int)wb->y + M, 13, wlbl);
+            int lfs = 13 + (int)(whk + 0.5f);   // 13 → 14 px au survol
+            dtxt(l1, wx - mtxt(l1,lfs)/2, (int)wb->y + M, lfs, wlbl);
 
             char b2[14];
             snprintf(b2, sizeof(b2), "+%d or", (int)(ratio*15.0f));
@@ -476,6 +584,12 @@ void ui_render(const UIState *ui, const GameState *gs) {
                                          pv, ENEMY_TYPE_COUNT);
             if (npv > 6) npv = 6;
             if (npv > 0) {
+                /* Apparition : le panneau glisse depuis le bouton en fondu */
+                float pk = pv_t / WAVE_PV_IN_DUR;
+                if (pk > 1.0f) pk = 1.0f;
+                pk = ea_out_cubic(pk);
+                int dy = (int)(WAVE_PV_RISE * (1.0f - pk));
+
                 const int ic = 22, ig = 4, ip = 7;
                 const char *hdr = "PROCHAINE VAGUE";
                 int hw     = mtxt(hdr, 8);
@@ -483,35 +597,64 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 int pw     = (stripw > hw ? stripw : hw) + ip*2;
                 int ph     = ic + 16 + ip;
                 int ppx    = wx - pw/2;
-                int ppy    = (int)wb->y - ph - 6;
+                int ppy    = (int)wb->y - ph - 6 + dy;
                 DrawRectangleRounded((Rectangle){(float)ppx,(float)ppy,(float)pw,(float)ph},
-                                     0.16f, 5, (Color){10, 7, 3, 230});
+                                     0.16f, 5,
+                                     (Color){10, 7, 3, (unsigned char)(230.0f * pk)});
                 DrawRectangleRoundedLinesEx((Rectangle){(float)ppx,(float)ppy,(float)pw,(float)ph},
-                                            0.16f, 5, 1.2f, (Color){70, 48, 16, 210});
-                dtxt(hdr, ppx + pw/2 - hw/2, ppy + 4, 8, (Color){150, 120, 70, 255});
+                                            0.16f, 5, 1.2f,
+                                            (Color){70, 48, 16, (unsigned char)(210.0f * pk)});
+                dtxt(hdr, ppx + pw/2 - hw/2, ppy + 4, 8,
+                     (Color){150, 120, 70, (unsigned char)(255.0f * pk)});
                 int ix = ppx + (pw - stripw)/2, iy = ppy + 15;
                 for (int k = 0; k < npv; k++) {
+                    /* Cascade : icône k pope avec k×0.05 s de délai */
+                    float kj = (pv_t - WAVE_PV_ICON_STEP * (float)k)
+                             / WAVE_PV_ICON_DUR;
+                    if (kj <= 0.0f) { ix += ic + ig; continue; }
+                    float af  = kj > 1.0f ? 1.0f : kj;          // fondu
+                    float szf = 0.5f + 0.5f * ea_out_back(kj);  // scale 0.5→1
+                    float bs  = (float)ic * szf;
+                    float bx0 = (float)ix + ((float)ic - bs) * 0.5f;
+                    float by0 = (float)iy + ((float)ic - bs) * 0.5f;
+
                     EnemyType ty = pv[k];
                     Color ec = renderer_enemy_color(ty);
                     int disc = !gs->is_campaign || gs->meta.bestiary_discovered[ty];
-                    Rectangle br = {(float)ix, (float)iy, (float)ic, (float)ic};
-                    DrawRectangleRounded(br, 0.3f, 4, (Color){(unsigned char)(ec.r/5),(unsigned char)(ec.g/5),(unsigned char)(ec.b/5),255});
-                    DrawRectangleRoundedLinesEx(br, 0.3f, 4, 1.0f, (Color){ec.r, ec.g, ec.b, 220});
+                    Rectangle br = {bx0, by0, bs, bs};
+                    DrawRectangleRounded(br, 0.3f, 4,
+                        (Color){(unsigned char)(ec.r/5),(unsigned char)(ec.g/5),
+                                (unsigned char)(ec.b/5),(unsigned char)(255.0f*af)});
+                    DrawRectangleRoundedLinesEx(br, 0.3f, 4, 1.0f,
+                        (Color){ec.r, ec.g, ec.b, (unsigned char)(220.0f*af)});
                     if (disc && g_enemy_splash[ty].id != 0) {
                         DrawTexturePro(g_enemy_splash[ty],
                             (Rectangle){0,0,(float)g_enemy_splash[ty].width,(float)g_enemy_splash[ty].height},
-                            (Rectangle){(float)(ix+2),(float)(iy+2),(float)(ic-4),(float)(ic-4)},
-                            (Vector2){0,0}, 0.0f, WHITE);
+                            (Rectangle){bx0 + 2.0f, by0 + 2.0f, bs - 4.0f, bs - 4.0f},
+                            (Vector2){0,0}, 0.0f,
+                            (Color){255,255,255,(unsigned char)(255.0f*af)});
                     } else if (disc) {
-                        DrawCircle(ix+ic/2, iy+ic/2, ic*0.3f, ec);
+                        DrawCircle(ix+ic/2, iy+ic/2, bs*0.3f,
+                                   (Color){ec.r, ec.g, ec.b, (unsigned char)(255.0f*af)});
                     } else {
                         int qw = mtxt("?", 13);
                         dtxt("?", ix+ic/2 - qw/2, iy+ic/2 - fh(13)/2, 13,
-                             (Color){ec.r, ec.g, ec.b, 220});
+                             (Color){ec.r, ec.g, ec.b, (unsigned char)(220.0f*af)});
                     }
                     ix += ic + ig;
                 }
             }
+        }
+
+        /* ── Anneau expansif au lancement (transition prep → vague).
+           Local au bouton, dans l'espace canvas : pas de conversion
+           caméra (fx_burst dessinerait dans le monde, désaligné). ── */
+        if (ring_t < WAVE_RING_DUR) {
+            float rk = ring_t / WAVE_RING_DUR;
+            DrawCircleLines(wx, (int)(wb->y + wb->height/2),
+                            WAVE_RING_RADIUS * rk,
+                            (Color){46, 204, 113,
+                                    (unsigned char)(180.0f * (1.0f - rk))});
         }
     }
 
@@ -542,6 +685,27 @@ void ui_render(const UIState *ui, const GameState *gs) {
         int py = HUD_Y + M;
         char buf[48];
 
+        /* ── Crossfade de sélection : détection du sujet affiché ── */
+        int subject = ui->selection.active   ? 1000 + ui->selection.tower_idx
+                    : ui->sell_unit_idx >= 0 ? 2000 + ui->sell_unit_idx
+                    : ui->selected_tool != TOOL_NONE ? 3000 + ui->selected_tool
+                    : 0;
+        static int   prev_subject = -1;
+        static float sel_t        = 1e9f;
+        static int   hp_snap      = 0;   // barre HP : snap au changement
+        if (subject != prev_subject) {
+            prev_subject = subject;
+            hp_snap      = 1;
+            if (subject != 0) sel_t = 0.0f;   // pas d'anim vers l'état vide
+        }
+        sel_t += ui_dt();
+        {
+            float sk = (sel_t < SEL_FADE_DUR)
+                     ? ea_out_cubic(sel_t / SEL_FADE_DUR) : 1.0f;
+            g_sel_dx = (int)(SEL_SLIDE_PX * (1.0f - sk));
+            g_sel_al = sk;
+        }
+
         if (ui->selection.active) {
             const Tower *tw = &gs->towers.towers[ui->selection.tower_idx];
             if (!tw->active) goto panel_right_empty;
@@ -549,17 +713,18 @@ void ui_render(const UIState *ui, const GameState *gs) {
             const TowerStats *st = &TOWER_BASE_STATS[tw->type];
             Color col = TOWER_FILL[tw->type];
 
-            // Portrait splash
-            int pdone = draw_portrait(g_tower_splash[tw->type],
-                                      rx + max_w - PORTRAIT_SZ, HUD_Y + M, PORTRAIT_SZ, col);
+            // Portrait splash (pop d'entrée)
+            int pdone = draw_portrait_anim(g_tower_splash[tw->type],
+                                      rx + max_w - PORTRAIT_SZ, HUD_Y + M,
+                                      PORTRAIT_SZ, col, sel_t);
             int text_w = pdone ? max_w - PORTRAIT_SZ - 6 : max_w;
 
             // Nom (fs=16)
             clip_text(st->name, text_w, 16, buf, sizeof(buf));
-            dtxt(buf, rx, py, 16, col);
+            ptxt(buf, rx, py, 16, col);
             py += fh(16) + 4;
             /* Trait s'arrête avant le portrait (text_w = zone de texte sans le splash) */
-            DrawLine(rx, py, rx + text_w, py, (Color){44, 28, 8, 140});
+            DrawLine(rx, py, rx + text_w, py, pal_c((Color){44, 28, 8, 140}));
             py += 7;
 
             // Stats — 2 colonnes (fs=13)
@@ -569,23 +734,23 @@ void ui_render(const UIState *ui, const GameState *gs) {
             Color matc = (Color){62,172,192,255};
             int   cx2  = rx + max_w / 2;
 
-            dtxt(TextFormat("Dmg   %.0f",   tw->damage),
+            ptxt(TextFormat("Dmg   %.0f",   tw->damage),
                      rx,  py, 13, sc);
-            dtxt(TextFormat("Port  %.1ft",  tw->range),
+            ptxt(TextFormat("Port  %.1ft",  tw->range),
                      cx2, py, 13, sc);   py += 17;
 
-            dtxt(TextFormat("Cad   %.1f/s", tw->fire_rate),
+            ptxt(TextFormat("Cad   %.1f/s", tw->fire_rate),
                      rx,  py, 13, sc);
-            dtxt(TextFormat("Niv   %d",     tw->level),
+            ptxt(TextFormat("Niv   %d",     tw->level),
                      cx2, py, 13, nlc);  py += 17;
 
-            dtxt(TextFormat("Type  %s", DAMAGE_NAMES[tw->dmg_type]),
+            ptxt(TextFormat("Type  %s", DAMAGE_NAMES[tw->dmg_type]),
                      rx, py, 13, typc); py += 17;
 
             if (tw->material != MAT_NONE) {
                 clip_text(TextFormat("Mat: %s", MATERIAL_NAMES[tw->material]),
                           max_w, 13, buf, sizeof(buf));
-                dtxt(buf, rx, py, 13, matc);
+                ptxt(buf, rx, py, 13, matc);
                 py += 16;
             }
 
@@ -597,7 +762,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     ? "Synergie: corrode -> +25% phys/feu"
                     : "Frappe + fort gele / corrode";
                 clip_text(syn, max_w, 9, buf, sizeof(buf));
-                dtxt(buf, rx, py, 9, (Color){120, 200, 140, 230});
+                ptxt(buf, rx, py, 9, (Color){120, 200, 140, 230});
                 py += 14;
             }
 
@@ -632,7 +797,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                                 : _afford ? ubs[_u].col
                                           : (Color){60, 45, 15, 140};
                     DrawRectangleRounded(*ur, 0.15f, 4, _bg);
-                    DrawRectangleRoundedLinesEx(*ur, 0.15f, 4, 1.2f, _brd);
+                    DrawRectangleRoundedLinesEx(*ur, 0.15f, 4, 1.2f, pal_c(_brd));
 
                     /* Ligne 1 : étiquette type (y+2, fs=9) */
                     char _ltxt[12];
@@ -689,7 +854,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 Color _rbd = _can_rep  ? (Color){28, 130, 55, 200}
                                        : (Color){45, 35, 12, 120};
                 DrawRectangleRounded(rb, rrnd, 4, _rbg);
-                DrawRectangleRoundedLinesEx(rb, rrnd, 4, 1.2f, _rbd);
+                DrawRectangleRoundedLinesEx(rb, rrnd, 4, 1.2f, pal_c(_rbd));
                 char _rptxt[24];
                 snprintf(_rptxt, sizeof(_rptxt), "Rep. %d or", TOWER_REPAIR_COST);
                 int _rpw = mtxt(_rptxt, 10);
@@ -717,7 +882,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 DrawRectangleRounded(sb, srnd, 6,
                     hov ? (Color){48,8,8,255} : (Color){20,4,4,255});
                 DrawRectangleRoundedLinesEx(sb, srnd, 6, 1.5f,
-                    hov ? (Color){192,48,48,255} : (Color){90,18,18,255});
+                    pal_c(hov ? (Color){192,48,48,255} : (Color){90,18,18,255}));
                 float _rfrac = TOWER_SELL_REFUND + g_run_mods.sell_refund_add;
                 if (_rfrac > 1.0f) _rfrac = 1.0f;
                 int refund = (int)(tower_cost_on_tile(tw->type, &gs->map,
@@ -743,7 +908,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 DrawRectangleRounded(ab, arnd, 6,
                     hov ? (Color){4,26,36,255} : (Color){3,14,20,255});
                 DrawRectangleRoundedLinesEx(ab, arnd, 6, 1.5f,
-                    hov ? (Color){55,165,195,255} : (Color){24,82,100,255});
+                    pal_c(hov ? (Color){55,165,195,255} : (Color){24,82,100,255}));
 
                 /* Label : matériau + index si plusieurs en inventaire */
                 if (gs->inventory_count > 1) {
@@ -789,17 +954,20 @@ void ui_render(const UIState *ui, const GameState *gs) {
             const char *uname = (u->type < UNIT_TYPE_COUNT)
                               ? UNAMES[u->type] : "UNITE";
 
-            dtxt(uname, rx, py, 16, ucol); py += fh(16) + 4;
-            DrawLine(rx, py, rx+max_w, py, (Color){44,44,8,140}); py += 7;
+            ptxt(uname, rx, py, 16, ucol); py += fh(16) + 4;
+            DrawLine(rx, py, rx+max_w, py, pal_c((Color){44,44,8,140})); py += 7;
 
-            // HP bar
+            // HP bar — la barre « coule » vers la vraie valeur (2.5×/s)
             float hr = u->max_hp > 0.0f ? u->hp / u->max_hp : 0.0f;
             Color hc = hr > 0.6f ? (Color){46,204,113,255}
                      : hr > 0.3f ? (Color){243,156,18,255}
                                  : (Color){231,76,60,255};
+            static float disp_hr = 0.0f;
+            if (hp_snap) { disp_hr = hr; hp_snap = 0; }
+            disp_hr += (hr - disp_hr) * fminf(1.0f, ui_dt() * 2.5f);
             snprintf(buf, sizeof(buf), "HP   %.0f / %.0f", u->hp, u->max_hp);
-            dtxt(buf, rx, py, 13, hc); py += 14;
-            draw_bar(rx, py, max_w, 6, fmaxf(hr, 0.0f), hc, (Color){16,16,16,200});
+            ptxt(buf, rx, py, 13, hc); py += 14;
+            draw_bar(rx, py, max_w, 6, fmaxf(disp_hr, 0.0f), hc, (Color){16,16,16,200});
             py += 13;
 
             // État
@@ -811,9 +979,9 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     case USTATE_GOTO_BASE:    ss = "<- Base";     break;
                     default:                  ss = "En attente";  break;
                 }
-                dtxt(ss, rx, py, 13, (Color){148,128,95,255}); py += 17;
+                ptxt(ss, rx, py, 13, (Color){148,128,95,255}); py += 17;
                 if (!gs->units.mining_enabled)
-                    dtxt("Minage : pause vague", rx, py, 11,
+                    ptxt("Minage : pause vague", rx, py, 11,
                          (Color){200,180,50,200});
                 else if (u->state == USTATE_COLLECT) {
                     // Indicateur de ralentissement par ennemis
@@ -823,7 +991,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                         float _dx = _e->x - u->x, _dy = _e->y - u->y;
                         float _d2 = UNIT_WORKER_ENEMY_SLOW_RANGE * TILE_SIZE;
                         if (_dx*_dx + _dy*_dy <= _d2*_d2) {
-                            dtxt("! Ennemi proche: lent", rx, py, 11,
+                            ptxt("! Ennemi proche: lent", rx, py, 11,
                                  (Color){231,76,60,220});
                             break;
                         }
@@ -840,16 +1008,16 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 };
                 int beh = (int)u->behavior;
                 if (beh < 0 || beh > 4) beh = 0;
-                dtxt(BNAMES[beh], rx, py, 13, BCOLS[beh]); py += 17;
+                ptxt(BNAMES[beh], rx, py, 13, BCOLS[beh]); py += 17;
             }
 
             if (u->has_material && u->carried_mat != MAT_NONE) {
-                dtxt(TextFormat("Porte  %s", MATERIAL_NAMES[u->carried_mat]),
+                ptxt(TextFormat("Porte  %s", MATERIAL_NAMES[u->carried_mat]),
                          rx, py, 13, (Color){62,175,200,255}); py += 17;
             }
 
             if (u->type == UNIT_WORKER)
-                dtxt("Clic depot = mission", rx, py, 11, (Color){92,92,35,175});
+                ptxt("Clic depot = mission", rx, py, 11, (Color){92,92,35,175});
 
             // ── Boutons de comportement (unités de combat seulement) ──
             if (u->type != UNIT_WORKER) {
@@ -870,7 +1038,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                                 : (Color){50,38,14,150};
                     DrawRectangleRounded(*_br, 0.20f, 4, _bg);
                     DrawRectangleRoundedLinesEx(*_br, 0.20f, 4,
-                        _active ? 2.0f : 1.0f, _brd);
+                        _active ? 2.0f : 1.0f, pal_c(_brd));
                     int _tw4 = mtxt(BLBL[_b], 8);
                     dtxt(BLBL[_b],
                          (int)(_br->x + _br->width/2 - _tw4/2),
@@ -891,7 +1059,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                                         : (Color){50,38,14,150};
                     DrawRectangleRounded(*_br5, 0.20f, 4, _bg5);
                     DrawRectangleRoundedLinesEx(*_br5, 0.20f, 4,
-                        _act5 ? 2.0f : 1.0f, _brd5);
+                        _act5 ? 2.0f : 1.0f, pal_c(_brd5));
                     const char *_lbl5 = "SUIVRE UNITE";
                     int _tw5 = mtxt(_lbl5, 8);
                     dtxt(_lbl5,
@@ -910,7 +1078,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 DrawRectangleRounded(ub, urnd, 6,
                     hov ? (Color){30,10,4,255} : (Color){14,4,2,255});
                 DrawRectangleRoundedLinesEx(ub, urnd, 6, 1.5f,
-                    hov ? (Color){192,80,48,255} : (Color){80,30,16,255});
+                    pal_c(hov ? (Color){192,80,48,255} : (Color){80,30,16,255}));
                 int refund = (int)(UNIT_BASE_STATS[u->type].cost * 0.5f);
                 snprintf(buf, sizeof(buf), "Renvoyer  +%d or", refund);
                 int bw = mtxt(buf, 13);
@@ -927,24 +1095,25 @@ void ui_render(const UIState *ui, const GameState *gs) {
             Texture2D ptex = ui_tool_is_tower(ui->selected_tool)
                 ? g_tower_splash[ui_tool_to_tower(ui->selected_tool)]
                 : g_unit_splash [ui_tool_to_unit (ui->selected_tool)];
-            int pdone = draw_portrait(ptex, rx + max_w - PORTRAIT_SZ, HUD_Y + M, PORTRAIT_SZ, col);
+            int pdone = draw_portrait_anim(ptex, rx + max_w - PORTRAIT_SZ,
+                                           HUD_Y + M, PORTRAIT_SZ, col, sel_t);
             int text_w = pdone ? max_w - PORTRAIT_SZ - 6 : max_w;
 
             clip_text(info->name, text_w, 16, buf, sizeof(buf));
-            dtxt(buf, rx, py, 16, col);
+            ptxt(buf, rx, py, 16, col);
             py += 26;
-            DrawLine(rx, py, rx+max_w, py, (Color){44,28,8,140});
+            DrawLine(rx, py, rx+max_w, py, pal_c((Color){44,28,8,140}));
             py += 7;
 
             // Stats 2 colonnes (fs=13)
             Color sc2 = (Color){148,128,95,255};
             int   cx2 = rx + max_w / 2;
 
-            dtxt(TextFormat("Dmg   %.0f",  info->dmg),
+            ptxt(TextFormat("Dmg   %.0f",  info->dmg),
                      rx,  py, 13, sc2);
-            dtxt(TextFormat("Port  %.1ft", info->range),
+            ptxt(TextFormat("Port  %.1ft", info->range),
                      cx2, py, 13, sc2);  py += 17;
-            dtxt(TextFormat("Cad   %.1f/s",info->rate),
+            ptxt(TextFormat("Cad   %.1f/s",info->rate),
                      rx,  py, 13, sc2);  py += 17;
 
             if (ui_tool_is_tower(ui->selected_tool) &&
@@ -957,19 +1126,19 @@ void ui_render(const UIState *ui, const GameState *gs) {
                                             [ui->hovered_tile_x].type
                                == TILE_RUIN);
                 if (is_ruin) {
-                    dtxt(TextFormat("Cout  %d or (x2)", real_cost),
+                    ptxt(TextFormat("Cout  %d or (x2)", real_cost),
                              rx, py, 13, (Color){205,108,22,255}); py += 17;
                 } else {
-                    dtxt(TextFormat("Cout  %d or", real_cost),
+                    ptxt(TextFormat("Cout  %d or", real_cost),
                              rx, py, 13, (Color){212,138,25,255}); py += 17;
                 }
             } else {
-                dtxt(TextFormat("Cout  %d or", info->cost),
+                ptxt(TextFormat("Cout  %d or", info->cost),
                          rx, py, 13, (Color){212,138,25,255}); py += 17;
             }
             py += 3;
             clip_text(info->desc, max_w, 12, buf, sizeof(buf));
-            dtxt(buf, rx, py, 12, (Color){82,65,40,255});
+            ptxt(buf, rx, py, 12, (Color){82,65,40,255});
 
         } else {
             panel_right_empty:
@@ -978,6 +1147,10 @@ void ui_render(const UIState *ui, const GameState *gs) {
             dtxt("ou une tour", rx, py, 13, (Color){50,40,25,255}); py += 17;
             dtxt("posee.",      rx, py, 13, (Color){50,40,25,255});
         }
+
+        /* Fin du panneau droit : helpers redevenus neutres pour le reste */
+        g_sel_dx = 0;
+        g_sel_al = 1.0f;
     }
 
     // ════════════════════════════════════════════════
@@ -1002,14 +1175,60 @@ void ui_render(const UIState *ui, const GameState *gs) {
             int tx = ox + OV_P;
             int ty = oy + OV_P + 4;  // +4 pour la poignée
 
-            // Or
-            char gbuf[20];
-            if (gs->gold >= 10000)
-                snprintf(gbuf, sizeof(gbuf), "%dk", gs->gold / 1000);
-            else
-                snprintf(gbuf, sizeof(gbuf), "%d", gs->gold);
-            draw_icon(g_icon_gold, tx, ty, fh(12), WHITE);
-            dtxt(gbuf, tx + fh(12) + 2, ty, 12, (Color){230, 155, 35, 255});
+            // ── Or « vivant » : compteur roulant + flash gain/perte ──
+            {
+                static float disp_gold = -1.0f;  // -1 = snap au 1er passage
+                static int   prev_gold = -1;
+                static float fx_t      = 1e9f;   // temps depuis le dernier flash
+                static int   fx_gain   = 1;      // 1 = gain, 0 = perte
+
+                /* Snap : init ou nouvelle partie (écart aberrant) */
+                if (disp_gold < 0.0f ||
+                    fabsf((float)gs->gold - disp_gold) > 10000.0f) {
+                    disp_gold = (float)gs->gold;
+                    prev_gold = gs->gold;
+                }
+                /* Détection gain (≥ +5) / perte → lance le flash */
+                if (gs->gold != prev_gold) {
+                    int d = gs->gold - prev_gold;
+                    if (d >= 5)     { fx_t = 0.0f; fx_gain = 1; }
+                    else if (d < 0) { fx_t = 0.0f; fx_gain = 0; }
+                    prev_gold = gs->gold;
+                }
+                disp_gold += ((float)gs->gold - disp_gold)
+                           * fminf(1.0f, ui_dt() * 8.0f);
+                fx_t += ui_dt();
+
+                int shown = (int)(disp_gold + 0.5f);
+                char gbuf[20];
+                if (shown >= 10000)
+                    snprintf(gbuf, sizeof(gbuf), "%dk", shown / 1000);
+                else
+                    snprintf(gbuf, sizeof(gbuf), "%d", shown);
+
+                /* Icône : pop de taille au gain (1.0 → 1.25 → 1.0, 0.20 s) */
+                int base = fh(12);
+                int isz  = base;
+                if (fx_gain && fx_t < 0.20f) {
+                    float bump = sinf((fx_t / 0.20f) * PI);   // 0 → 1 → 0
+                    isz = (int)((float)base * (1.0f + 0.25f * bump) + 0.5f);
+                }
+                draw_icon(g_icon_gold, tx - (isz - base)/2, ty - (isz - base)/2,
+                          isz, WHITE);
+
+                /* Texte : blanc → or (gain, 0.25 s) ou rouge → or (perte, 0.20 s) */
+                Color gcol = {230, 155, 35, 255};
+                float fdur = fx_gain ? 0.25f : 0.20f;
+                if (fx_t < fdur) {
+                    float f = fx_t / fdur;                    // 0 = flash, 1 = normal
+                    Color from = fx_gain ? WHITE : (Color){255, 120, 80, 255};
+                    gcol = (Color){
+                        (unsigned char)(from.r + (gcol.r - from.r) * f),
+                        (unsigned char)(from.g + (gcol.g - from.g) * f),
+                        (unsigned char)(from.b + (gcol.b - from.b) * f), 255};
+                }
+                dtxt(gbuf, tx + base + 2, ty, 12, gcol);
+            }
             ty += line1_h + 3;
 
             // Vies — couleur et pulsation selon niveau critique
@@ -1026,9 +1245,35 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     unsigned char _lcg = (unsigned char)(30  + (int)(46.0f * _pp));
                     lc = (Color){_lcr, _lcg, 40, 255};
                 }
-                draw_icon(g_icon_heart, tx, ty, fh(12), lc);
+
+                /* ── Battement au dégât : scale élastique + anneau ── */
+                static int   prev_lives = -1;
+                static float hit_t      = 1e9f;
+                if (prev_lives < 0 || gs->lives > prev_lives)
+                    prev_lives = gs->lives;   // init / regain / nouvelle partie
+                if (gs->lives < prev_lives) {
+                    hit_t      = 0.0f;
+                    prev_lives = gs->lives;
+                }
+                hit_t += ui_dt();
+
+                int base = fh(12);
+                int isz  = base;
+                if (hit_t < 0.35f) {   // 1.0 → 1.5 → 1.0, retombée élastique
+                    float s = 1.0f + 0.5f * (1.0f - ea_out_elastic(hit_t / 0.35f));
+                    isz = (int)((float)base * s + 0.5f);
+                }
+                draw_icon(g_icon_heart, tx - (isz - base)/2, ty - (isz - base)/2,
+                          isz, lc);
+                if (hit_t < 0.40f) {   // onde de choc depuis le cœur
+                    float pr = hit_t / 0.40f;
+                    DrawCircleLines(tx + base/2, ty + base/2,
+                                    8.0f + 18.0f * pr,
+                                    (Color){lc.r, lc.g, lc.b,
+                                            (unsigned char)(200.0f * (1.0f - pr))});
+                }
                 dtxt(TextFormat("%d", gs->lives),
-                     tx + fh(12) + 2, ty, 12, lc);
+                     tx + base + 2, ty, 12, lc);
             }
             ty += line1_h + 3;
 
@@ -1077,18 +1322,56 @@ void ui_render(const UIState *ui, const GameState *gs) {
             int inner_w = ow - OV_P * 2;
 
             // Vague (X/min en campagne pour indiquer la progression)
+            // Au changement de numéro : l'ancien sort vers le haut pendant
+            // que le nouveau entre par le bas (slide vertical croisé).
             {
-                char _wbuf[28];
+                static int   prev_wave = -1;
+                static int   old_wave  = 0;
+                static float slide_t   = 1e9f;
+                int wave = gs->wave_manager.number;
+                if (prev_wave < 0 || wave < prev_wave) {
+                    prev_wave = wave;          // init / nouvelle partie : snap
+                    slide_t   = 1e9f;
+                } else if (wave != prev_wave) {
+                    old_wave  = prev_wave;
+                    prev_wave = wave;
+                    slide_t   = 0.0f;
+                }
+                slide_t += ui_dt();
+
+                int _mw = 0;
                 if (gs->is_campaign) {
                     const ActData *_cad = campaign_act_get(gs->campaign_stage);
-                    int _mw = _cad ? _cad->min_waves : 0;
-                    snprintf(_wbuf, sizeof(_wbuf), "Vague  %d / %d",
-                             gs->wave_manager.number, _mw);
-                } else {
-                    snprintf(_wbuf, sizeof(_wbuf), "Vague  %d",
-                             gs->wave_manager.number);
+                    _mw = _cad ? _cad->min_waves : 0;
                 }
-                dtxt(_wbuf, tx, ty, 12, (Color){185, 145, 60, 255});
+                char _wbuf[28];
+                Color wc = {185, 145, 60, 255};
+
+                if (slide_t < 0.30f) {
+                    float k = ea_out_cubic(slide_t / 0.30f);
+                    /* Ancien numéro : monte et s'efface */
+                    if (gs->is_campaign)
+                        snprintf(_wbuf, sizeof(_wbuf), "Vague  %d / %d", old_wave, _mw);
+                    else
+                        snprintf(_wbuf, sizeof(_wbuf), "Vague  %d", old_wave);
+                    dtxt(_wbuf, tx, ty - (int)(10.0f * k), 12,
+                         (Color){wc.r, wc.g, wc.b,
+                                 (unsigned char)((1.0f - k) * 255.0f)});
+                    /* Nouveau numéro : entre par le bas */
+                    if (gs->is_campaign)
+                        snprintf(_wbuf, sizeof(_wbuf), "Vague  %d / %d", wave, _mw);
+                    else
+                        snprintf(_wbuf, sizeof(_wbuf), "Vague  %d", wave);
+                    dtxt(_wbuf, tx, ty + (int)(10.0f * (1.0f - k)), 12,
+                         (Color){wc.r, wc.g, wc.b,
+                                 (unsigned char)(k * 255.0f)});
+                } else {
+                    if (gs->is_campaign)
+                        snprintf(_wbuf, sizeof(_wbuf), "Vague  %d / %d", wave, _mw);
+                    else
+                        snprintf(_wbuf, sizeof(_wbuf), "Vague  %d", wave);
+                    dtxt(_wbuf, tx, ty, 12, wc);
+                }
             }
             ty += 17 + 3;
 
@@ -1555,60 +1838,125 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
         // Couleur thématique par catégorie
         Color cat_col =
-            de->type == DISC_ENEMY ? (Color){210,  70,  50, 255} :
-            de->type == DISC_TOWER ? (Color){215, 155,  40, 255} :
-                                     (Color){ 70, 170,  80, 255};
+            de->type == DISC_ENEMY    ? (Color){210,  70,  50, 255} :
+            de->type == DISC_TOWER    ? (Color){215, 155,  40, 255} :
+            de->type == DISC_MATERIAL ? MATERIAL_COLORS[de->idx]     :
+                                        (Color){ 70, 170,  80, 255};
         Color cat_dim = (Color){cat_col.r/4, cat_col.g/4, cat_col.b/4, 255};
 
-        // Fond noir semi-transparent plein écran
-        DrawRectangle(0, 0, g_canvas_virt_w, g_canvas_virt_h, (Color){0,0,0,180});
+        /* ── Timer d'ouverture : réouverture (gap de rendu) ou fiche
+           suivante (le contenu de disc_queue[0] change). ── */
+        static int prev_dtype = -1, prev_didx = -1;
+        if (ui_timer_gap(SLOT_DISC) > 2 ||
+            (int)de->type != prev_dtype || de->idx != prev_didx) {
+            ui_timer(SLOT_DISC, 1);
+            prev_dtype = (int)de->type;
+            prev_didx  = de->idx;
+        }
+        float dt_open = ui_timer(SLOT_DISC, 0);
 
-        // Panneau principal
-        DrawRectangleRounded(
-            (Rectangle){(float)card_x,(float)card_y,(float)cw,(float)ch},
-            0.05f, 6, (Color){8,5,2,252});
-        DrawRectangleRoundedLinesEx(
-            (Rectangle){(float)card_x,(float)card_y,(float)cw,(float)ch},
-            0.05f, 6, 2.0f, cat_col);
+        /* Phases de la séquence */
+        float k1 = dt_open / DISC_BG_DUR;                      // fond + panneau
+        if (k1 > 1.0f) k1 = 1.0f;
+        float k2 = (dt_open - DISC_HDR_T0) / DISC_HDR_DUR;     // bandeau + titre
+        k2 = k2 < 0.0f ? 0.0f : k2 > 1.0f ? 1.0f : k2;
 
-        // Bandeau d'en-tête
+        // Fond noir semi-transparent plein écran (montée en 0.15 s)
+        DrawRectangle(0, 0, g_canvas_virt_w, g_canvas_virt_h,
+                      (Color){0,0,0,(unsigned char)(180.0f * k1)});
+
+        // Panneau principal : scale 0.92 → 1.0 autour du centre + fondu.
+        // Seul le DESSIN du cadre est mis à l'échelle ; le contenu et les
+        // hitbox (X, CONTINUER — gérées par hud_input) restent finaux.
+        {
+            float sc  = 0.92f + 0.08f * ea_out_cubic(k1);
+            float scw = (float)cw * sc, sch = (float)ch * sc;
+            Rectangle pr2 = {(float)cx - scw/2.0f, (float)cy - sch/2.0f, scw, sch};
+            DrawRectangleRounded(pr2, 0.05f, 6,
+                                 (Color){8,5,2,(unsigned char)(252.0f * k1)});
+            DrawRectangleRoundedLinesEx(pr2, 0.05f, 6, 2.0f,
+                (Color){cat_col.r, cat_col.g, cat_col.b,
+                        (unsigned char)(255.0f * k1)});
+        }
+
+        // Bandeau d'en-tête : se remplit de gauche à droite (clip manuel —
+        // BeginScissorMode opère en coordonnées écran, pas canvas)
         int hdr_h = 46;
-        DrawRectangleRounded(
-            (Rectangle){(float)card_x,(float)card_y,(float)cw,(float)hdr_h},
-            0.1f, 4, cat_dim);
-        DrawRectangleRoundedLinesEx(
-            (Rectangle){(float)card_x,(float)card_y,(float)cw,(float)hdr_h},
-            0.1f, 4, 1.5f, cat_col);
+        if (k2 > 0.0f) {
+            DrawRectangleRounded(
+                (Rectangle){(float)card_x,(float)card_y,(float)cw * k2,(float)hdr_h},
+                0.1f, 4, cat_dim);
+            DrawRectangleRoundedLinesEx(
+                (Rectangle){(float)card_x,(float)card_y,(float)cw,(float)hdr_h},
+                0.1f, 4, 1.5f,
+                (Color){cat_col.r, cat_col.g, cat_col.b,
+                        (unsigned char)(255.0f * k2)});
+        }
 
         // Badge catégorie
         const char *cat_lbl =
-            de->type == DISC_ENEMY ? "ENNEMI" :
-            de->type == DISC_TOWER ? "TOUR"   : "UNITE";
+            de->type == DISC_ENEMY    ? "ENNEMI"  :
+            de->type == DISC_TOWER    ? "TOUR"    :
+            de->type == DISC_MATERIAL ? "MINERAI" : "UNITE";
         int cl = mtxt(cat_lbl, 9);
         int badge_w = cl + 12, badge_h = 18;
         int bx = card_x + 12, by = card_y + hdr_h/2 - badge_h/2;
-        DrawRectangleRounded(
-            (Rectangle){(float)bx,(float)by,(float)badge_w,(float)badge_h},
-            0.4f, 4, cat_col);
-        dtxt(cat_lbl, bx + 6, by + badge_h/2 - fh(9)/2, 9, (Color){8,5,2,255});
+        /* Badge : « tamponne » à 0.30 s (scale 1.6 → 1.0, ea_out_back) */
+        {
+            float kb = (dt_open - DISC_BADGE_T0) / DISC_BADGE_DUR;
+            if (kb > 0.0f) {
+                float bs = (kb >= 1.0f) ? 1.0f
+                         : 1.6f - 0.6f * ea_out_back(kb);
+                float bw2 = (float)badge_w * bs, bh2 = (float)badge_h * bs;
+                float bcx = (float)bx + badge_w/2.0f, bcy = (float)by + badge_h/2.0f;
+                unsigned char ba = (unsigned char)(255.0f * (kb > 1.0f ? 1.0f : kb));
+                DrawRectangleRounded(
+                    (Rectangle){bcx - bw2/2.0f, bcy - bh2/2.0f, bw2, bh2},
+                    0.4f, 4, (Color){cat_col.r, cat_col.g, cat_col.b, ba});
+                dtxt(cat_lbl, bx + 6, by + badge_h/2 - fh(9)/2, 9,
+                     (Color){8,5,2,ba});
+            }
+        }
 
-        // Titre "DÉCOUVERTE !"
-        const char *disc_title = "DECOUVERTE !";
-        int tw_title = mtxt(disc_title, 16);
-        dtxt(disc_title, cx - tw_title/2, card_y + hdr_h/2 - fh(16)/2, 16, cat_col);
+        // Titre "DÉCOUVERTE !" — tracking qui se resserre (8 → 2 px)
+        {
+            const char *disc_title = "DECOUVERTE !";
+            int   fs      = 16;
+            float spacing = 2.0f + (1.0f - k2) * 6.0f;
+            float total   = 0.0f;
+            for (int i = 0; disc_title[i]; i++) {
+                char one[2] = {disc_title[i], '\0'};
+                total += (float)mtxt(one, fs);
+                if (disc_title[i+1]) total += spacing;
+            }
+            float lx = (float)cx - total * 0.5f;
+            int   ly = card_y + hdr_h/2 - fh(fs)/2;
+            unsigned char ta = (unsigned char)(255.0f * k2);
+            for (int i = 0; disc_title[i]; i++) {
+                char one[2] = {disc_title[i], '\0'};
+                dtxt(one, (int)lx, ly, fs,
+                     (Color){cat_col.r, cat_col.g, cat_col.b, ta});
+                lx += (float)mtxt(one, fs) + spacing;
+            }
+        }
 
         // Bouton [✕]
         int xbw = 28, xbh = 22;
         int xbx = card_x + cw - 10 - xbw, xby = card_y + 10;
         Rectangle xbtn = {(float)xbx,(float)xby,(float)xbw,(float)xbh};
         int xhov = CheckCollisionPointRec(virt_mouse(), xbtn);
-        DrawRectangleRounded(xbtn, 0.3f, 4,
-            xhov ? (Color){180,50,40,240} : (Color){60,30,20,200});
-        DrawRectangleRoundedLinesEx(xbtn, 0.3f, 4, 1.5f,
-            xhov ? (Color){255,100,80,255} : cat_col);
-        int xw = mtxt("X", 11);
-        dtxt("X", xbx + xbw/2 - xw/2, xby + xbh/2 - fh(11)/2, 11,
-             xhov ? WHITE : (Color){200,170,130,255});
+        if (k2 > 0.0f) {   // apparaît avec le bandeau (hitbox : hud_input)
+            Color xbg = xhov ? (Color){180,50,40,240} : (Color){60,30,20,200};
+            Color xbd = xhov ? (Color){255,100,80,255} : cat_col;
+            Color xtc = xhov ? WHITE : (Color){200,170,130,255};
+            xbg.a = (unsigned char)((float)xbg.a * k2);
+            xbd.a = (unsigned char)((float)xbd.a * k2);
+            xtc.a = (unsigned char)((float)xtc.a * k2);
+            DrawRectangleRounded(xbtn, 0.3f, 4, xbg);
+            DrawRectangleRoundedLinesEx(xbtn, 0.3f, 4, 1.5f, xbd);
+            int xw = mtxt("X", 11);
+            dtxt("X", xbx + xbw/2 - xw/2, xby + xbh/2 - fh(11)/2, 11, xtc);
+        }
 
         // Corps de la fiche
         int body_y = card_y + hdr_h + 12;
@@ -1619,30 +1967,48 @@ void ui_render(const UIState *ui, const GameState *gs) {
         Texture2D *spl = NULL;
         if      (de->type == DISC_ENEMY) spl = &g_enemy_splash[de->idx];
         else if (de->type == DISC_TOWER) spl = &g_tower_splash[de->idx];
-        else                              spl = &g_unit_splash [de->idx];
+        else if (de->type == DISC_UNIT)  spl = &g_unit_splash [de->idx];
+        // DISC_MATERIAL : pas de splash → le fallback dessine un carre couleur minerai
 
         int spl_x = card_x + pad;
         int spl_y = body_y;
-        if (spl && spl->id != 0) {
-            DrawTexturePro(*spl,
-                (Rectangle){0,0,(float)spl->width,(float)spl->height},
-                (Rectangle){(float)spl_x,(float)spl_y,
-                            (float)splash_sz,(float)splash_sz},
-                (Vector2){0,0}, 0.0f, WHITE);
-            DrawRectangleLinesEx(
-                (Rectangle){(float)spl_x,(float)spl_y,
-                            (float)splash_sz,(float)splash_sz},
-                1.5f, cat_col);
-        } else {
-            // Fallback : carré coloré
-            DrawRectangleRounded(
-                (Rectangle){(float)spl_x,(float)spl_y,
-                            (float)splash_sz,(float)splash_sz},
-                0.1f, 4, cat_dim);
-            DrawRectangleRoundedLinesEx(
-                (Rectangle){(float)spl_x,(float)spl_y,
-                            (float)splash_sz,(float)splash_sz},
-                0.1f, 4, 1.5f, cat_col);
+        /* Slide depuis la gauche (-30 px) + fondu, puis flash de révélation */
+        {
+            float k3 = (dt_open - DISC_SPL_T0) / DISC_SPL_DUR;
+            k3 = k3 < 0.0f ? 0.0f : k3 > 1.0f ? 1.0f : k3;
+            int  sxo = spl_x - (int)(30.0f * (1.0f - ea_out_cubic(k3)));
+            unsigned char sa = (unsigned char)(255.0f * k3);
+            if (k3 > 0.0f) {
+                if (spl && spl->id != 0) {
+                    DrawTexturePro(*spl,
+                        (Rectangle){0,0,(float)spl->width,(float)spl->height},
+                        (Rectangle){(float)sxo,(float)spl_y,
+                                    (float)splash_sz,(float)splash_sz},
+                        (Vector2){0,0}, 0.0f, (Color){255,255,255,sa});
+                    DrawRectangleLinesEx(
+                        (Rectangle){(float)sxo,(float)spl_y,
+                                    (float)splash_sz,(float)splash_sz},
+                        1.5f, (Color){cat_col.r, cat_col.g, cat_col.b, sa});
+                } else {
+                    // Fallback : carré coloré
+                    DrawRectangleRounded(
+                        (Rectangle){(float)sxo,(float)spl_y,
+                                    (float)splash_sz,(float)splash_sz},
+                        0.1f, 4,
+                        (Color){cat_dim.r, cat_dim.g, cat_dim.b, sa});
+                    DrawRectangleRoundedLinesEx(
+                        (Rectangle){(float)sxo,(float)spl_y,
+                                    (float)splash_sz,(float)splash_sz},
+                        0.1f, 4, 1.5f,
+                        (Color){cat_col.r, cat_col.g, cat_col.b, sa});
+                }
+            }
+            /* Flash blanc bref qui « révèle » l'image */
+            float kf = (dt_open - DISC_FLASH_T0) / DISC_FLASH_DUR;
+            if (kf > 0.0f && kf < 1.0f)
+                DrawRectangle(spl_x, spl_y, splash_sz, splash_sz,
+                              (Color){255,255,255,
+                                      (unsigned char)(90.0f * (1.0f - kf))});
         }
 
         // Texte à droite du splash
@@ -1652,32 +2018,51 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
         // Nom de l'entité
         const char *name = NULL;
-        if      (de->type == DISC_ENEMY) name = ENEMY_BASE_STATS[de->idx].name;
-        else if (de->type == DISC_TOWER) name = TOWER_BASE_STATS[de->idx].name;
-        else                              name = UNIT_BASE_STATS [de->idx].name;
-        dtxt(name, txt_x, txt_y, 20, cat_col);
+        if      (de->type == DISC_ENEMY)    name = ENEMY_BASE_STATS[de->idx].name;
+        else if (de->type == DISC_TOWER)    name = TOWER_BASE_STATS[de->idx].name;
+        else if (de->type == DISC_MATERIAL) name = MATERIAL_NAMES  [de->idx];
+        else                                name = UNIT_BASE_STATS [de->idx].name;
+        disc_txt(name, txt_x, txt_y, 20, cat_col,
+                 dt_open, DISC_TXT_T0);
         txt_y += fh(20) + 2;
 
         // Sous-titre type
         const char *sub =
-            de->type == DISC_ENEMY ? "Ennemi rencontre" :
-            de->type == DISC_TOWER ? "Tour de defense"  : "Unite alliee";
-        dtxt(sub, txt_x, txt_y, 9, (Color){100,85,60,220});
+            de->type == DISC_ENEMY    ? "Ennemi rencontre" :
+            de->type == DISC_TOWER    ? "Tour de defense"  :
+            de->type == DISC_MATERIAL ? "Minerai - a appliquer sur une tour" :
+                                        "Unite alliee";
+        disc_txt(sub, txt_x, txt_y, 9, (Color){100,85,60,220},
+                 dt_open, DISC_TXT_T0 + DISC_TXT_STEP);
         txt_y += fh(9) + 8;
 
-        // Séparateur
-        DrawLineEx((Vector2){(float)txt_x,(float)txt_y},
-                   (Vector2){(float)(txt_x+txt_w),(float)txt_y},
-                   1.2f, (Color){cat_col.r/3,cat_col.g/3,cat_col.b/3,220});
+        // Séparateur (fondu avec les lignes voisines)
+        {
+            float ks = (dt_open - (DISC_TXT_T0 + DISC_TXT_STEP)) / DISC_LINE_DUR;
+            ks = ks < 0.0f ? 0.0f : ks > 1.0f ? 1.0f : ks;
+            DrawLineEx((Vector2){(float)txt_x,(float)txt_y},
+                       (Vector2){(float)(txt_x+txt_w),(float)txt_y},
+                       1.2f, (Color){cat_col.r/3,cat_col.g/3,cat_col.b/3,
+                                     (unsigned char)(220.0f * ks)});
+        }
         txt_y += 6;
 
         // Stats condensées
-        char stat_a[64] = {0}, stat_b[64] = {0};
+        char stat_a[64] = {0}, stat_b[96] = {0};   // stat_b : liste des faiblesses ennemi
         if (de->type == DISC_ENEMY) {
             snprintf(stat_a, sizeof(stat_a), "PV : %.0f   Vitesse : %.1f   Or : %d",
                      ENEMY_BASE_STATS[de->idx].hp,
                      ENEMY_BASE_STATS[de->idx].speed,
                      ENEMY_BASE_STATS[de->idx].reward);
+            // Faiblesses elementaires (mult >= 1.3) : apprend le CONTRE a utiliser.
+            char wk[64]; int off = 0, wn = 0;
+            for (int d = 0; d < DAMAGE_TYPE_COUNT && off < (int)sizeof(wk) - 1; d++) {
+                if (ENEMY_DMG_MULT[de->idx][d] >= 1.30f)
+                    off += snprintf(wk + off, sizeof(wk) - off, "%s%s",
+                                    wn++ ? ", " : "", DAMAGE_NAMES[d]);
+            }
+            if (wn) snprintf(stat_b, sizeof(stat_b), "Faible : %s", wk);
+            else    snprintf(stat_b, sizeof(stat_b), "Peu de faiblesse elementaire");
         } else if (de->type == DISC_TOWER) {
             snprintf(stat_a, sizeof(stat_a), "Cout : %d or   Dgts : %.0f",
                      TOWER_BASE_STATS[de->idx].cost,
@@ -1685,6 +2070,9 @@ void ui_render(const UIState *ui, const GameState *gs) {
             snprintf(stat_b, sizeof(stat_b), "Portee : %.1f   Cad : %.1f/s",
                      TOWER_BASE_STATS[de->idx].range,
                      TOWER_BASE_STATS[de->idx].fire_rate);
+        } else if (de->type == DISC_MATERIAL) {
+            snprintf(stat_a, sizeof(stat_a), "Applique a une tour : gros bonus");
+            snprintf(stat_b, sizeof(stat_b), "Change son type de degats");
         } else {
             snprintf(stat_a, sizeof(stat_a), "Cout : %d or   PV : %.0f",
                      UNIT_BASE_STATS[de->idx].cost,
@@ -1693,13 +2081,26 @@ void ui_render(const UIState *ui, const GameState *gs) {
                      UNIT_BASE_STATS[de->idx].damage,
                      UNIT_BASE_STATS[de->idx].speed);
         }
-        if (stat_a[0]) { dtxt(stat_a, txt_x, txt_y, 10, (Color){175,155,115,255}); txt_y += fh(10)+3; }
-        if (stat_b[0]) { dtxt(stat_b, txt_x, txt_y, 10, (Color){175,155,115,255}); txt_y += fh(10)+6; }
+        if (stat_a[0]) {
+            disc_txt(stat_a, txt_x, txt_y, 10, (Color){175,155,115,255},
+                     dt_open, DISC_TXT_T0 + 2*DISC_TXT_STEP);
+            txt_y += fh(10)+3;
+        }
+        if (stat_b[0]) {
+            disc_txt(stat_b, txt_x, txt_y, 10, (Color){175,155,115,255},
+                     dt_open, DISC_TXT_T0 + 3*DISC_TXT_STEP);
+            txt_y += fh(10)+6;
+        }
 
-        // Séparateur
-        DrawLineEx((Vector2){(float)txt_x,(float)txt_y},
-                   (Vector2){(float)(txt_x+txt_w),(float)txt_y},
-                   1.0f, (Color){cat_col.r/4,cat_col.g/4,cat_col.b/4,180});
+        // Séparateur (fondu)
+        {
+            float ks = (dt_open - (DISC_TXT_T0 + 3*DISC_TXT_STEP)) / DISC_LINE_DUR;
+            ks = ks < 0.0f ? 0.0f : ks > 1.0f ? 1.0f : ks;
+            DrawLineEx((Vector2){(float)txt_x,(float)txt_y},
+                       (Vector2){(float)(txt_x+txt_w),(float)txt_y},
+                       1.0f, (Color){cat_col.r/4,cat_col.g/4,cat_col.b/4,
+                                     (unsigned char)(180.0f * ks)});
+        }
         txt_y += 6;
 
         // ── Description + lore : PLEINE LARGEUR sous le splash ─────
@@ -1712,40 +2113,77 @@ void ui_render(const UIState *ui, const GameState *gs) {
         int y_lim = card_y + ch - 14 - 34 - 12;      // au-dessus du bouton CONTINUER
 
         const char *desc = NULL;
-        if      (de->type == DISC_ENEMY) desc = ENEMY_DESC[de->idx];
-        else if (de->type == DISC_TOWER) desc = TOWER_BASE_STATS[de->idx].description;
-        else                              desc = UNIT_BASE_STATS [de->idx].description;
-        draw_wrapped(desc, fx, &desc_y, fw, 11, (Color){190,170,120,255}, y_lim);
+        if      (de->type == DISC_ENEMY)    desc = ENEMY_DESC[de->idx];
+        else if (de->type == DISC_TOWER)    desc = TOWER_BASE_STATS[de->idx].description;
+        else if (de->type == DISC_MATERIAL) desc = MATERIAL_DESC[de->idx];
+        else                                desc = UNIT_BASE_STATS [de->idx].description;
+        {   /* description puis lore : fondu en cascade (alpha seul) */
+            float kd = (dt_open - (DISC_TXT_T0 + 4*DISC_TXT_STEP)) / DISC_LINE_DUR;
+            kd = kd < 0.0f ? 0.0f : kd > 1.0f ? 1.0f : kd;
+            if (kd > 0.0f)
+                draw_wrapped(desc, fx, &desc_y, fw, 11,
+                             (Color){190,170,120,(unsigned char)(255.0f*kd)},
+                             y_lim);
+        }
         desc_y += 5;
 
         const char *lore = NULL;
-        if      (de->type == DISC_ENEMY) lore = ENEMY_SPEC[de->idx];
-        else if (de->type == DISC_TOWER) lore = TOWER_LORE[de->idx];
-        else                              lore = UNIT_LORE [de->idx];
-        draw_wrapped(lore, fx, &desc_y, fw, 9, (Color){145,130,95,200}, y_lim);
+        if      (de->type == DISC_ENEMY)    lore = ENEMY_SPEC[de->idx];
+        else if (de->type == DISC_TOWER)    lore = TOWER_LORE[de->idx];
+        else if (de->type == DISC_MATERIAL) lore = MATERIAL_LORE[de->idx];
+        else                                lore = UNIT_LORE [de->idx];
+        {
+            float kl = (dt_open - (DISC_TXT_T0 + 5*DISC_TXT_STEP)) / DISC_LINE_DUR;
+            kl = kl < 0.0f ? 0.0f : kl > 1.0f ? 1.0f : kl;
+            if (kl > 0.0f)
+                draw_wrapped(lore, fx, &desc_y, fw, 9,
+                             (Color){145,130,95,(unsigned char)(200.0f*kl)},
+                             y_lim);
+        }
 
-        // Compteur si plusieurs fiches en attente
+        // Compteur si plusieurs fiches en attente — bounce quand N change
         if (ui->disc_count > 1) {
+            static int   prev_n   = -1;
+            static float bounce_t = 1e9f;
+            if (ui->disc_count != prev_n) {
+                if (prev_n >= 0) bounce_t = 0.0f;
+                prev_n = ui->disc_count;
+            }
+            bounce_t += ui_dt();
+            int qfs = 9;
+            if (bounce_t < 0.20f)   /* scale 1.3 → 1.0 via taille de police */
+                qfs = 9 + (int)(3.0f * (1.0f - ea_out_cubic(bounce_t / 0.20f)));
             char qbuf[32];
             snprintf(qbuf, sizeof(qbuf), "+%d en attente", ui->disc_count - 1);
-            int qw = mtxt(qbuf, 9);
+            int qw = mtxt(qbuf, qfs);
             dtxt(qbuf, card_x + cw - pad - qw,
-                 card_y + ch - 14 - 34 - 4 - fh(9), 9,
+                 card_y + ch - 14 - 34 - 4 - fh(9), qfs,
                  (Color){100,85,60,200});
         }
 
-        // Bouton CONTINUER
-        int btnw = 160, btnh = 34;
-        int btnx = cx - btnw/2, btny = card_y + ch - 14 - btnh;
-        Rectangle cont = {(float)btnx,(float)btny,(float)btnw,(float)btnh};
-        int chov = CheckCollisionPointRec(virt_mouse(), cont);
-        DrawRectangleRounded(cont, 0.3f, 4,
-            chov ? cat_col : cat_dim);
-        DrawRectangleRoundedLinesEx(cont, 0.3f, 4, 1.5f, cat_col);
-        const char *btn_lbl = ui->disc_count > 1 ? "SUIVANT >" : "CONTINUER";
-        int blw = mtxt(btn_lbl, 12);
-        dtxt(btn_lbl, btnx + btnw/2 - blw/2,
-             btny + btnh/2 - fh(12)/2, 12,
-             chov ? (Color){8,5,2,255} : cat_col);
+        // Bouton CONTINUER — apparaît à 0.55 s, cliquable dès la frame 1
+        // (le clic est géré par hud_input.c, indépendant du dessin).
+        {
+            float kb2 = (dt_open - DISC_BTN_T0) / DISC_LINE_DUR;
+            kb2 = kb2 < 0.0f ? 0.0f : kb2 > 1.0f ? 1.0f : kb2;
+            if (kb2 > 0.0f) {
+                int btnw = 160, btnh = 34;
+                int btnx = cx - btnw/2, btny = card_y + ch - 14 - btnh;
+                Rectangle cont = {(float)btnx,(float)btny,(float)btnw,(float)btnh};
+                int chov = CheckCollisionPointRec(virt_mouse(), cont);
+                Color cbg = chov ? cat_col : cat_dim;
+                Color ctc = chov ? (Color){8,5,2,255} : cat_col;
+                cbg.a = (unsigned char)((float)cbg.a * kb2);
+                ctc.a = (unsigned char)((float)ctc.a * kb2);
+                DrawRectangleRounded(cont, 0.3f, 4, cbg);
+                DrawRectangleRoundedLinesEx(cont, 0.3f, 4, 1.5f,
+                    (Color){cat_col.r, cat_col.g, cat_col.b,
+                            (unsigned char)(255.0f * kb2)});
+                const char *btn_lbl = ui->disc_count > 1 ? "SUIVANT >" : "CONTINUER";
+                int blw = mtxt(btn_lbl, 12);
+                dtxt(btn_lbl, btnx + btnw/2 - blw/2,
+                     btny + btnh/2 - fh(12)/2, 12, ctc);
+            }
+        }
     }
 }

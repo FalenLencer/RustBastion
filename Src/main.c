@@ -128,8 +128,9 @@ int main(int argc, char **argv) {
         menu_set_mouse_offset  (pres_x, pres_y, scale, scale);
 
         /* Pré-passe 3D : rend les tours articulées (visée + tir) en textures
-           AVANT la passe canvas (raylib interdit les RenderTexture imbriqués). */
-        if (ctx.screen == SCREEN_GAME) {
+           AVANT la passe canvas (raylib interdit les RenderTexture imbriqués).
+           Inutile en MODE HÉROS : la scène 3D dessine les modèles en direct. */
+        if (ctx.screen == SCREEN_GAME && !ctx.hero_mode) {
             render3d_prepass(&ctx.gs.towers, &ctx.gs.enemies);
             if (g_units_3d) {
                 render3d_units_prepass(&ctx.gs.units, &ctx.gs.enemies);   /* mode de vue 3D */

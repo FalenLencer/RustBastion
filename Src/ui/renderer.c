@@ -64,6 +64,7 @@ int   g_canvas_virt_w_base = MAP_W * TILE_SIZE;
 int   g_canvas_virt_h      = MAP_H * TILE_SIZE + UI_HUD_HEIGHT;
 float g_map_render_scale   = 1.0f;   // zoom de la carte (1 = standard, <1 = grande carte)
 int   g_colorblind         = 0;      // 1 = palette ennemis daltonien-safe (Okabe-Ito)
+int   g_show_entity_names  = 0;      // 1 = nom des ennemis au-dessus des sprites (option)
 int   g_units_3d           = 0;      // 1 = unités/ennemis en 3D ; 0 = sprites 2D (défaut)
 float g_map_zoom           = 1.0f;   // zoom JOUEUR (molette), 1..3
 float g_map_pan_x          = 0.0f;   // décalage horizontal (en pixels canvas) quand zoom>1
@@ -279,11 +280,27 @@ void render_paths(const PathSet *ps) {
 // ════════════════════════════════════════════════════
 void render_enemies(const EnemyPool *pool) {
     float t = (float)GetTime();
- 
-    for (int i = 0; i < MAX_ENEMIES; i++) {
+
+    /* Tri par profondeur (y croissant) — même principe que render_towers :
+       les sprites 3D hauts (ancres par le bas) d'ennemis proches se
+       chevauchent correctement (celui de devant dessine en dernier). */
+    int order[MAX_ENEMIES], nord = 0;
+    for (int k = 0; k < MAX_ENEMIES; k++) {
+        const Enemy *ek = &pool->enemies[k];
+        if (ek->active && !ek->dead && ek->spawn_delay <= 0.0f) order[nord++] = k;
+    }
+    for (int a = 1; a < nord; a++) {           /* insertion sort (nord petit) */
+        int   key = order[a];
+        float ky  = pool->enemies[key].y;
+        int   b   = a - 1;
+        while (b >= 0 && pool->enemies[order[b]].y > ky) { order[b+1] = order[b]; b--; }
+        order[b+1] = key;
+    }
+
+    for (int o = 0; o < nord; o++) {
+        int i = order[o];
         const Enemy *e = &pool->enemies[i];
-        if (!e->active || e->dead || e->spawn_delay > 0.0f) continue;
- 
+
         // Ombre
         DrawEllipse((int)e->x + 2, (int)e->y + (int)e->size,
                     (int)(e->size * 0.8f), (int)(e->size * 0.3f),
@@ -452,8 +469,10 @@ void render_enemies(const EnemyPool *pool) {
                          : ratio > 0.3f ? (Color){243,156,18,255}
                                         : (Color){231,76,60,255};
             DrawRectangle(bx, by, (int)(bw * ratio), 3, hp_col);
-            dtxt(ENEMY_BASE_STATS[e->type].name,
-                     bx, by-12, 8, (Color){200,200,180,180});
+            /* Nom de l'espece : optionnel (defaut OFF — reduit le bruit) */
+            if (g_show_entity_names)
+                dtxt(ENEMY_BASE_STATS[e->type].name,
+                         bx, by-12, 8, (Color){200,200,180,180});
         }
     }
 }
@@ -715,9 +734,21 @@ void render_units(const UnitPool *up) {
                     UNIT_BASE_STATS[UNIT_SOLDIER].intercept_range * TILE_SIZE,
                     (Color){231,76,60,40});
 
-    for (int i = 0; i < MAX_UNITS; i++) {
+    /* Tri par profondeur (y croissant) — cf. render_towers/render_enemies. */
+    int order[MAX_UNITS], nord = 0;
+    for (int k = 0; k < MAX_UNITS; k++)
+        if (up->units[k].active) order[nord++] = k;
+    for (int a = 1; a < nord; a++) {           /* insertion sort (nord petit) */
+        int   key = order[a];
+        float ky  = up->units[key].y;
+        int   b   = a - 1;
+        while (b >= 0 && up->units[order[b]].y > ky) { order[b+1] = order[b]; b--; }
+        order[b+1] = key;
+    }
+
+    for (int o = 0; o < nord; o++) {
+        int i = order[o];
         const Unit *u = &up->units[i];
-        if (!u->active) continue;
 
         // Couleur selon type
         Color col = (u->type < UNIT_TYPE_COUNT) ? UNIT_FILL[u->type]

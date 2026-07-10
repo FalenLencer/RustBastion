@@ -67,6 +67,10 @@ void wave_update           (WaveManager *wm, EnemyPool *pool,
 int  wave_ready            (const WaveManager *wm);
 void wave_start            (WaveManager *wm);
 
+// Or bonus de LANCEMENT ANTICIPÉ : proportionnel au temps de prépa restant
+// (source unique : bouton HUD 2D + touche [F] du mode Héros).
+int  wave_early_launch_bonus(const WaveManager *wm);
+
 // Aperçu : remplit out[] avec les types d'ennemis susceptibles d'apparaître
 // à la vague `wave_num` (triés du plus probable au moins). Retourne le nombre.
 int  wave_preview_types    (int wave_num, ThemeID theme, int is_campaign,
