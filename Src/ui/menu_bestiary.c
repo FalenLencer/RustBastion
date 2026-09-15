@@ -7,8 +7,8 @@
 /*  menu_bestiary.c ─ Écran Bestiaire.
  *
  *  Contient :
- *    draw_bestiary   — 5 onglets : Ennemis, Minerais, Tours, Unités, Butin
- *                      (le dernier référence les perks de run & la boutique)
+ *    draw_bestiary   — 6 onglets : Ennemis, Minerais, Tours, Unités, Butin,
+ *                      Succès (P1.3 : catalogue + progression + ferraille)
  *
  *  Helpers locaux (statiques) :
  *    draw_multiline  — Rendu de texte multiligne séparé par \n
@@ -16,8 +16,9 @@
  */
 
 #include "menu_internal.h"
-#include "../game/runperks.h"   // catalogue de perks (onglet Butin)
-#include "perk_art.h"           // emblèmes pixel-art des perks
+#include "../game/runperks.h"      // catalogue de perks (onglet Butin)
+#include "../game/achievements.h"  // succes (onglet Succes)
+#include "perk_art.h"              // emblèmes pixel-art des perks
 
 // Couleurs des minerais : on réutilise la source unique MATERIAL_COLORS
 // (renderer.h) au lieu d'une copie divergente.
@@ -108,11 +109,11 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
 
     // ── Onglets ──────────────────────────────────────────────────
     int tab_w = 122, tab_h = 26, tab_gap = 6;
-    int tabs_total = 5 * tab_w + 4 * tab_gap;
+    int tabs_total = 6 * tab_w + 5 * tab_gap;
     int tab_x0 = vw/2 - tabs_total/2;
     int tab_y  = M_PAD + 86;
 
-    for (int t = 0; t < 5; t++) {
+    for (int t = 0; t < 6; t++) {
         int tx  = tab_x0 + t * (tab_w + tab_gap);
         int sel = (m->bestiary_tab == t);
         Rectangle tr = {(float)tx, (float)tab_y, (float)tab_w, (float)tab_h};
@@ -130,7 +131,9 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             case 1: snprintf(lbuf, sizeof(lbuf), "MINERAIS %d/%d", nb_mat_disc,   MAT_COUNT);        break;
             case 2: snprintf(lbuf, sizeof(lbuf), "TOURS %d/%d",    nb_tower_disc, META_TOWER_COUNT); break;
             case 3: snprintf(lbuf, sizeof(lbuf), "UNITES");                                           break;
-            default:snprintf(lbuf, sizeof(lbuf), "BUTIN %d", PERK_COUNT);                             break;
+            case 4: snprintf(lbuf, sizeof(lbuf), "BUTIN %d", PERK_COUNT);                             break;
+            default:snprintf(lbuf, sizeof(lbuf), "SUCCES %d/%d",
+                             ach_unlocked_count(), ACH_COUNT);                                        break;
         }
         int tw2 = mtxt(lbuf, 11);
         dtxt(lbuf, tx + tab_w/2 - tw2/2, tab_y + tab_h/2 - fh(11)/2, 11,
@@ -245,28 +248,28 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                 {
                     int bar_w = pw - (spl->id != 0 ? splash_sz + M_IN : 0);
                     if (bar_w < 80) bar_w = 80;
-                    dtxt("PV de base :", px, py, 9, C_DIM);
-                    py += fh(9) + 2;
+                    dtxt("PV de base :", px, py, 10, C_DIM);
+                    py += fh(10) + 2;
                     DrawRectangle(px, py, bar_w, 10, (Color){20,14,5,200});
                     DrawRectangle(px, py, bar_w, 10, (Color){60, 180, 80, 200});
                     char hps[24];
                     snprintf(hps, sizeof(hps), "%.0f", ENEMY_BASE_STATS[si].hp);
-                    dtxt(hps, px + 3, py - 1, 8, WHITE);
+                    dtxt(hps, px + 3, py - 1, 10, WHITE);
                     py += 14;
                 }
 
                 draw_sep(px, py, sep_w, C_BORDER); py += M_IN + 2;
                 dtxt("Description :", px, py, 10, C_GOLD); py += fh(10) + 3;
                 if (ENEMY_DESC[si])
-                    draw_multiline(ENEMY_DESC[si], px, &py, 9,
-                                   (Color){160, 145, 100, 255}, fh(9) + 3);
+                    draw_multiline(ENEMY_DESC[si], px, &py, 10,
+                                   (Color){160, 145, 100, 255}, fh(10) + 3);
 
                 py += M_IN;
                 draw_sep(px, py, sep_w, C_BORDER); py += M_IN + 2;
                 dtxt("Specialite :", px, py, 10, C_GOLD); py += fh(10) + 3;
                 if (ENEMY_SPEC[si])
-                    draw_multiline(ENEMY_SPEC[si], px, &py, 9,
-                                   (Color){160, 145, 100, 255}, fh(9) + 3);
+                    draw_multiline(ENEMY_SPEC[si], px, &py, 10,
+                                   (Color){160, 145, 100, 255}, fh(10) + 3);
 
                 py += M_IN;
                 draw_sep(px, py, sep_w, C_BORDER); py += M_IN + 2;
@@ -315,7 +318,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                     dtxt(MATERIAL_NAMES[i], tx+18, ty, 11, sel ? mc : C_TEXT);
                     char dbuf[48];
                     clip_text(MATERIAL_DESC[i], list_w-28, 9, dbuf, sizeof(dbuf));
-                    dtxt(dbuf, tx+18, (int)r.y+entry_h/2+3, 9, C_DIM);
+                    dtxt(dbuf, tx+18, (int)r.y+entry_h/2+3, 10, C_DIM);
                 } else { dtxt("???", tx, ty, 11, C_DIM); }
                 if (vclick_r(r)) { m->sel_material = i; audio_play_sfx(AUDIO_SFX_MENU_CLICK); }
                 ey += entry_h + gap;
@@ -339,7 +342,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                 char ini[2] = {MATERIAL_NAMES[si][0],'\0'};
                 dtxt(ini, px+icon_sz/2-mtxt(ini,22)/2, py+icon_sz/2-fh(22)/2, 22, mc);
                 dtxt(MATERIAL_NAMES[si], px+icon_sz+M_IN, py+4, 20, mc);
-                dtxt("Minerai collectible", px+icon_sz+M_IN, py+4+fh(20)+2, 9, C_DIM);
+                dtxt("Minerai collectible", px+icon_sz+M_IN, py+4+fh(20)+2, 10, C_DIM);
                 py += icon_sz+M_IN;
                 draw_sep(px,py,pw,C_BORDER); py += M_IN+2;
                 dtxt("Effet :", px, py, 10, C_GOLD); py += fh(10)+3;
@@ -348,8 +351,8 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                 draw_sep(px,py,pw,C_BORDER); py += M_IN+2;
                 dtxt("Description :", px, py, 10, C_GOLD); py += fh(10)+3;
                 if (MATERIAL_LORE[si])
-                    draw_multiline(MATERIAL_LORE[si], px, &py, 9,
-                                   (Color){160,145,100,255}, fh(9)+3);
+                    draw_multiline(MATERIAL_LORE[si], px, &py, 10,
+                                   (Color){160,145,100,255}, fh(10)+3);
                 py += M_IN;
                 draw_sep(px,py,pw,C_BORDER); py += M_IN+2;
                 dtxt("Type de degats :", px, py, 10, C_GOLD); py += fh(10)+3;
@@ -382,7 +385,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                     dtxt(TOWER_BASE_STATS[i].name, tx+18, ty, 11, sel ? tc : C_TEXT);
                     char dbuf[48];
                     clip_text(TOWER_BASE_STATS[i].description, list_w-28, 9, dbuf, sizeof(dbuf));
-                    dtxt(dbuf, tx+18, (int)r.y+entry_h/2+3, 9, C_DIM);
+                    dtxt(dbuf, tx+18, (int)r.y+entry_h/2+3, 10, C_DIM);
                 } else { dtxt("???", tx, ty, 11, C_DIM); }
                 if (vclick_r(r)) { m->sel_tower = i; audio_play_sfx(AUDIO_SFX_MENU_CLICK); }
                 ey += entry_h + gap;
@@ -418,19 +421,19 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
 
                 dtxt(TOWER_BASE_STATS[si].name, px, py, 20, tc);
                 py += fh(20) + 2;
-                dtxt("Tour de defense", px, py, 9, C_DIM);
-                py += fh(9) + M_IN;
+                dtxt("Tour de defense", px, py, 10, C_DIM);
+                py += fh(10) + M_IN;
                 draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
 
                 int cx2 = px + sep_w/2;
-                dtxt("Cout :", px, py, 9, C_DIM);
+                dtxt("Cout :", px, py, 10, C_DIM);
                 dtxt(TextFormat("%d or", TOWER_BASE_STATS[si].cost), px+50, py, 10, tc);
-                dtxt("Degats :", cx2, py, 9, C_DIM);
+                dtxt("Degats :", cx2, py, 10, C_DIM);
                 dtxt(TextFormat("%.0f", TOWER_BASE_STATS[si].damage), cx2+56, py, 10, tc);
                 py += fh(10)+3;
-                dtxt("Portee :", px, py, 9, C_DIM);
+                dtxt("Portee :", px, py, 10, C_DIM);
                 dtxt(TextFormat("%.1f cases", TOWER_BASE_STATS[si].range), px+50, py, 10, tc);
-                dtxt("Cadence :", cx2, py, 9, C_DIM);
+                dtxt("Cadence :", cx2, py, 10, C_DIM);
                 dtxt(TextFormat("%.1f/s", TOWER_BASE_STATS[si].fire_rate), cx2+60, py, 10, tc);
                 py += fh(10)+M_IN;
                 draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
@@ -443,8 +446,8 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
 
                 dtxt("Description :", px, py, 10, C_GOLD); py += fh(10)+3;
                 if (TOWER_LORE[si])
-                    draw_multiline(TOWER_LORE[si], px, &py, 9,
-                                   (Color){160,145,100,255}, fh(9)+3);
+                    draw_multiline(TOWER_LORE[si], px, &py, 10,
+                                   (Color){160,145,100,255}, fh(10)+3);
             }
         }
 
@@ -470,7 +473,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                 dtxt(UNIT_BASE_STATS[i].name, tx+18, ty, 11, sel ? uc : C_TEXT);
                 char dbuf[48];
                 clip_text(UNIT_BASE_STATS[i].description, list_w-28, 9, dbuf, sizeof(dbuf));
-                dtxt(dbuf, tx+18, (int)r.y+entry_h/2+3, 9, C_DIM);
+                dtxt(dbuf, tx+18, (int)r.y+entry_h/2+3, 10, C_DIM);
                 if (vclick_r(r)) { m->sel_unit = i; audio_play_sfx(AUDIO_SFX_MENU_CLICK); }
                 ey += entry_h + gap;
             }
@@ -500,24 +503,24 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
 
             dtxt(UNIT_BASE_STATS[si].name, px, py, 20, uc);
             py += fh(20) + 2;
-            dtxt("Unite de combat", px, py, 9, C_DIM);
-            py += fh(9) + M_IN;
+            dtxt("Unite de combat", px, py, 10, C_DIM);
+            py += fh(10) + M_IN;
             draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
 
             int cx2 = px + sep_w/2;
-            dtxt("Cout :", px, py, 9, C_DIM);
+            dtxt("Cout :", px, py, 10, C_DIM);
             dtxt(TextFormat("%d or", UNIT_BASE_STATS[si].cost), px+50, py, 10, uc);
-            dtxt("PV :", cx2, py, 9, C_DIM);
+            dtxt("PV :", cx2, py, 10, C_DIM);
             dtxt(TextFormat("%.0f", UNIT_BASE_STATS[si].hp), cx2+32, py, 10, uc);
             py += fh(10)+3;
-            dtxt("Degats :", px, py, 9, C_DIM);
+            dtxt("Degats :", px, py, 10, C_DIM);
             dtxt(TextFormat("%.0f", UNIT_BASE_STATS[si].damage), px+50, py, 10, uc);
-            dtxt("Vitesse :", cx2, py, 9, C_DIM);
+            dtxt("Vitesse :", cx2, py, 10, C_DIM);
             dtxt(TextFormat("%.1f", UNIT_BASE_STATS[si].speed), cx2+56, py, 10, uc);
             py += fh(10)+3;
-            dtxt("Portee att. :", px, py, 9, C_DIM);
+            dtxt("Portee att. :", px, py, 10, C_DIM);
             dtxt(TextFormat("%.1f", UNIT_BASE_STATS[si].atk_range), px+76, py, 10, uc);
-            dtxt("Cadence :", cx2, py, 9, C_DIM);
+            dtxt("Cadence :", cx2, py, 10, C_DIM);
             dtxt(TextFormat("%.1f/s", UNIT_BASE_STATS[si].atk_rate), cx2+56, py, 10, uc);
             py += fh(10)+M_IN;
             draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
@@ -530,11 +533,11 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
 
             dtxt("Description :", px, py, 10, C_GOLD); py += fh(10)+3;
             if (UNIT_LORE[si])
-                draw_multiline(UNIT_LORE[si], px, &py, 9,
-                               (Color){160,145,100,255}, fh(9)+3);
+                draw_multiline(UNIT_LORE[si], px, &py, 10,
+                               (Color){160,145,100,255}, fh(10)+3);
         }
 
-    } else {
+    } else if (m->bestiary_tab == 4) {
     // ── Onglet BUTIN (perks de run & boutique) ───────────────────
         static const char *RAR_NAMES[3] = {"Commune", "Rare", "Epique"};
         static const char *CAT_NAMES[4] = {"Tour", "Economie", "Unite", "Survie"};
@@ -597,8 +600,8 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             int sep_w = pw - em - M_IN;
 
             dtxt(pd->name, px, py, 18, rc); py += fh(18)+3;
-            dtxt(TextFormat("%s  -  %s", rn, CAT_NAMES[cat]), px, py, 9, C_DIM);
-            py += fh(9) + M_IN;
+            dtxt(TextFormat("%s  -  %s", rn, CAT_NAMES[cat]), px, py, 10, C_DIM);
+            py += fh(10) + M_IN;
             draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
 
             dtxt("Effet :", px, py, 10, C_GOLD); py += fh(10)+3;
@@ -607,10 +610,10 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             py += M_IN;
             draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
 
-            dtxt("Exemplaires max :", px, py, 9, C_DIM);
+            dtxt("Exemplaires max :", px, py, 10, C_DIM);
             dtxt(TextFormat("x%d", pd->max_stack), px+138, py, 10, rc);
             py += fh(10)+3;
-            dtxt("Cout boutique :", px, py, 9, C_DIM);
+            dtxt("Cout boutique :", px, py, 10, C_DIM);
             dtxt(TextFormat("%d Renfort", pd->shop_cost), px+138, py, 10,
                  (Color){232, 200, 90, 255});
             py += fh(10)+M_IN;
@@ -621,7 +624,89 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                 "Butin apres chaque acte : 1 choix gratuit parmi 3.\n"
                 "Boutique entre chaque chapitre : achat en Renfort.\n"
                 "Empiler les perks d'un meme cluster cree des combos.",
-                px+M_IN, &py, 9, (Color){160,145,100,255}, fh(9)+3);
+                px+M_IN, &py, 10, (Color){160,145,100,255}, fh(10)+3);
+        }
+
+    } else {
+    // ── Onglet SUCCES (P1.3) ─────────────────────────────────────
+        int n_unlocked = ach_unlocked_count();
+
+        // Panneau gauche : resume + ferraille gagnee
+        {
+            int px = list_x + M_IN + 4, py = list_y + M_IN + 6;
+            char cb[24];
+            snprintf(cb, sizeof(cb), "%d / %d", n_unlocked, ACH_COUNT);
+            int cw = mtxt(cb, 28);
+            dtxt(cb, list_x + list_w/2 - cw/2, py, 28, C_GOLD);
+            py += fh(28) + 4;
+            const char *sub = "succes debloques";
+            int sw = mtxt(sub, 10);
+            dtxt(sub, list_x + list_w/2 - sw/2, py, 10, C_DIM);
+            py += fh(10) + M_IN;
+            draw_sep(px, py, list_w - M_IN*2 - 8, C_BORDER);
+            py += M_IN + 2;
+
+            int scrap_won = 0, scrap_total = 0;
+            for (int i = 0; i < ACH_COUNT; i++) {
+                scrap_total += ACH_DEFS[i].scrap;
+                if (ach_unlocked(i)) scrap_won += ACH_DEFS[i].scrap;
+            }
+            dtxt("Ferraille gagnee :", px, py, 10, C_DIM); py += fh(10)+3;
+            char sb[32];
+            snprintf(sb, sizeof(sb), "%d / %d", scrap_won, scrap_total);
+            draw_icon(g_icon_scrap, px, py, fh(12), WHITE);
+            dtxt(sb, px + fh(12) + 4, py, 12, (Color){232, 200, 90, 255});
+            py += fh(12) + M_IN;
+            draw_sep(px, py, list_w - M_IN*2 - 8, C_BORDER);
+            py += M_IN + 2;
+
+            draw_multiline(
+                "Chaque succes verse sa\n"
+                "ferraille UNE fois, a\n"
+                "depenser dans les\n"
+                "AMELIORATIONS.",
+                px, &py, 10, (Color){160,145,100,255}, fh(10)+3);
+        }
+
+        // Panneau droit : cartes sur 2 colonnes
+        {
+            int cols  = 2;
+            int gap   = 6;
+            int cw2   = (detail_w - M_IN * (cols + 1)) / cols;
+            int ch    = 44;
+            for (int i = 0; i < ACH_COUNT; i++) {
+                int col = i % cols, row = i / cols;
+                int ax  = detail_x + M_IN + col * (cw2 + gap);
+                int ay  = detail_y + M_IN + row * (ch + gap);
+                if (ay + ch > detail_y + detail_h - M_IN) break;
+                int unlocked = ach_unlocked(i);
+
+                Color brd = unlocked ? C_GOLD : C_BORDER;
+                Color bg  = unlocked ? (Color){30, 22, 8, 255}
+                                     : (Color){14, 10, 4, 220};
+                Rectangle r = {(float)ax, (float)ay, (float)cw2, (float)ch};
+                DrawRectangleRounded(r, 4.0f/ch, 4, bg);
+                DrawRectangleRoundedLinesEx(r, 4.0f/ch, 4,
+                                            unlocked ? 1.6f : 1.0f, brd);
+
+                int tx2 = ax + M_IN, ty3 = ay + 6;
+                dtxt(ACH_DEFS[i].name, tx2, ty3, 11,
+                     unlocked ? C_GOLD : C_TEXT);
+                dtxt(ACH_DEFS[i].desc, tx2, ty3 + fh(11) + 2, 10,
+                     unlocked ? (Color){190, 170, 120, 255} : C_DIM);
+
+                /* Recompense a droite : verte si versee, grise sinon */
+                char rb2[16];
+                snprintf(rb2, sizeof(rb2), "+%d", ACH_DEFS[i].scrap);
+                int rw2 = mtxt(rb2, 11);
+                int rx2 = ax + cw2 - M_IN - rw2 - fh(11) - 2;
+                Color rc2 = unlocked ? (Color){140, 210, 110, 255}
+                                     : (Color){90, 78, 55, 200};
+                dtxt(rb2, rx2, ay + ch/2 - fh(11)/2, 11, rc2);
+                draw_icon(g_icon_scrap, rx2 + rw2 + 2,
+                          ay + ch/2 - fh(11)/2, fh(11),
+                          unlocked ? WHITE : (Color){140, 140, 140, 160});
+            }
         }
     }
 

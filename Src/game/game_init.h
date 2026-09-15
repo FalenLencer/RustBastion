@@ -35,5 +35,10 @@ void game_next_campaign_stage(GameState *gs);
    node_id est borné à [0, CAMPAIGN_NODES-1]. */
 void game_goto_campaign_node(GameState *gs, int node_id);
 
+/* Active/désactive le MODE CHALLENGE et RÉ-APPLIQUE la difficulté de
+   l'acte courant (à appeler juste après game_init_campaign : l'init
+   remet le drapeau à zéro avant le calcul de difficulté). */
+void game_campaign_set_challenge(GameState *gs, int on);
+
 /* Démarre une partie personnalisée selon la configuration donnée. */
 void game_init_custom(GameState *gs, const CustomConfig *cfg);

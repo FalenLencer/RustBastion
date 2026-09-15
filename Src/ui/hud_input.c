@@ -268,7 +268,7 @@ void ui_update(UIState *ui, GameState *gs) {
     /* ── Boutons réparation bases (overlay bas-gauche) ─────────── */
     /* Calculé APRÈS le drag pour que les rects suivent sans décalage */
     {
-        if (ui->overlay_bl_pos.x >= 0.0f) {
+        if (ui->overlay_bl_pos.x >= 0.0f && hud_show_bases_panel(gs)) {
             const int OV_P = OVERLAY_OV_P;
             int bx = (int)ui->overlay_bl_pos.x + OV_P;
             int by = (int)ui->overlay_bl_pos.y + OV_P + 4;  /* top + grip */
@@ -377,7 +377,7 @@ void ui_update(UIState *ui, GameState *gs) {
                 goto end_click;
             }
             /* ── Overlay BL : bases HP + réparation ─────────────── */
-            if (ui->overlay_bl_pos.x >= 0.0f) {
+            if (ui->overlay_bl_pos.x >= 0.0f && hud_show_bases_panel(gs)) {
                 int _bh_bl = overlay_bl_h(gs);
                 Rectangle bl_r = {ui->overlay_bl_pos.x, ui->overlay_bl_pos.y,
                                   OVERLAY_BL_W, (float)_bh_bl};
@@ -541,7 +541,8 @@ void ui_update(UIState *ui, GameState *gs) {
         }
 
         /* ── Achat de slots supplémentaires ───────────────────── */
-        if (CheckCollisionPointRec(mouse, ui->buy_tower_slot_btn)) {
+        if (hud_show_slot_buys(gs) &&
+            CheckCollisionPointRec(mouse, ui->buy_tower_slot_btn)) {
             int _bought = gs->slots_tower_bought;
             int _base_lim = tower_active_limit(&gs->bonuses);
             int _max_extra = MAX_TOWERS_HARD - _base_lim;
@@ -562,7 +563,8 @@ void ui_update(UIState *ui, GameState *gs) {
             }
             goto end_click;
         }
-        if (CheckCollisionPointRec(mouse, ui->buy_unit_slot_btn)) {
+        if (hud_show_slot_buys(gs) &&
+            CheckCollisionPointRec(mouse, ui->buy_unit_slot_btn)) {
             int _bought = gs->slots_unit_bought;
             int _max_extra = MAX_UNITS - unit_active_limit(&gs->bonuses, gs->map.base_count);
             if (_bought >= SLOT_MAX_BUYS || _bought >= _max_extra) {
@@ -636,7 +638,7 @@ void ui_update(UIState *ui, GameState *gs) {
             Unit *u = &gs->units.units[ui->sell_unit_idx];
             if (u->active) {
                 int base_cost = UNIT_BASE_STATS[u->type].cost;
-                int refund    = (int)(base_cost * 0.5f);
+                int refund    = (int)(base_cost * UNIT_SELL_REFUND);
                 gs->gold += refund;
                 u->active = 0;
                 gs->units.count--;
@@ -812,7 +814,7 @@ void ui_update(UIState *ui, GameState *gs) {
                 }
             }
 
-            // Ouvrier sélectionné → dépôt
+            // Ouvrier sélectionné → dépôt, ou DÉBLAIEMENT d'un obstacle
             if (ui->worker_selected_idx >= 0) {
                 int assigned = 0;
                 for (int d = 0; d < gs->map.deposit_count; d++) {
@@ -827,7 +829,35 @@ void ui_update(UIState *ui, GameState *gs) {
                         break;
                     }
                 }
-                if (!assigned) {
+                /* Pas un gisement : une ruine ou une roche minée sur la case ?
+                   L'ouvrier peut la déblayer — le terrain redevient
+                   franchissable ET constructible. */
+                int keep_sel = 0;
+                if (!assigned && unit_tile_clearable(&gs->map, &gs->towers, tx, ty)) {
+                    char cbuf[52];
+                    if (gs->gold >= UNIT_WORKER_CLEAR_COST) {
+                        gs->gold -= UNIT_WORKER_CLEAR_COST;
+                        unit_assign_clear(&gs->units,
+                                          ui->worker_selected_idx, tx, ty);
+                        snprintf(cbuf, sizeof(cbuf),
+                                 "Deblaiement en cours (-%d or)",
+                                 UNIT_WORKER_CLEAR_COST);
+                        ui_push_notif(ui, cbuf, (Color){168, 148, 102, 255});
+                        audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
+                    } else {
+                        snprintf(cbuf, sizeof(cbuf),
+                                 "Deblaiement : %d or requis !",
+                                 UNIT_WORKER_CLEAR_COST);
+                        ui_push_notif(ui, cbuf, (Color){243, 156, 18, 255});
+                        /* Refus pour or insuffisant : on GARDE l'ouvrier
+                           sélectionné, le joueur doit pouvoir réessayer
+                           sans avoir à le re-cliquer. */
+                        keep_sel = 1;
+                    }
+                }
+                /* Ordre donné OU clic dans le vide → on désélectionne ;
+                   seul un refus pour or insuffisant conserve la sélection. */
+                if (!keep_sel) {
                     ui->worker_selected_idx = -1;
                     gs->units.selected_unit = -1;
                 }
@@ -864,6 +894,36 @@ void ui_update(UIState *ui, GameState *gs) {
                                 meta_save(&gs->meta);
                                 ui_disc_push(ui, DISC_TOWER, (int)_tt);
                             }
+                        } else {
+                            /* Un clic qui ne fait RIEN est la pire réponse
+                               possible : on dit pourquoi. Ordre = celui des
+                               refus dans tower_place (tuile, puis or). */
+                            char _fb[52];
+                            switch (tower_place_fail(&gs->towers, &gs->map,
+                                                     tx, ty)) {
+                                case TPF_SPAWN:
+                                    ui_push_notif(ui,
+                                        "Trop pres d'un point d'apparition !",
+                                        (Color){243, 156, 18, 255});
+                                    break;
+                                case TPF_OCCUPIED:
+                                    ui_push_notif(ui, "Case deja occupee !",
+                                        (Color){243, 156, 18, 255});
+                                    break;
+                                case TPF_TILE:
+                                    ui_push_notif(ui,
+                                        "Terrain non constructible ici",
+                                        (Color){243, 156, 18, 255});
+                                    break;
+                                default:   /* tuile OK → il manque l'or */
+                                    snprintf(_fb, sizeof(_fb),
+                                        "Or insuffisant : %d or requis",
+                                        tower_cost_on_tile(_tt, &gs->map,
+                                                           tx, ty));
+                                    ui_push_notif(ui, _fb,
+                                        (Color){243, 156, 18, 255});
+                                    break;
+                            }
                         }
                     } else {
                         ui_push_notif(ui, "Limite de tours atteinte !",
@@ -878,7 +938,8 @@ void ui_update(UIState *ui, GameState *gs) {
                         int   near_any_base = 0;
                         float spawn_bpx = gs->units.base_px;
                         float spawn_bpy = gs->units.base_py;
-                        float best_dist = 5.0f * TILE_SIZE + 1.0f; // seuil + 1 pour init
+                        float deploy_r  = UNIT_DEPLOY_RADIUS_TILES * TILE_SIZE;
+                        float best_dist = deploy_r + 1.0f; // seuil + 1 pour init
                         for (int b = 0; b < gs->map.base_count; b++) {
                             if (!gs->map.bases[b].active) continue;
                             float bpx = gs->map.bases[b].pos.x * TILE_SIZE
@@ -891,7 +952,7 @@ void ui_update(UIState *ui, GameState *gs) {
                             float dx = wx - bpx;
                             float dy = wy - bpy;
                             float dist = sqrtf(dx*dx + dy*dy);
-                            if (dist <= 5.0f * TILE_SIZE && dist < best_dist) {
+                            if (dist <= deploy_r && dist < best_dist) {
                                 best_dist     = dist;
                                 spawn_bpx     = bpx;
                                 spawn_bpy     = bpy;
@@ -1018,16 +1079,7 @@ void ui_update(UIState *ui, GameState *gs) {
             did_group_move = 1;   /* le clic droit est consommé par l'ordre */
         }
 
-        if (!did_group_move) {
-            ui->selected_tool         = TOOL_NONE;
-            ui->selection.active      = 0;
-            ui->worker_selected_idx   = -1;
-            ui->sell_unit_idx         = -1;
-            gs->units.selected_unit   = -1;
-            ui->behavior_pending      = -1;
-            ui->behavior_pending_unit = -1;
-            group_clear(ui);
-        }
+        if (!did_group_move) ui_clear_selection(ui, gs);
     }
 
     if (IsKeyPressed(KEY_ONE))   ui->selected_tool = TOOL_TOWER_GUN;
@@ -1062,14 +1114,8 @@ void ui_update(UIState *ui, GameState *gs) {
         }
     }
 
-    /* ESCAPE : vide la sélection (la pause est gérée séparément dans game_do_input) */
-    if (IsKeyPressed(KEY_ESCAPE)) {
-        ui->selected_tool         = TOOL_NONE;
-        ui->selection.active      = 0;
-        ui->worker_selected_idx   = -1;
-        ui->sell_unit_idx         = -1;
-        gs->units.selected_unit   = -1;
-        ui->behavior_pending      = -1;
-        ui->behavior_pending_unit = -1;
-    }
+    /* ECHAP est traité EN AMONT (app.c game_do_input) : il annule d'abord la
+       sélection, et ne met en pause que s'il n'y a rien à annuler. Le gérer
+       aussi ici effaçait la sélection à la SORTIE de pause — game_do_update
+       tourne dans la même frame, où la touche est encore « pressée ». */
 }

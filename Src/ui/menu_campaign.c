@@ -190,14 +190,14 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                     badge = "REPLI"; badge_col = (Color){120, 200, 140, 230};
                 }
             }
-            int badge_w = badge ? mtxt(badge, 7) + 6 : 0;   // +marge
+            int badge_w = badge ? mtxt(badge, 10) + 6 : 0;   // +marge
 
             // Titre (clippé pour laisser la place au badge à droite)
             int title_w = act_w - 6 - badge_w;
             if (title_w < 16) title_w = 16;
             char abuf[32];
-            clip_text(ad->title, title_w, 9, abuf, sizeof(abuf));
-            dtxt(abuf, ax+3, ay + dy + 2, 9,
+            clip_text(ad->title, title_w, 10, abuf, sizeof(abuf));
+            dtxt(abuf, ax+3, ay + dy + 2, 10,
                  wm_fade(unlocked ? (stars > 0 ? col : C_TEXT) : C_DIM, ka));
 
             // Étoiles — les gagnées « tombent » à l'ouverture de l'écran
@@ -217,8 +217,8 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
             }
 
             if (badge) {
-                int bw = mtxt(badge, 7);
-                dtxt(badge, ax + act_w - bw - 4, ay + dy + 3, 7,
+                int bw = mtxt(badge, 10);
+                dtxt(badge, ax + act_w - bw - 4, ay + dy + 3, 10,
                      wm_fade(badge_col, ka));
             }
 
@@ -253,7 +253,7 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                         float cxx = (float)x0 + off + (float)j * WM_CHEV_GAP;
                         if (cxx < (float)x0 - 2.0f || cxx > (float)x1 - 3.0f)
                             continue;
-                        dtxt(">", (int)cxx, ymid - fh(8)/2, 8,
+                        dtxt(">", (int)cxx, ymid - fh(10)/2, 10,
                              wm_fade((Color){col.r, col.g, col.b, 230}, ka));
                     }
                 }
@@ -271,16 +271,16 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                 const ActData *bd = campaign_act_get(bn);
                 if (!bd->title || !bd->title[0] || bd->chapter != ch) continue;
                 if (shown == 0) {
-                    dtxt("Voies alt.:", axp, ayp, 8,
+                    dtxt("Voies alt.:", axp, ayp, 10,
                          wm_fade((Color){100, 85, 60, 220}, ka));
-                    axp += mtxt("Voies alt.: ", 8);
+                    axp += mtxt("Voies alt.: ", 10);
                 }
                 char t[40];
                 clip_text(bd->title, 150, 8, t, sizeof(t));
-                dtxt(t, axp, ayp, 8,
+                dtxt(t, axp, ayp, 10,
                      wm_fade(ch_unlocked ? (Color){col.r, col.g, col.b, 210}
                                          : (Color){70, 58, 36, 200}, ka));
-                axp += mtxt(t, 8) + 10;
+                axp += mtxt(t, 10) + 10;
                 shown++;
             }
         }
@@ -342,11 +342,11 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
             char chbuf[64];
             snprintf(chbuf, sizeof(chbuf), "Ch.%d — %s", sch+1, CHAPTER_NAMES[sch]);
             char chclip[64];
-            clip_text(chbuf, avail, 9, chclip, sizeof(chclip));
-            wm_txt(chclip, px, py, 9,
+            clip_text(chbuf, avail, 10, chclip, sizeof(chclip));
+            wm_txt(chclip, px, py, 10,
                  (Color){(unsigned char)(col.r/2+20), (unsigned char)(col.g/2+20),
                          (unsigned char)(col.b/2+20), 200});
-            py += fh(9) + 2;
+            py += fh(10) + 2;
 
             // Numéro d'acte (gauche) + étoiles gagnées (droite, même ligne)
             wm_txt(TextFormat("Acte %d", sel + 1), px, py, 10, C_DIM);
@@ -368,9 +368,9 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                 py += fh(15) + 2;
                 // Sous-titre
                 char sclip[64];
-                clip_text(sel_ad->subtitle, avail, 9, sclip, sizeof(sclip));
+                clip_text(sel_ad->subtitle, avail, 10, sclip, sizeof(sclip));
                 wm_txt(sclip, px, py, 9, C_DIM);
-                py += fh(9) + 3;
+                py += fh(10) + 3;
             }
 
             // Aperçu du routage de graphe (sous le sous-titre)
@@ -413,6 +413,19 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
         prev_can = can_launch;
         pulse_t += ui_dt();
 
+        /* Case MODE CHALLENGE : plus d'ennemis / plus coriaces, mais plus
+           de Renfort — choisi AVANT le lancement, persiste toute la run. */
+        {
+            const char *ch_lbl = m->campaign_challenge_sel
+                ? "[*] MODE CHALLENGE (+dur, +Renfort)"
+                : "[ ] MODE CHALLENGE (+dur, +Renfort)";
+            if (draw_btn(ch_lbl, right_x, ry, right_w, BTN_H - 6,
+                         m->campaign_challenge_sel ? C_ORANGE : C_DIM,
+                         m->campaign_challenge_sel))
+                m->campaign_challenge_sel ^= 1;
+            ry += BTN_H - 6 + 6;
+        }
+
         int launch_y = ry;
         if (draw_btn("LANCER", right_x, ry, right_w, BTN_H + 4,
                      can_launch ? C_GREEN : C_DIM, 0) && can_launch) {
@@ -420,6 +433,7 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
             act.new_slot            = first_empty;
             act.campaign_order_seed = 0;
             act.start_campaign_act  = m->selected_campaign_act;
+            act.campaign_challenge  = m->campaign_challenge_sel;
         }
         if (can_launch) {
             unsigned char la;
@@ -440,7 +454,7 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
         if (has_sel && !can_launch) {
             txt_c("Effacez une partie ci-dessous",
                   right_x + right_w/2, ry, 9, C_RED);
-            ry += fh(9) + 4;
+            ry += fh(10) + 4;
         } else {
             ry += M_IN;
         }
@@ -449,8 +463,8 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
     // ── Section sauvegardes ───────────────────────────────────────
     draw_sep(right_x, ry, right_w, C_BORDER);
     ry += M_IN;
-    dtxt("PARTIES EN COURS", right_x, ry, 9, C_DIM);
-    ry += fh(9) + M_IN;
+    dtxt("PARTIES EN COURS", right_x, ry, 10, C_DIM);
+    ry += fh(10) + M_IN;
 
     int slot_h   = 52;
     int slot_gap = 4;
@@ -478,13 +492,13 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
             snprintf(hdr, sizeof(hdr), "Partie %d  —  Ch.%d Acte %d",
                      si->campaign_num+1, sad->chapter+1, sad->act+1);
             char hclip[64];
-            clip_text(hdr, txt_avail, 9, hclip, sizeof(hclip));
-            dtxt(hclip, right_x + M_IN, ry + M_IN, 9, C_GOLD);
+            clip_text(hdr, txt_avail, 10, hclip, sizeof(hclip));
+            dtxt(hclip, right_x + M_IN, ry + M_IN, 10, C_GOLD);
 
             if (sad) {
                 char tclip[48];
-                clip_text(sad->title, txt_avail, 9, tclip, sizeof(tclip));
-                dtxt(tclip, right_x + M_IN, ry + M_IN + fh(9) + 2, 9, C_DIM);
+                clip_text(sad->title, txt_avail, 10, tclip, sizeof(tclip));
+                dtxt(tclip, right_x + M_IN, ry + M_IN + fh(10) + 2, 10, C_DIM);
             }
 
             if (draw_btn("REPRENDRE", bx_rep2, by2, bw_rep2, bh2, C_GREEN, 0)) {
@@ -499,7 +513,7 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
             }
         } else {
             txt_c(TextFormat("Emplacement %d — vide", s+1),
-                  right_x + right_w/2, ry + slot_h/2 - fh(9)/2, 9, C_DIM);
+                  right_x + right_w/2, ry + slot_h/2 - fh(10)/2, 10, C_DIM);
         }
         ry += slot_h + slot_gap;
     }

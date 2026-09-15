@@ -80,3 +80,16 @@ Vector2 virt_mouse(void);
 int     base_repair_cost(int n);
 int     tool_is_unlocked(ToolID id, const GameState *gs);
 void    disc_pop(UIState *ui);
+
+/* P1.2 — HUD progressif : predicats PARTAGES rendu + input (un element
+   masque ne garde jamais de hitbox). Voir hud.c. */
+#define HUD_SLOTS_FROM_WAVE 3   /* vague d'apparition des achats de slots */
+int     hud_show_bases_panel(const GameState *gs);
+int     hud_show_slot_buys  (const GameState *gs);
+
+/* P0.3 — Conseil de contre : écrit dans `out` (≤ 63 chars utiles) une
+   ligne du type "V7 Brutes, Raiders : Cryo efficace, Feu resiste"
+   basée sur la vague SUIVANTE. Retourne 0 si rien d'utile (préview
+   vide, ennemis non découverts en campagne, ou multiplicateurs plats).
+   Partagé : tooltip de pose 2D, bouton matériau 2D, invites héros. */
+int     hud_counter_advice(const GameState *gs, char *out, int out_sz);

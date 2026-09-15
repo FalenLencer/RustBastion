@@ -10,7 +10,9 @@
 #include <math.h>
 #include <string.h>
 
-#define PREP_TIME            20.0f
+/* PREP_TIME vit désormais dans wave.h : le HUD en a besoin pour dessiner
+   l'anneau de compte à rebours, et une copie locale (« 20.0f » en dur dans
+   hud_render.c) se serait désynchronisée au premier réglage. */
 #define BASE_ENEMIES          5
 #define SPAWN_INTERVAL        0.5f
 #define WAVE_ENEMIES_PER_WAVE 3      /* ennemis supplémentaires par vague (base linéaire) */

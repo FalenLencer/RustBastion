@@ -38,6 +38,7 @@ struct GameState {
     int campaign_stage;
     int campaign_order_seed;
     int campaign_flags;   // drapeaux narratifs (choix/événements) — persistent la run
+    int challenge_mode;   // 1 = campagne en MODE CHALLENGE (+difficulté, +Renfort)
     int is_custom;  // 1 = partie personnalisée (pas de save)
 
     // ── Inventaire matériaux ──────────────────────────────────

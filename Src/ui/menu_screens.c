@@ -219,8 +219,8 @@ MenuAction draw_title(MenuState *m, int vw, int vh) {
                  TITLE_BTN_DUR, TITLE_BTN_SLIDE, 1))
         act.quit_app = 1;
 
-    dtxt(GAME_VERSION, vw - M_PAD - mtxt(GAME_VERSION, 9),
-         vh - M_PAD - 12, 9, C_DIM);
+    dtxt(GAME_VERSION, vw - M_PAD - mtxt(GAME_VERSION, 10),
+         vh - M_PAD - fh(10), 10, C_DIM);
     return act;
 }
 
@@ -277,6 +277,47 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     MenuAction act = {0};
     int cx = vw/2;
 
+    /* ── P0.1 : PREMIER LANCEMENT — proposer le tutoriel ─────────
+       Modale par-dessus le hub ; répondre sauve la méta (le fichier
+       existe alors → la question ne sera plus jamais posée). */
+    if (m->first_run_ask) {
+        draw_bg(m, vw, vh);
+        draw_header("BIENVENUE", vw);
+        DrawRectangle(0, 0, vw, vh, (Color){0, 0, 0, 165});
+
+        int pw2 = 470, ph2 = 190;
+        int px2 = cx - pw2/2, py2 = vh/2 - ph2/2 - 30;
+        DrawRectangleRounded(
+            (Rectangle){(float)px2, (float)py2, (float)pw2, (float)ph2},
+            0.08f, 6, C_PANEL);
+        DrawRectangleRoundedLinesEx(
+            (Rectangle){(float)px2, (float)py2, (float)pw2, (float)ph2},
+            0.08f, 6, 1.6f, C_GOLD);
+
+        const char *q = "PREMIERE FOIS ?";
+        dtxt(q, cx - mtxt(q, 16)/2, py2 + 18, 16, C_GOLD);
+        const char *l1 = "Apprends les bases en 2 minutes :";
+        const char *l2 = "tours, vagues, minerais, pause tactique.";
+        dtxt(l1, cx - mtxt(l1, 11)/2, py2 + 18 + fh(16) + 10, 11, C_TEXT);
+        dtxt(l2, cx - mtxt(l2, 11)/2, py2 + 18 + fh(16) + 10 + fh(11) + 3,
+             11, C_TEXT);
+
+        int bw3 = 200, bh3 = 40;
+        int byb = py2 + ph2 - bh3 - 16;
+        if (draw_btn("OUI, APPRENDRE", px2 + pw2/2 - bw3 - 10, byb,
+                     bw3, bh3, C_GOLD, 1)) {
+            m->first_run_ask = 0;
+            meta_save(meta);          /* marque « a répondu » */
+            act.start_tutorial = 1;
+        }
+        if (draw_btn("JE CONNAIS", px2 + pw2/2 + 10, byb,
+                     bw3, bh3, C_DIM, 1)) {
+            m->first_run_ask = 0;
+            meta_save(meta);
+        }
+        return act;   /* le hub attend la réponse */
+    }
+
     /* Détection d'arrivée (même principe que l'écran titre) */
     {
         static float prev_trans = 1e9f;
@@ -288,64 +329,87 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     draw_bg(m, vw, vh);
     draw_header("CHOISIR UN MODE", vw);
 
-    int bw = 520, bh = 72, gap = M_IN + 2;
-    int bx = cx - bw/2;
-    int by = M_PAD + 76;
+    /* ── P0.1 : hiérarchie — la CAMPAGNE est le mode-roi ─────────
+       Un grand bouton principal (CONTINUER si une run est en cours),
+       puis les autres modes plus petits sous « AUTRES MODES ». */
+    int run_active = 0;
+    for (int i = 0; i < SAVE_SLOT_COUNT; i++)
+        if (m->campaign_slots[i].exists) run_active = 1;
 
-    if (fade_nav_btn("C", "CAMPAGNE",
-                     "Carte de progression — 5 chapitres, 15 actes.",
-                     C_GOLD, bx, by, bw, bh, t, 0*HUB_BTN_STEP)) {
+    int bw  = 520, gap = M_IN + 2;
+    int bh1 = 92;   /* bouton principal (campagne)      */
+    int bh2 = 56;   /* boutons secondaires              */
+    int bx  = cx - bw/2;
+    int by  = M_PAD + 70;
+
+    if (fade_nav_btn("C",
+                     run_active ? "CONTINUER LA CAMPAGNE" : "CAMPAGNE",
+                     run_active
+                       ? "Reprenez votre progression sur la carte."
+                       : "Carte de progression — 5 chapitres, 15 actes.",
+                     C_GOLD, bx, by, bw, bh1, t, 0*HUB_BTN_STEP)) {
         push_back_screen(m);
         m->selected_campaign_act = -1;   // reset : aucun acte pre-selectionne
         m->screen      = MENU_WORLD_MAP;
         m->back_screen = MENU_PLAY_HUB;
     }
-    by += bh + gap;
+    by += bh1 + gap + 4;
+
+    /* Séparateur « AUTRES MODES » */
+    {
+        const char *sep = "AUTRES MODES";
+        int sw2 = mtxt(sep, 10);
+        dtxt(sep, cx - sw2/2, by, 10, C_DIM);
+        DrawRectangle(bx, by + fh(10)/2, cx - sw2/2 - bx - 8, 1, C_DIM);
+        DrawRectangle(cx + sw2/2 + 8, by + fh(10)/2,
+                      bx + bw - (cx + sw2/2 + 8), 1, C_DIM);
+        by += fh(10) + 6;
+    }
 
     if (fade_nav_btn("A", "ARCADE",
                      "Choisissez un environnement et jouez librement.",
-                     C_BLUE, bx, by, bw, bh, t, 1*HUB_BTN_STEP)) {
+                     C_BLUE, bx, by, bw, bh2, t, 1*HUB_BTN_STEP)) {
         push_back_screen(m);
         m->screen = MENU_ARCADE;
         m->back_screen = MENU_PLAY_HUB;
     }
-    by += bh + gap;
+    by += bh2 + gap;
 
     if (fade_nav_btn("T", "TUTORIEL",
                      "Apprenez les bases : tours, vagues, minerais, pause, zoom.",
-                     (Color){120, 200, 230, 255}, bx, by, bw, bh,
+                     (Color){120, 200, 230, 255}, bx, by, bw, bh2,
                      t, 2*HUB_BTN_STEP)) {
         act.start_tutorial = 1;   // lancé par app.c
     }
-    by += bh + gap;
+    by += bh2 + gap;
+
+    if (fade_nav_btn("X", "CUSTOM GAME",
+                     "Carte, spawns, bases, terrain et difficulte sur mesure.",
+                     C_ORANGE, bx, by, bw, bh2, t, 3*HUB_BTN_STEP)) {
+        push_back_screen(m);
+        m->screen = MENU_CUSTOM;
+        m->back_screen = MENU_PLAY_HUB;
+    }
+    by += bh2 + gap;
 
     if (fade_nav_btn("H", "MODE HEROS 3D (beta)",
                      "Incarnez un heros sur le terrain : tirez, recrutez, batissez.",
-                     (Color){235, 130, 60, 255}, bx, by, bw, bh,
-                     t, 3*HUB_BTN_STEP)) {
+                     (Color){235, 130, 60, 255}, bx, by, bw, bh2,
+                     t, 4*HUB_BTN_STEP)) {
         act.start_hero = 1;       // lancé par app.c
     }
-    by += bh + gap;
+    by += bh2 + gap;
 
-    if (fade_nav_btn("M", "MULTIJOUEUR",
+    if (fade_nav_btn("M", "MULTIJOUEUR (beta)",
                      "Jouez ensemble ou l'un contre l'autre (code de session).",
-                     C_GREEN, bx, by, bw, bh, t, 4*HUB_BTN_STEP)) {
+                     C_GREEN, bx, by, bw, bh2, t, 5*HUB_BTN_STEP)) {
         push_back_screen(m);
         m->screen      = MENU_MP_HUB;
         m->back_screen = MENU_PLAY_HUB;
         m->mp_role = 0;
         if (m->mp_mode == MP_NONE) m->mp_mode = MP_COURSE;
     }
-    by += bh + gap;
-
-    if (fade_nav_btn("X", "CUSTOM GAME",
-                     "Carte, spawns, bases, terrain et difficulte sur mesure.",
-                     C_ORANGE, bx, by, bw, bh, t, 5*HUB_BTN_STEP)) {
-        push_back_screen(m);
-        m->screen = MENU_CUSTOM;
-        m->back_screen = MENU_PLAY_HUB;
-    }
-    by += bh + gap;
+    by += bh2 + gap;
 
     /* Compteur ferraille « roulant » : la valeur affichée court vers la
        vraie valeur en ~HUB_SCRAP_ROLL s (au moins 1 unite/s). */
@@ -366,13 +430,13 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
                  "Depensez vos %d ferrailles pour ameliorer vos defenses.",
                  (int)(disp_scrap + 0.5f));
         if (fade_nav_btn("*", "AMELIORATIONS", upg_desc,
-                         C_ORANGE, bx, by, bw, bh, t, 6*HUB_BTN_STEP)) {
+                         C_ORANGE, bx, by, bw, bh2, t, 6*HUB_BTN_STEP)) {
             push_back_screen(m);
             m->screen = MENU_UPGRADES;
             m->back_screen = MENU_PLAY_HUB;
         }
     }
-    by += bh + gap;
+    by += bh2 + gap;
 
     int nb_disc = 0;
     for (int i = 0; i < ENEMY_TYPE_COUNT; i++)
@@ -382,7 +446,7 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
              "%d/%d ennemis identifies. Resistances et faiblesses.",
              nb_disc, ENEMY_TYPE_COUNT);
     if (fade_nav_btn("B", "BESTIAIRE", best_desc,
-                     C_RED, bx, by, bw, bh, t, 7*HUB_BTN_STEP)) {
+                     C_RED, bx, by, bw, bh2, t, 7*HUB_BTN_STEP)) {
         push_back_screen(m);
         m->screen      = MENU_BESTIARY;
         m->back_screen = MENU_PLAY_HUB;
@@ -407,8 +471,8 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
             } else {
                 /* (1-cos)/2 : part de 0, culmine à mi-période */
                 float ph = (1.0f - cosf(pt * 2.0f * PI / HUB_PULSE_PERIOD)) * 0.5f;
-                Rectangle br = {(float)bx, (float)by, (float)bw, (float)bh};
-                DrawRectangleRoundedLinesEx(br, (float)BTN_R/bh, 6, 2.5f,
+                Rectangle br = {(float)bx, (float)by, (float)bw, (float)bh2};
+                DrawRectangleRoundedLinesEx(br, (float)BTN_R/bh2, 6, 2.5f,
                     (Color){C_RED.r, C_RED.g, C_RED.b,
                             (unsigned char)(ph * 200.0f)});
             }
@@ -495,7 +559,7 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
                 dtxt(s3, ix, ty, 10, C_TEXT);
             }
             ty += fh(10) + 2;   /* hauteur réelle de la ligne de stats (~16 px) */
-            dtxt(TextFormat("Emplacement %d", i+1), tx, ty, 9, C_DIM);
+            dtxt(TextFormat("Emplacement %d", i+1), tx, ty, 10, C_DIM);
 
             /* REPRENDRE + EFFACER côte à côte */
             if (draw_btn("REPRENDRE", bx_rep, by2, bw_rep, bh2, C_GREEN, 0)) {
@@ -527,9 +591,9 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
                         clip_text(albl, bx_rep - tx - M_IN, 11, aclip, sizeof(aclip));
                         dtxt(aclip, tx, y + M_IN + 14, 11, C_GOLD);
                         char sclip[64];
-                        clip_text(sel_ad->subtitle, bx_rep - tx - M_IN, 9,
+                        clip_text(sel_ad->subtitle, bx_rep - tx - M_IN, 10,
                                   sclip, sizeof(sclip));
-                        dtxt(sclip, tx, y + M_IN + 28, 9, C_DIM);
+                        dtxt(sclip, tx, y + M_IN + 28, 10, C_DIM);
                         if (draw_btn("LANCER", bx_rep, by2, lancer_w, bh2,
                                      C_GOLD, 0)) {
                             act.start_campaign      = 1;
@@ -852,7 +916,7 @@ MenuAction draw_pause(MenuState *m, int vw, int vh) {
             snprintf(sz, sizeof(sz), "%dx%d  %s",
                      GetScreenWidth(), GetScreenHeight(),
                      IsWindowFullscreen() ? "Plein ecran" : "Fenetre");
-            txt_c(sz, cx, cy + ph/2 - M_PAD - 10, 9,
+            txt_c(sz, cx, cy + ph/2 - M_PAD - 12, 10,
                   (Color){C_DIM.r, C_DIM.g, C_DIM.b,
                           (unsigned char)(255.0f * ra)});
         }

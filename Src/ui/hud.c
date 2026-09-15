@@ -99,6 +99,51 @@ int overlay_bl_h(const GameState *gs) {
     return h;
 }
 
+/* ── Sélection : annulation et interrogation (source unique) ──────── */
+int ui_has_selection(const UIState *ui) {
+    return (ui->selected_tool != TOOL_NONE ||
+            ui->selection.active          ||
+            ui->worker_selected_idx >= 0  ||
+            ui->sell_unit_idx      >= 0   ||
+            ui->group_count         > 0   ||
+            ui->behavior_pending   >= 0);
+}
+
+void ui_clear_selection(UIState *ui, GameState *gs) {
+    ui->selected_tool         = TOOL_NONE;
+    ui->selection.active      = 0;
+    ui->worker_selected_idx   = -1;
+    ui->sell_unit_idx         = -1;
+    ui->behavior_pending      = -1;
+    ui->behavior_pending_unit = -1;
+    for (int j = 0; j < MAX_UNITS; j++) ui->group_sel[j] = 0;
+    ui->group_count = 0;
+    if (gs) gs->units.selected_unit = -1;
+}
+
+/* ── P1.2 : HUD progressif (moins d'UI tant qu'elle n'est pas UTILE) ──
+   Predicats PARTAGES rendu + input : un element masque ne doit JAMAIS
+   garder une hitbox cliquable. */
+
+/* Panneau bases (overlay BL) : visible seulement si plusieurs bases,
+   ou si une base est abimee/detruite (= il y a quelque chose a y faire). */
+int hud_show_bases_panel(const GameState *gs) {
+    if (gs->map.base_count > 1) return 1;
+    for (int b = 0; b < gs->map.base_count && b < MAX_BASES; b++) {
+        const BaseInfo *base = &gs->map.bases[b];
+        if (!base->active || base->hp < base->max_hp) return 1;
+    }
+    return 0;
+}
+
+/* Achats de slots : caches en tout debut de partie (bruit pour un nouveau
+   joueur), visibles des HUD_SLOTS_FROM_WAVE ou si deja achetes (continuite
+   apres chargement d'une sauvegarde). */
+int hud_show_slot_buys(const GameState *gs) {
+    if (gs->slots_tower_bought > 0 || gs->slots_unit_bought > 0) return 1;
+    return gs->wave_manager.number >= HUD_SLOTS_FROM_WAVE;
+}
+
 /* Coût exponentiel de réparation d'une base (indexed par repair_count) */
 int base_repair_cost(int n) {
     static const int tbl[] = { 40, 65, 105, 165, 265, 415 };
@@ -253,4 +298,75 @@ void ui_init(UIState *ui) {
         HUD_Y + UI_HUD_HEIGHT - M - btn_h,
         right_w, btn_h
     };
+}
+
+// ════════════════════════════════════════════════════
+// CONSEIL DE CONTRE (P0.3) — helper PARTAGÉ
+// Analyse la vague suivante (wave_preview_types) contre la table
+// ENEMY_DMG_MULT et désigne le type de dégâts le plus efficace /
+// le plus résisté. Utilisé par : tooltip de pose de tour (2D),
+// bouton APPLIQUER MATÉRIAU (2D), invite [M]/[N] du mode héros.
+// ════════════════════════════════════════════════════
+#define ADVICE_TYPES   3      /* ennemis les plus probables considérés */
+#define ADVICE_STRONG  1.15f  /* seuil « efficace » (multiplicateur)   */
+#define ADVICE_WEAK    0.85f  /* seuil « résiste »                     */
+
+int hud_counter_advice(const GameState *gs, char *out, int out_sz) {
+    EnemyType pv[ENEMY_TYPE_COUNT];
+    int max_stage = gs->is_campaign
+        ? campaign_difficulty_stage(gs->campaign_stage) - 1 : 9999;
+    int n = wave_preview_types(gs->wave_manager.number + 1,
+                               gs->map.theme, gs->is_campaign, max_stage,
+                               gs->wave_manager.arcade_bias,
+                               pv, ENEMY_TYPE_COUNT);
+    if (n > ADVICE_TYPES) n = ADVICE_TYPES;
+
+    /* Campagne : ne conseille que sur les ennemis DÉCOUVERTS (pas de
+       spoil — même règle que les « ? » de l'aperçu de vague). */
+    EnemyType known[ADVICE_TYPES];
+    int kn = 0;
+    for (int i = 0; i < n; i++) {
+        if (gs->is_campaign && !gs->meta.bestiary_discovered[pv[i]]) continue;
+        known[kn++] = pv[i];
+    }
+    if (kn == 0) return 0;
+
+    float avg[DAMAGE_TYPE_COUNT];
+    int best = 0, worst = 0;
+    for (int d = 0; d < DAMAGE_TYPE_COUNT; d++) {
+        float s = 0.0f;
+        for (int i = 0; i < kn; i++) s += ENEMY_DMG_MULT[known[i]][d];
+        avg[d] = s / (float)kn;
+        if (avg[d] > avg[best])  best  = d;
+        if (avg[d] < avg[worst]) worst = d;
+    }
+    int has_best  = (avg[best]  >= ADVICE_STRONG);
+    int has_worst = (avg[worst] <= ADVICE_WEAK);
+    if (!has_best && !has_worst) return 0;   /* multiplicateurs plats */
+
+    /* Noms d'ennemis : 2 max, repli sur 1 seul si trop long. */
+    char names[28];
+    if (kn >= 2) {
+        snprintf(names, sizeof(names), "%s, %s",
+                 ENEMY_BASE_STATS[known[0]].name,
+                 ENEMY_BASE_STATS[known[1]].name);
+        if ((int)strlen(names) > 24)
+            snprintf(names, sizeof(names), "%s...",
+                     ENEMY_BASE_STATS[known[0]].name);
+    } else {
+        snprintf(names, sizeof(names), "%s",
+                 ENEMY_BASE_STATS[known[0]].name);
+    }
+
+    if (has_best && has_worst)
+        snprintf(out, (size_t)out_sz, "V%d %s : %s efficace, %s resiste",
+                 gs->wave_manager.number + 1, names,
+                 DAMAGE_NAMES[best], DAMAGE_NAMES[worst]);
+    else if (has_best)
+        snprintf(out, (size_t)out_sz, "V%d %s : %s tres efficace",
+                 gs->wave_manager.number + 1, names, DAMAGE_NAMES[best]);
+    else
+        snprintf(out, (size_t)out_sz, "V%d %s : evitez %s",
+                 gs->wave_manager.number + 1, names, DAMAGE_NAMES[worst]);
+    return 1;
 }

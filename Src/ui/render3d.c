@@ -27,6 +27,7 @@
    Réglages visuels en #define ci-dessous (aucun rendu visible côté outil).
    ════════════════════════════════════════════════════════════════ */
 #include "render3d.h"
+#include "render3d_skin.h"   /* skin_set_fog / skin_apply_vc */
 #include "rlgl.h"
 #include <math.h>
 #include <stddef.h>
@@ -99,7 +100,7 @@ static const Vector3 FL_CAM_TGT  = {  0.0f, 1.05f, 0.0f };  /* axe → balayage 
 static const Vector3 FL_MUZZLE   = {  1.692f, 1.470f, -0.169f };
 static const Vector3 FL_FIRE_DIR = {  0.9945f, 0.1045f, 0.0f };
 
-static const Vector3 LIGHT_DIR  = { -0.45f, -0.80f, -0.40f };
+/* (Lumière directionnelle : R3D_LIGHT_DIR, partagée — cf. render3d.h) */
 
 /* Orientation au repos (angle sol raylib) de l'AVANT de chaque modèle, pour le
    helper de visée render3d_yaw_for_aim : la mitrailleuse pointe -Z (π), le
@@ -119,24 +120,30 @@ static const char *VS =
 "uniform mat4 matNormal;\n"
 "out vec2 fragTexCoord;\n"
 "out vec3 fragNormal;\n"
+"out float fragDist;\n"
 "void main(){\n"
 "    fragTexCoord = vertexTexCoord;\n"
 "    fragNormal = normalize(vec3(matNormal*vec4(vertexNormal,1.0)));\n"
 "    gl_Position = mvp*vec4(vertexPosition,1.0);\n"
+"    fragDist = gl_Position.w;\n"   /* profondeur vue (persp.) ; 1 en ortho */
 "}\n";
 static const char *FS =
 "#version 330\n"
 "in vec2 fragTexCoord;\n"
 "in vec3 fragNormal;\n"
+"in float fragDist;\n"
 "uniform sampler2D texture0;\n"
 "uniform vec4 colDiffuse;\n"
 "uniform vec3 lightDir;\n"
+"uniform vec3 fogColor;\n"
+"uniform float fogDensity;\n"
 "out vec4 finalColor;\n"
 "void main(){\n"
 "    vec4 base = texture(texture0, fragTexCoord)*colDiffuse;\n"
 "    float d = max(dot(normalize(fragNormal), normalize(-lightDir)), 0.0);\n"
 "    float l = 0.38 + 0.62*d;\n"
-"    finalColor = vec4(base.rgb*l, 1.0);\n"
+"    float fog = clamp(1.0 - exp(-fogDensity*fragDist), 0.0, 1.0);\n"
+"    finalColor = vec4(mix(base.rgb*l, fogColor, fog), 1.0);\n"
 "}\n";
 
 /* ── Shader VERTEX-COLOR (TOWER_SNIPER) ──────────────────────────── */
@@ -149,21 +156,27 @@ static const char *VS_VC =
 "uniform mat4 matNormal;\n"
 "out vec3 fragNormal;\n"
 "out vec4 fragColor;\n"
+"out float fragDist;\n"
 "void main(){\n"
 "    fragNormal = normalize(vec3(matNormal*vec4(vertexNormal,1.0)));\n"
 "    fragColor = vertexColor;\n"
 "    gl_Position = mvp*vec4(vertexPosition,1.0);\n"
+"    fragDist = gl_Position.w;\n"
 "}\n";
 static const char *FS_VC =
 "#version 330\n"
 "in vec3 fragNormal;\n"
 "in vec4 fragColor;\n"
+"in float fragDist;\n"
 "uniform vec3 lightDir;\n"
+"uniform vec3 fogColor;\n"
+"uniform float fogDensity;\n"
 "out vec4 finalColor;\n"
 "void main(){\n"
 "    float d = max(dot(normalize(fragNormal), normalize(-lightDir)), 0.0);\n"
 "    float l = 0.42 + 0.58*d;\n"
-"    finalColor = vec4(fragColor.rgb*l, 1.0);\n"
+"    float fog = clamp(1.0 - exp(-fogDensity*fragDist), 0.0, 1.0);\n"
+"    finalColor = vec4(mix(fragColor.rgb*l, fogColor, fog), 1.0);\n"
 "}\n";
 
 /* ── Shader ÉMISSIF (orbe Tesla : plasma violet brillant, pulsé) ─── */
@@ -211,20 +224,24 @@ static void tint_model(Model *m, Color c) {
         m->materials[i].maps[MATERIAL_MAP_DIFFUSE].color = c;
     }
 }
-static void shade_vc(Model *m) {
-    for (int i = 0; i < m->materialCount; i++) {
-        m->materials[i].shader = g_shader_vc;
-        m->materials[i].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
-    }
-}
+/* (Application du shader VC : skin_apply_vc, render3d_skin.h.) */
 static void shade_emit(Model *m) {
     for (int i = 0; i < m->materialCount; i++)
         m->materials[i].shader = g_shader_emit;
 }
 static void set_light(Shader sh) {
     int loc = GetShaderLocation(sh, "lightDir");
-    Vector3 ld = LIGHT_DIR;
+    Vector3 ld = R3D_LIGHT_DIR;
     if (loc >= 0) SetShaderValue(sh, loc, &ld, SHADER_UNIFORM_VEC3);
+}
+
+/* Brouillard : uniforms des 2 shaders éclairés (l'émissif Tesla est
+   volontairement épargné : le plasma perce la brume). density 0 = coupé.
+   (Implémentation partagée : skin_set_fog, render3d_skin.h.) */
+void render3d_set_fog(Color col, float density) {
+    if (!g_loaded) return;
+    skin_set_fog(g_shader, col, density);
+    skin_set_fog(g_shader_vc, col, density);
 }
 
 void render3d_init(void) {
@@ -251,7 +268,7 @@ void render3d_init(void) {
     g_sn_mount  = LoadModel("assets/3d/3D_Tours/tower_sniper_mount.glb");
     g_sn_barrel = LoadModel("assets/3d/3D_Tours/tower_sniper_barrel.glb");
     if (g_sn_base.meshCount && g_sn_mount.meshCount && g_sn_barrel.meshCount) {
-        shade_vc(&g_sn_base); shade_vc(&g_sn_mount); shade_vc(&g_sn_barrel);
+        skin_apply_vc(&g_sn_base, g_shader_vc); skin_apply_vc(&g_sn_mount, g_shader_vc); skin_apply_vc(&g_sn_barrel, g_shader_vc);
         g_have_snipr = 1;
     }
 
@@ -259,7 +276,7 @@ void render3d_init(void) {
     g_te_base = LoadModel("assets/3d/3D_Tours/tower_tesla_base.glb");
     g_te_orb  = LoadModel("assets/3d/3D_Tours/tower_tesla_orb.glb");
     if (g_te_base.meshCount && g_te_orb.meshCount) {
-        shade_vc(&g_te_base); shade_emit(&g_te_orb);
+        skin_apply_vc(&g_te_base, g_shader_vc); shade_emit(&g_te_orb);
         g_have_tesla = 1;
     }
 
@@ -268,7 +285,7 @@ void render3d_init(void) {
     g_fl_base   = LoadModel("assets/3d/3D_Tours/tower_flame_base.glb");
     g_fl_turret = LoadModel("assets/3d/3D_Tours/tower_flame_turret.glb");
     if (g_fl_base.meshCount && g_fl_turret.meshCount) {
-        shade_vc(&g_fl_base); shade_vc(&g_fl_turret);
+        skin_apply_vc(&g_fl_base, g_shader_vc); skin_apply_vc(&g_fl_turret, g_shader_vc);
         g_have_flame = 1;
     }
 
@@ -439,6 +456,7 @@ static void draw_flame_model(float yaw_deg, float fire_t, float t) {
 
 void render3d_prepass(const TowerPool *tp, const EnemyPool *ep) {
     if (!g_loaded || tp == NULL) return;
+    render3d_set_fog(BLANK, 0.0f);   /* mode 2D : jamais de brouillard */
     float dt = GetFrameTime();
     for (int i = 0; i < MAX_TOWERS; i++) {
         const Tower *tw = &tp->towers[i];
@@ -529,6 +547,63 @@ Rectangle render3d_tower_dst(int tower_index, float cx, float cy, float tile) {
 }
 
 /* ════════════════════════════════════════════════════
+   MODE HÉROS — dessin direct AVEC visée + animation de tir
+   (yaw MONDE : pas de correction caméra-oblique en vraie 3D)
+   ════════════════════════════════════════════════════ */
+int render3d_tower_draw_world_aimed(const Tower *tw, int tower_index,
+                                    const EnemyPool *ep, Vector3 pos,
+                                    float scale) {
+    if (!g_loaded || tw == NULL ||
+        tower_index < 0 || tower_index >= MAX_TOWERS) return 0;
+
+    int kind = -1;
+    if (tw->type == TOWER_GUN    && g_have_gun)   kind = 0;
+    if (tw->type == TOWER_SNIPER && g_have_snipr) kind = 1;
+    if (tw->type == TOWER_TESLA  && g_have_tesla) kind = 2;
+    if (tw->type == TOWER_FLAME  && g_have_flame) kind = 3;
+    if (kind < 0) return 0;
+
+    /* Même machine d'état de tir que la pré-passe (front de fire_timer). */
+    int   i   = tower_index;
+    float dt  = GetFrameTime();
+    float dur = (kind == 1) ? SN_RECOIL_DUR
+              : (kind == 3) ? FL_FIRE_DUR : R3D_RECOIL_DUR;
+    if (tw->fire_timer > g_prev_ft[i] + 0.02f) {
+        g_barrel[i] = (g_barrel[i] + 1) % 3;
+        g_fire_t[i] = dur;
+    }
+    g_prev_ft[i] = tw->fire_timer;
+    g_fire_t[i] -= dt;
+    if (g_fire_t[i] < 0.0f) g_fire_t[i] = 0.0f;
+
+    /* Yaw MONDE : dir sim (cos a, sin a) → cap atan2(x, z), corrigé du
+       repos PAR TYPE (mêmes REST_PHI/YAW_OFF que la pré-passe). */
+    float hd = atan2f(cosf(tw->angle), sinf(tw->angle));
+    float yaw;
+    if      (kind == 1) yaw = (hd - SN_REST_PHI)  * RAD2DEG + SN_YAW_OFF;
+    else if (kind == 3) yaw = (hd - FL_REST_PHI)  * RAD2DEG + FL_YAW_OFF;
+    else                yaw = (hd - R3D_REST_PHI) * RAD2DEG + R3D_YAW_OFF;
+
+    rlPushMatrix();
+    rlTranslatef(pos.x, pos.y, pos.z);
+    rlScalef(scale, scale, scale);
+    if (kind == 0) {
+        float pitch = pitch_to_enemy(tw, ep, R3D_GUN_HEIGHT, R3D_PITCH_MAX);
+        draw_tower_model(yaw, pitch, g_barrel[i], g_fire_t[i]);
+    } else if (kind == 1) {
+        float pitch = SN_PITCH_SIGN *
+                      pitch_to_enemy(tw, ep, SN_GUN_HEIGHT, SN_PITCH_MAX);
+        draw_sniper_model(yaw, pitch, g_fire_t[i]);
+    } else if (kind == 2) {
+        draw_tesla_model((float)GetTime());
+    } else {
+        draw_flame_model(yaw, g_fire_t[i], (float)GetTime());
+    }
+    rlPopMatrix();
+    return 1;
+}
+
+/* ════════════════════════════════════════════════════
    MODE HÉROS — dessin direct d'une tour dans la scène 3D
    (socle fixe + tourelle orientée vers map_angle)
    ════════════════════════════════════════════════════ */
@@ -541,38 +616,31 @@ int render3d_tower_draw_world(int type, Vector3 pos, float map_angle,
     /* Direction sim (cos a, sin a) → cap monde atan2(x, z). */
     float yaw_deg = atan2f(cosf(map_angle), sinf(map_angle)) * RAD2DEG
                   + R3D_TURRET_WORLD_YAW_OFF;
+    float t = (float)GetTime();
     int drawn = 1;
 
+    /* Réutilise les fonctions de la PRÉ-PASSE (pivots/translations
+       corrects : R3D_YAW_PIVOT_Y, GUN_PIVOT, SN_*, TE_ORB_POS…) au lieu
+       de redessiner les pièces à plat — c'était le bug d'affichage. */
     rlPushMatrix();
     rlTranslatef(pos.x, pos.y, pos.z);
     rlScalef(scale, scale, scale);
     switch (type) {
         case TOWER_GUN:
             if (!g_have_gun) { drawn = 0; break; }
-            DrawModel(g_base, (Vector3){0, 0, 0}, 1.0f, WHITE);
-            rlRotatef(yaw_deg, 0.0f, 1.0f, 0.0f);
-            DrawModel(g_turret, (Vector3){0, 0, 0}, 1.0f, WHITE);
-            DrawModel(g_gun,    (Vector3){0, 0, 0}, 1.0f, WHITE);
+            draw_tower_model(yaw_deg, 0.0f, 0, 0.0f);
             break;
         case TOWER_SNIPER:
             if (!g_have_snipr) { drawn = 0; break; }
-            DrawModel(g_sn_base, (Vector3){0, 0, 0}, 1.0f, WHITE);
-            rlRotatef(yaw_deg, 0.0f, 1.0f, 0.0f);
-            DrawModel(g_sn_mount,  (Vector3){0, 0, 0}, 1.0f, WHITE);
-            DrawModel(g_sn_barrel, (Vector3){0, 0, 0}, 1.0f, WHITE);
+            draw_sniper_model(yaw_deg, 0.0f, 0.0f);
             break;
         case TOWER_TESLA:
             if (!g_have_tesla) { drawn = 0; break; }
-            DrawModel(g_te_base, (Vector3){0, 0, 0}, 1.0f, WHITE);
-            /* Orbe : flottement lent (pas d'orientation nécessaire). */
-            rlTranslatef(0.0f, sinf((float)GetTime() * 2.2f) * 0.06f, 0.0f);
-            DrawModel(g_te_orb, (Vector3){0, 0, 0}, 1.0f, WHITE);
+            draw_tesla_model(t);
             break;
         case TOWER_FLAME:
             if (!g_have_flame) { drawn = 0; break; }
-            DrawModel(g_fl_base, (Vector3){0, 0, 0}, 1.0f, WHITE);
-            rlRotatef(yaw_deg, 0.0f, 1.0f, 0.0f);
-            DrawModel(g_fl_turret, (Vector3){0, 0, 0}, 1.0f, WHITE);
+            draw_flame_model(yaw_deg, 0.0f, t);
             break;
         default:
             drawn = 0;

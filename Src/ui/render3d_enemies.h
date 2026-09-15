@@ -27,6 +27,10 @@ int       render3d_enemy_has_model(int enemy_type);  /* type a-t-il un modèle 3
 /* Pré-passe : rend chaque ennemi actif (avec modèle) dans sa texture. */
 void      render3d_enemies_prepass(const EnemyPool *ep);
 
+/* Brouillard de distance (MODE HÉROS) sur le shader des ennemis —
+   density 0 = coupé (remis à 0 par la pré-passe 2D à chaque frame). */
+void      render3d_enemies_set_fog(Color col, float density);
+
 /* Texture 3D prête pour l'ennemi d'indice i (.id==0 si aucune → repli sprite).
    Verticalement retournée (convention RenderTexture raylib). */
 Texture2D render3d_enemy_tex(int enemy_index);
@@ -37,6 +41,8 @@ Rectangle render3d_enemy_dst(int enemy_index, float x, float y, float size);
 
 /* MODE HÉROS : dessine l'ennemi `type` DIRECTEMENT dans la scène 3D courante
    (BeginMode3D actif). heading_rad = cap monde (atan2(x, z)) ; anim_kind :
-   0=repos 1=marche 2=attaque. Retourne 1 si un modèle existait.            */
+   0=repos 1=marche 2=attaque. update_anim : 0 = pose précédente (throttle
+   perf du skinning CPU). Retourne 1 si un modèle existait.                 */
 int render3d_enemies_draw_world(int type, Vector3 pos, float heading_rad,
-                                float scale, int anim_kind, float anim_time);
+                                float scale, int anim_kind, float anim_time,
+                                int update_anim);

@@ -110,6 +110,8 @@ typedef struct {
 void meta_init        (MetaProgress *meta);
 void meta_save        (const MetaProgress *meta);
 int  meta_load        (MetaProgress *meta);
+// P0.1 — détecteur « premier lancement » (fichier méta absent).
+int  meta_file_exists (void);
 void meta_compute     (const MetaProgress *meta, MetaBonuses *out);
 
 // Fin de partie arcade (pas de ferraille)

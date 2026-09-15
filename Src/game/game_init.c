@@ -161,6 +161,23 @@ void game_init_arcade(GameState *gs, ThemeID theme, int slot) {
 #define CAMP_CAP_BASE         6.0f    // plafond de scaling de base
 #define CAMP_CAP_PER_STAGE    0.30f   // relèvement du plafond par acte
 
+// ── DOCTRINES : planchers de sécurité de la dotation d'acte ─────
+// Cumuler les doctrines coûteuses ne doit jamais produire un acte
+// impossible à démarrer (or à zéro, base déjà morte).
+#define DOCTRINE_MIN_GOLD    40
+#define DOCTRINE_MIN_LIVES   10
+
+// ── NEXUS : l'indice de prédiction module l'acte final ──────────
+// Écart à 50 divisé par ces constantes → ±18 % d'ennemis et ±15 % de PV
+// aux extrêmes (indice 4 ou 96). Assez pour se sentir, jamais punitif.
+#define NEXUS_COUNT_DIV     250.0f
+#define NEXUS_SCALE_DIV     300.0f
+
+// ── MODE CHALLENGE (opt-in au lancement de la campagne) ─────────
+#define CHALLENGE_COUNT_MULT  1.15f   // +15 % d'ennemis par vague
+#define CHALLENGE_SCALE_MULT  1.15f   // +15 % de PV de départ
+#define CHALLENGE_CAP_MULT    1.10f   // plafond de scaling relevé de 10 %
+
 static void apply_campaign_difficulty(GameState *gs) {
     int node   = gs->campaign_stage;
     if (node < 0) node = 0;
@@ -186,6 +203,36 @@ static void apply_campaign_difficulty(GameState *gs) {
         default: break;
     }
 
+    /* DOCTRINES : conséquence permanente des choix narratifs. Appliquées
+       ICI (et pas au démarrage de l'acte) pour rester IDEMPOTENTES — les
+       paramètres de vague sont réassignés en tête de fonction, donc tout
+       recalcul (ex. bascule du mode challenge) les reconstruit à l'identique. */
+    {
+        const DoctrineDef *doc[CAMPAIGN_DOCTRINES];
+        int nd = campaign_doctrines_active(gs->campaign_flags, doc,
+                                           CAMPAIGN_DOCTRINES);
+        for (int i = 0; i < nd; i++) {
+            wm->count_mult *= doc[i]->count_mult;
+            wm->scale      *= doc[i]->scale_mult;
+            wm->speed_mult *= doc[i]->speed_mult;
+        }
+
+        /* NEXUS : l'acte final oppose au joueur le modèle qu'il a nourri.
+           Prévisible → hordes coordonnées ; imprévisible → NEXUS improvise. */
+        if (dstage == CAMPAIGN_TOTAL - 1) {
+            float k = (float)(campaign_nexus_prediction(gs->campaign_flags) - 50);
+            wm->count_mult *= 1.0f + k / NEXUS_COUNT_DIV;
+            wm->scale      *= 1.0f + k / NEXUS_SCALE_DIV;
+        }
+    }
+
+    /* MODE CHALLENGE : sur-couche de difficulté (compensée par +Renfort). */
+    if (gs->challenge_mode) {
+        wm->count_mult *= CHALLENGE_COUNT_MULT;
+        wm->scale      *= CHALLENGE_SCALE_MULT;
+        wm->scale_cap  *= CHALLENGE_CAP_MULT;
+    }
+
     /* Boss : dernier acte de chaque chapitre (acte narratif 2).
        Il apparaît à la vague finale du nœud courant et doit être vaincu. */
     gs->boss_pending = 0;
@@ -195,6 +242,12 @@ static void apply_campaign_difficulty(GameState *gs) {
         gs->boss_wave    = fa->min_waves;
         gs->boss_chapter = dstage / CAMPAIGN_ACTS;
     }
+}
+
+void game_campaign_set_challenge(GameState *gs, int on) {
+    gs->challenge_mode = on ? 1 : 0;
+    /* apply_campaign_difficulty est idempotente : recalcul complet. */
+    apply_campaign_difficulty(gs);
 }
 
 void game_init_campaign(GameState *gs, int campaign_num, int slot,
@@ -271,6 +324,22 @@ void game_goto_campaign_node(GameState *gs, int node_id) {
              ? act->objective.target + 2 : 0;
     game_init_map_full(gs, theme, bases, 0, 10, fdep, 0, 0);
     apply_campaign_difficulty(gs);
+
+    /* DOCTRINES — dotation d'entrée d'acte (or / vies). PONCTUEL, donc ici
+       et PAS dans apply_campaign_difficulty (qui est ré-appelée) ni sur le
+       chemin de chargement (la sauvegarde restaure déjà l'état courant). */
+    {
+        const DoctrineDef *doc[CAMPAIGN_DOCTRINES];
+        int nd = campaign_doctrines_active(gs->campaign_flags, doc,
+                                           CAMPAIGN_DOCTRINES);
+        for (int i = 0; i < nd; i++) {
+            gs->gold  += doc[i]->act_gold;
+            gs->lives += doc[i]->act_lives;
+        }
+        /* Une doctrine coûteuse ne doit jamais rendre l'acte injouable. */
+        if (gs->gold  < DOCTRINE_MIN_GOLD)  gs->gold  = DOCTRINE_MIN_GOLD;
+        if (gs->lives < DOCTRINE_MIN_LIVES) gs->lives = DOCTRINE_MIN_LIVES;
+    }
 
     /* Bonus de build à l'entrée de l'acte (perks économie / survie). */
     runbuild_compute(&gs->run, &g_run_mods, gs->gold);

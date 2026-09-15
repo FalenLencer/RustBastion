@@ -18,6 +18,7 @@
 #include "../engine/window.h"
 #include "../ui/renderer.h"
 #include "../ui/tile_art.h"
+#include "../ui/ambient.h"    // météo d'ambiance 2D par thème
 #include "../ui/hud.h"
 #include "../ui/interlude.h"
 #include "campaign_data.h"
@@ -186,6 +187,10 @@ static int handle_menu(AppContext *ctx) {
         game_init_campaign(&ctx->gs, ctx->gs.meta.campaigns_completed,
                            ctx->active_slot, act.campaign_order_seed,
                            act.start_campaign_act);
+        game_campaign_set_challenge(&ctx->gs, act.campaign_challenge);
+        if (ctx->gs.challenge_mode)
+            ui_push_notif(&ctx->gs.ui, "MODE CHALLENGE ACTIF !",
+                          (Color){235, 140, 50, 255});
         /* Sauvegarde initiale avec état interlude = DIALOG_BEFORE */
         campaign_save_write(&ctx->gs, ctx->active_slot,
                             INTER_DIALOG_BEFORE, 0, 0, 0);
@@ -366,8 +371,11 @@ static int handle_menu(AppContext *ctx) {
 // ════════════════════════════════════════════════════════════════
 // ÉCRAN JEU — MISE À JOUR
 // ════════════════════════════════════════════════════════════════
-// Zoom carte (molette, centré sur le curseur) + déplacement (bouton du milieu).
+// Zoom carte (molette, centré sur le curseur) + déplacement (bouton du milieu
+// OU flèches du clavier).
 // Tout passe par g_map_zoom/pan → le rendu ET le mappage souris restent alignés.
+// Vitesse de déplacement au clavier (px de canvas virtuel par seconde).
+#define MAP_PAN_KEY_SPEED  700.0f
 static void game_zoom_input(AppContext *ctx) {
     if (ctx->menu.paused || ctx->interlude != INTER_NONE) return;
     Vector2 m = virt_mouse();
@@ -398,6 +406,17 @@ static void game_zoom_input(AppContext *ctx) {
         panning = 0;
     }
 
+    // Déplacement au CLAVIER (flèches) — indispensable sans clic-molette
+    // (portables, trackpads) : sans cela une carte zoomée est infranchissable.
+    // Placé AVANT le clamp ci-dessous, qui borne les deux méthodes pareil.
+    if (g_map_zoom > 1.0f) {
+        float pan_step = MAP_PAN_KEY_SPEED * GetFrameTime();
+        if (IsKeyDown(KEY_RIGHT)) g_map_pan_x -= pan_step;
+        if (IsKeyDown(KEY_LEFT))  g_map_pan_x += pan_step;
+        if (IsKeyDown(KEY_DOWN))  g_map_pan_y -= pan_step;
+        if (IsKeyDown(KEY_UP))    g_map_pan_y += pan_step;
+    }
+
     // Clamp : la carte zoomée reste plaquée sur la zone de jeu (pas de vide).
     if (g_map_zoom <= 1.0001f) {
         g_map_zoom = 1.0f; g_map_pan_x = 0.0f; g_map_pan_y = 0.0f;
@@ -415,10 +434,20 @@ static void game_zoom_input(AppContext *ctx) {
 }
 
 static void game_do_input(AppContext *ctx) {
+    /* ECHAP = « revenir en arrière d'un cran », convention RTS :
+       s'il y a une sélection en cours, on l'annule ; sinon seulement,
+       on (dé)pause. Traité ICI et NULLE PART AILLEURS — quand ce même
+       ECHAP dépausait, game_do_update tournait dans la foulée et
+       l'ancien traitement dans ui_update effaçait la sélection que le
+       joueur venait de mettre en place avant de faire une pause. */
     if (IsKeyPressed(KEY_ESCAPE)) {
-        ctx->menu.paused ^= 1;
-        ctx->menu.screen  = ctx->menu.paused ? MENU_PAUSE : MENU_TITLE;
-        ctx->tactical_pause = 0;   // le menu pause remplace la pause tactique
+        if (!ctx->menu.paused && ui_has_selection(&ctx->gs.ui)) {
+            ui_clear_selection(&ctx->gs.ui, &ctx->gs);
+        } else {
+            ctx->menu.paused ^= 1;
+            ctx->menu.screen  = ctx->menu.paused ? MENU_PAUSE : MENU_TITLE;
+            ctx->tactical_pause = 0;   // le menu pause remplace la pause tactique
+        }
     }
     // Pause TACTIQUE (solo) : ESPACE gèle la simulation mais on peut continuer à
     // placer/vendre/déplacer pour réfléchir. Désactivée en multijoueur (équité).
@@ -445,6 +474,14 @@ static void game_do_input(AppContext *ctx) {
 static void game_do_update(AppContext *ctx, float dt) {
     if (ctx->menu.paused || ctx->interlude != INTER_NONE) return;
 
+    /* Fenêtre en arrière-plan (alt-tab) : la simulation GÈLE en solo.
+       Perdre une vague pendant qu'on regarde ailleurs est une frustration
+       pure, sans le moindre intérêt de jeu. La reprise est immédiate au
+       retour du focus — aucun état de menu n'est touché.
+       EXCLU EN MULTIJOUEUR : l'adversaire, lui, continue de simuler ;
+       geler ici désynchroniserait la session (et avantagerait le joueur). */
+    if (!ctx->mp_in_game && !IsWindowFocused()) return;
+
     /* Décompte du minuteur de bannière */
     if (ctx->banner_timer > 0.0f) {
         ctx->banner_timer -= dt;
@@ -462,6 +499,8 @@ static void game_do_update(AppContext *ctx, float dt) {
     // ou desynchronise le plateau partage (Asym). On force x1 en multijoueur.
     if (ctx->mp_in_game && ctx->gs.ui.speed_mult != 1) ctx->gs.ui.speed_mult = 1;
     game_state_update(&ctx->gs, dt);
+    // Météo d'ambiance : même rythme que la sim (figée en pause, ×vitesse)
+    ambient_update(dt * (float)ctx->gs.ui.speed_mult);
     // FX au meme rythme que la sim : en avance rapide (X), particules/popups
     // suivent le jeu au lieu de trainer a x1 (et de saturer le pool de popups).
     fx_update(dt * (float)ctx->gs.ui.speed_mult);
@@ -479,6 +518,27 @@ static void game_do_update(AppContext *ctx, float dt) {
     }
 }
 
+
+/* P0.2 — REJOUER : relance immédiatement le même mode (arcade : même
+   thème + même slot ; custom : la config du menu, qui persiste). */
+static void gameover_replay(AppContext *ctx) {
+    GameState *gs  = &ctx->gs;
+    ThemeID    th  = gs->map.theme;
+    int        slt = ctx->active_slot;
+    if (gs->is_custom) {
+        game_init_custom(gs, &ctx->menu.custom_cfg);
+    } else {
+        if (slt >= 0) save_delete(slt);
+        game_init_arcade(gs, th, slt);
+        if (slt >= 0) save_write(gs, slt);
+    }
+    ctx->gameover_meta_done = 0;
+    ctx->gameover_choice    = 0;
+    ctx->banner_timer       = 5.0f;
+    gs->ui.show_fps = ctx->menu.opts.show_fps;
+    menu_refresh_slots(&ctx->menu);
+    audio_play_theme_music(gs->map.theme);
+}
 
 static void game_handle_gameover(AppContext *ctx) {
     if (ctx->gs.phase != PHASE_GAMEOVER || ctx->interlude != INTER_NONE)
@@ -533,7 +593,15 @@ static void game_handle_gameover(AppContext *ctx) {
         }
     }
 
-    if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+    /* P0.2 — choix cliqué sur le récap (posé par le rendu) ; ESPACE
+       reste un raccourci clavier vers le menu. */
+    int choice = ctx->gameover_choice;
+    ctx->gameover_choice = 0;
+    if (choice == 1) {
+        gameover_replay(ctx);
+        return;
+    }
+    if (choice == 2 || IsKeyPressed(KEY_SPACE)) {
         if (ctx->active_slot >= 0) {
             if (ctx->gs.is_campaign)
                 campaign_save_delete(ctx->active_slot);
@@ -653,6 +721,8 @@ static void game_handle_dialog_after(AppContext *ctx) {
        ~90-130 par acte → ~4-6 achats communs (ou 2 épiques) par chapitre :
        la boutique à rachat infini doit permettre PLUSIEURS achats. */
     int gain = 40 + ctx->gs.wave_manager.number * 4 + (obj_ok ? 30 : 0);
+    if (ctx->gs.challenge_mode)
+        gain += gain / 4;            /* MODE CHALLENGE : +25 % de Renfort */
     ctx->gs.run.renfort += gain;
 
     game_goto_campaign_node(&ctx->gs, next_node);
@@ -837,12 +907,13 @@ static int game_do_render(AppContext *ctx) {
     map_cam.offset = (Vector2){_mo.x + fx_shake_dx(), _mo.y + fx_shake_dy()};
     map_cam.zoom   = map_eff_scale();
     BeginMode2D(map_cam);
-        render_map(&gs->map);
+        render_map(&gs->map, &gs->towers, 1);   // tour sur ruine → sol déblayé
         tile_art_draw_paths(&gs->map);    // routes connectées (remplace les traits)
         tile_art_draw_spawns(&gs->map);   // portails d'invasion
+        tile_art_draw_shadows(&gs->map, &gs->towers);  // ombres SE ruines+tours
         render_spawn_exclusion_zones(&gs->map);
         render_bases(&gs->map);
-        render_deposits(&gs->map);
+        render_deposits(&gs->map, &gs->towers);
         render_dropped_mats(gs->dropped_mats, gs->dropped_mat_count);
         render_towers(&gs->towers);
         render_units(&gs->units);
@@ -850,6 +921,8 @@ static int game_do_render(AppContext *ctx) {
         render_projectiles(&gs->towers);
         fx_render_world();   // particules + popups d'or (jus)
     EndMode2D();
+
+    ambient_render(gs->map.theme);   // météo d'ambiance (avant le HUD)
 
     ui_render(&gs->ui, gs);
 
@@ -876,7 +949,9 @@ static int game_do_render(AppContext *ctx) {
                 "ESC      menu pause",
                 "ESPACE   pause tactique (solo) : geler pour reflechir",
                 "X        vitesse  x1 / x2 / x3",
+                "1-9      choisir une tour (1-4) ou une unite (5-9)",
                 "Molette  zoomer la carte    Clic-molette  deplacer",
+                "Fleches  deplacer la carte zoomee",
                 "Clic G   placer / selectionner",
                 "Glisser G  selection de groupe d'unites",
                 "Clic D   deplacer le groupe selectionne",
@@ -1057,8 +1132,16 @@ static int game_do_render(AppContext *ctx) {
     }
 
     /* ── Interludes ───────────────────────────────────────────── */
-    if (gs->phase == PHASE_GAMEOVER)
-        interlude_render_gameover(gs, g_canvas_virt_w, g_canvas_virt_h);
+    if (gs->phase == PHASE_GAMEOVER) {
+        /* P0.2 : récap avec boutons — REJOUER seulement hors campagne
+           (la campagne repart de la carte) et hors tuto/MP. */
+        int allow_replay = !gs->is_campaign && !ctx->tutorial_active &&
+                           !ctx->mp_in_game;
+        int gc = interlude_render_gameover(gs, virt_mouse(),
+                                           g_canvas_virt_w, g_canvas_virt_h,
+                                           allow_replay);
+        if (gc) ctx->gameover_choice = gc;
+    }
 
     if (ctx->interlude == INTER_DIALOG_BEFORE) {
         interlude_render_dialog_before(campaign_act_get(gs->campaign_stage),

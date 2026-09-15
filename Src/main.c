@@ -26,6 +26,26 @@
 #include <string.h>
 #include <stdlib.h>
 
+/* ════════════════════════════════════════════════════════════════
+   CARTE GRAPHIQUE DÉDIÉE (portables à double GPU)
+   ────────────────────────────────────────────────────────────────
+   Sur un portable Optimus (Intel + NVIDIA) ou PowerXpress (AMD), une
+   application OpenGL est lancée par défaut sur le GPU INTÉGRÉ — le
+   jeu tourne alors sur la puce lente pendant que la carte dédiée
+   reste au repos. C'est le symptôme qu'on prend souvent pour « le CPU
+   fait l'affichage ».
+   Ces deux symboles EXPORTÉS sont lus par les pilotes NVIDIA et AMD
+   au démarrage du processus (avant le main) et basculent le rendu sur
+   la carte performante. C'est le mécanisme officiel des deux
+   constructeurs ; il ne peut PAS être changé à l'exécution, d'où
+   l'absence d'option correspondante dans les réglages.
+   Sans effet ailleurs (Linux utilise DRI_PRIME / __NV_PRIME_*).
+   ════════════════════════════════════════════════════════════════ */
+#if defined(_WIN32)
+__declspec(dllexport) unsigned long NvOptimusEnablement                = 1;
+__declspec(dllexport) int           AmdPowerXpressRequestHighPerformance = 1;
+#endif
+
 int main(int argc, char **argv) {
     /* ── Mode SERVEUR RELAIS (headless, sans raylib) ─────────────
        Usage : rustbastion --relay [port]  (défaut 47777).

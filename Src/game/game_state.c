@@ -5,6 +5,7 @@
  */
 
 #include "game_state.h"
+#include "achievements.h"
 #include "../engine/audio.h"
 #include "../combat/fx.h"
 #include "../map/pathfinding.h"
@@ -138,6 +139,7 @@ void game_state_init(GameState *gs) {
     gs->campaign_stage      = 0;
     gs->campaign_order_seed = 0;
     gs->campaign_flags      = 0;
+    gs->challenge_mode      = 0;
     gs->inventory_count     = 0;
     for (int i = 0; i < MAX_INVENTORY; i++)
         gs->inventory[i] = MAT_NONE;
@@ -173,14 +175,25 @@ void game_state_update(GameState *gs, float dt) {
         runbuild_compute(&_empty, &g_run_mods, gs->gold);
     }
 
-    // Mise à jour des limites actives (méta + slots achetés en jeu)
+    // Mise à jour des limites actives (méta + slots achetés + DOCTRINES).
+    // Les slots de doctrine s'ajoutent à la LIMITE, jamais aux compteurs
+    // d'achat : sinon ils renchériraient les slots payants (le coût est
+    // indexé sur slots_*_bought) et réduiraient le nombre achetable.
     {
-        int tl = tower_active_limit(&gs->bonuses) + gs->slots_tower_bought;
+        int dt = 0, du = 0;
+        if (gs->is_campaign) {
+            dt = campaign_doctrine_slots(gs->campaign_flags, 0);
+            du = campaign_doctrine_slots(gs->campaign_flags, 1);
+        }
+        int tl = tower_active_limit(&gs->bonuses) + gs->slots_tower_bought + dt;
         if (tl > MAX_TOWERS_HARD) tl = MAX_TOWERS_HARD;
+        if (tl < 1) tl = 1;
         gs->towers.tower_limit = tl;
 
-        int ul = unit_active_limit(&gs->bonuses, gs->map.base_count) + gs->slots_unit_bought;
+        int ul = unit_active_limit(&gs->bonuses, gs->map.base_count)
+               + gs->slots_unit_bought + du;
         if (ul > MAX_UNITS) ul = MAX_UNITS;
+        if (ul < 1) ul = 1;
         gs->units.unit_limit = ul;
     }
 
@@ -228,11 +241,15 @@ void game_state_update(GameState *gs, float dt) {
         _base_was_active[_b] = gs->map.bases[_b].active;
 
     // Mise à jour ennemis — passe towers pour Artillery
+    int _gold_before_e = gs->gold;
     enemy_pool_update(&gs->enemies, &gs->enemy_paths,
                       &gs->units, &gs->towers,
                       &gs->map,
                       effective_dt,
                       &gs->lives, &gs->gold, &gs->kills);
+    /* Bandeau fin de vague : l'or de kills passe ici (delta ≥ 0) */
+    if (gs->phase == PHASE_WAVE && gs->gold > _gold_before_e)
+        gs->ui.wave_gold_acc += gs->gold - _gold_before_e;
 
     // Une base est-elle tombée ce frame ? → redirige immédiatement les chemins
     // (et les ennemis déjà en route) vers une base encore vivante, pour ne pas
@@ -263,8 +280,11 @@ void game_state_update(GameState *gs, float dt) {
     /* Récompense or pour chaque matériau livré ce frame */
     {
         int _delivered = gs->inventory_count - _inv_before;
-        if (_delivered > 0)
+        if (_delivered > 0) {
             gs->gold += _delivered * 20;
+            if (gs->phase == PHASE_WAVE)
+                gs->ui.wave_gold_acc += _delivered * 20;
+        }
     }
 
     // ── Ouvriers tués en portant → lâchent le matériau ───────────
@@ -388,7 +408,32 @@ void game_state_update(GameState *gs, float dt) {
             gs->act_materials_collected += gs->inventory_count - inv_cnt_before;
     }
 
+    GamePhase _phase_before = gs->phase;
     gs->phase = (gs->wave_manager.state == WAVE_IDLE ||
                  gs->wave_manager.state == WAVE_COMPLETE)
                 ? PHASE_PREP : PHASE_WAVE;
+
+    // ── Bandeau de fin de vague (P1.1) ───────────────────────────
+    // Debut de vague : baseline kills + or ; masque un eventuel bandeau.
+    if (_phase_before == PHASE_PREP && gs->phase == PHASE_WAVE) {
+        gs->ui.wave_kills_start = gs->kills;
+        gs->ui.wave_gold_acc    = 0;
+        gs->ui.wave_banner_t    = 0.0f;
+    }
+    // Vague repoussee : fige le recap (number = vague qui vient de finir).
+    if (_phase_before == PHASE_WAVE && gs->phase == PHASE_PREP) {
+        gs->ui.wave_banner_wave  = gs->wave_manager.number;
+        gs->ui.wave_banner_kills = gs->kills - gs->ui.wave_kills_start;
+        gs->ui.wave_banner_gold  = gs->ui.wave_gold_acc;
+        gs->ui.wave_banner_t     = WAVE_BANNER_TIME;
+    }
+    // Tick au dt REEL (pas effective_dt) : duree constante quel que soit
+    // le multiplicateur de vitesse ; fige quand le jeu est en pause.
+    if (gs->ui.wave_banner_t > 0.0f) {
+        gs->ui.wave_banner_t -= dt;
+        if (gs->ui.wave_banner_t < 0.0f) gs->ui.wave_banner_t = 0.0f;
+    }
+
+    // ── Succes (P1.3) : conditions pollables, idempotent et bon marche ──
+    ach_poll_game(gs);
 }

@@ -6,6 +6,7 @@
 
 #include "window.h"
 #include "canvas.h"
+#include <string.h>   /* strstr : détection du rendu logiciel */
 
 // ── Accès direct à GLFW sous Raylib ──────────────────────────
 // Raylib utilise GLFW en interne sur toutes les plateformes desktop.
@@ -62,4 +63,53 @@ void window_center(void) {
 // Après cet appel, SetTargetFPS() contrôle seul le framerate.
 void window_disable_vsync(void) {
     glfwSwapInterval(0);
+}
+
+// ════════════════════════════════════════════════════════════════
+// DIAGNOSTIC GPU
+// ════════════════════════════════════════════════════════════════
+// GL_VENDOR / GL_RENDERER sont des constantes d'OpenGL 1.1, présentes
+// sur toutes les implémentations. On déclare glGetString ICI plutôt que
+// d'inclure <GL/gl.h> : raylib embarque son propre chargeur (GLAD) et
+// cumuler les deux provoque des redéfinitions selon les plateformes.
+// Le symbole est exporté par libGL (Linux) et opengl32.dll (Windows),
+// tous deux déjà liés (cf. LDFLAGS du Makefile). Pas de souci de
+// convention d'appel : la cible Windows est x86_64, où __stdcall et
+// l'ABI par défaut sont confondus.
+#define GL_VENDOR    0x1F00
+#define GL_RENDERER  0x1F01
+extern const unsigned char *glGetString(unsigned int name);
+
+static const char *gl_string_or(unsigned int id, const char *fallback) {
+    const unsigned char *s = glGetString(id);
+    return (s && s[0]) ? (const char *)s : fallback;
+}
+
+const char *gpu_renderer_name(void) {
+    return gl_string_or(GL_RENDERER, "inconnu");
+}
+
+const char *gpu_vendor_name(void) {
+    return gl_string_or(GL_VENDOR, "inconnu");
+}
+
+// Rendu logiciel = le CPU rastérise. Signatures connues des pilotes de
+// repli : Mesa (llvmpipe / softpipe / swrast / SWR), Microsoft (GDI
+// générique, Basic Render Driver), Mesa offscreen.
+int gpu_is_software(void) {
+    static const char *const SOFT[] = {
+        "llvmpipe", "softpipe", "swrast", "swr",
+        "gdi generic", "basic render", "offscreen", "software",
+    };
+    const char *r = gpu_renderer_name();
+    char low[128];
+    int  n = 0;
+    for (; r[n] && n < (int)sizeof(low) - 1; n++) {
+        char c = r[n];
+        low[n] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+    }
+    low[n] = '\0';
+    for (int i = 0; i < (int)(sizeof(SOFT) / sizeof(SOFT[0])); i++)
+        if (strstr(low, SOFT[i])) return 1;
+    return 0;
 }

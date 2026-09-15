@@ -10,7 +10,9 @@
  */
 #include "hero.h"
 #include "app.h"
+#include "achievements.h"
 #include "../ui/render3d_world.h"
+#include "../ui/render3d_fx.h"   /* r3dfx_install (hooks FX 3D)           */
 #include "../ui/renderer.h"      /* g_canvas_virt_w/h                     */
 #include "../ui/ui_utils.h"      /* dtxt / mtxt / fh                      */
 #include "../ui/hud_internal.h"  /* virt_mouse (transform souris fiable)  */
@@ -47,6 +49,7 @@ static void hero_mouse_capture(HeroState *h, int native) {
     }
     h->mouse_free   = 0;
     h->mouse_settle = 3;    /* ignore les 1ers deltas (transition capture) */
+    h->look_ref_ok  = 0;    /* référence de recentrage à re-calibrer       */
 }
 
 static void hero_mouse_release(HeroState *h) {
@@ -58,29 +61,15 @@ void hero_start(AppContext *ctx) {
     HeroState *h = &ctx->hero;
     GameState *gs = &ctx->gs;
 
-    h->px = gs->units.base_px;                 /* spawn à la base primaire */
-    h->py = gs->units.base_py + (float)TILE_SIZE * 1.5f;
+    r3dfx_install();   /* FX 3D : branche les hooks fx + vide le pool */
+    /* Succes : premiere partie en heros. Le HUD heros n'affiche pas les
+       notifs 2D → toast dedie la premiere fois. */
+    int first_hero_ach = !ach_unlocked(ACH_HERO_MODE);
+    ach_unlock(ACH_HERO_MODE, gs);
+
+    /* SPAWN SÛR près de la base primaire (helper partagé avec le respawn). */
+    hero_find_spawn(ctx, &h->px, &h->py);
     h->hz = 0.0f; h->vz = 0.0f; h->on_ground = 1;
-    /* SPAWN SÛR : si la case visée est bloquée (eau/ruine/tour), cherche
-       en spirale la tuile praticable la plus proche autour de la base. */
-    if (hero_tile_blocked(gs, (int)(h->px / TILE_SIZE),
-                          (int)(h->py / TILE_SIZE), 0.0f)) {
-        int btx = (int)(gs->units.base_px / TILE_SIZE);
-        int bty = (int)(gs->units.base_py / TILE_SIZE);
-        int found = 0;
-        for (int r = 1; r <= 6 && !found; r++) {
-            for (int oy = -r; oy <= r && !found; oy++) {
-                for (int ox = -r; ox <= r && !found; ox++) {
-                    if (ox > -r && ox < r && oy > -r && oy < r) continue;
-                    if (!hero_tile_blocked(gs, btx + ox, bty + oy, 0.0f)) {
-                        h->px = (btx + ox + 0.5f) * (float)TILE_SIZE;
-                        h->py = (bty + oy + 0.5f) * (float)TILE_SIZE;
-                        found = 1;
-                    }
-                }
-            }
-        }
-    }
     /* Regard initial : vers le centre de la carte (on voit le terrain). */
     {
         float mcx = gs->map.w * (float)TILE_SIZE * 0.5f;
@@ -99,13 +88,25 @@ void hero_start(AppContext *ctx) {
     h->place_mode = 0; h->place_type = 0;
     h->place_tx = 0; h->place_ty = 0; h->place_ok = 0;
     h->aim_on_target = 0;
+    h->control_tower = -1; h->ctrl_px = 0.0f; h->ctrl_py = 0.0f;
+    g_tower_manual_control = -1;
+
+    h->hp = HERO_MAX_HP; h->hp_max = HERO_MAX_HP;
+    h->hurt_t = 0.0f; h->ko_t = 0.0f; h->down = 0;
+    h->tactical_view = 0;
+    h->mat_sel = 0;
 
     h->show_help = 0;
     h->toast_t = 0.0f; h->toast[0] = '\0';
+    if (first_hero_ach)
+        hero_toast(h, "SUCCES : Sur le terrain (+15 ferraille)",
+                   (Color){232, 152, 32, 255});
 
     h->sprinting = 0;
     h->fov_cur   = HERO_CAM_FOVY;
     h->bob_t     = 0.0f;
+    h->radial_open = 0; h->radial_sel = -1;
+    h->radial_dx = 0.0f; h->radial_dy = 0.0f;
     h->wave_banner_t = 0.0f; h->wave_banner[0] = '\0';
     h->prev_phase    = (int)gs->phase;
 
@@ -138,6 +139,8 @@ void hero_start(AppContext *ctx) {
 
 static void hero_exit_to_menu(AppContext *ctx) {
     EnableCursor();
+    ctx->hero.control_tower = -1;
+    g_tower_manual_control  = -1;
     /* Restaure le fenêtré si le mode avait imposé le plein écran. */
     if (ctx->hero.fs_forced && IsWindowFullscreen()) {
         ToggleFullscreen();
@@ -163,6 +166,21 @@ Camera3D hero_camera(const HeroState *h) {
     cam.up         = (Vector3){0.0f, 1.0f, 0.0f};
     cam.fovy       = (h->fov_cur > 1.0f) ? h->fov_cur : HERO_CAM_FOVY;
     cam.projection = CAMERA_PERSPECTIVE;
+    if (h->control_tower >= 0) {
+        /* CONTRÔLE : yeux sur la tourelle, visée souris classique. */
+        Vector3 eye = w3d_from_sim(h->ctrl_px, h->ctrl_py, HERO_CTRL_EYE_H);
+        cam.position = eye;
+        cam.target   = (Vector3){ eye.x + dir.x, eye.y + dir.y, eye.z + dir.z };
+        return cam;
+    }
+    if (h->tactical_view) {
+        /* VUE TACTIQUE : drone au-dessus du héros, nord en haut —
+           pour PLANIFIER (prépa) comme sur la carte 2D. */
+        cam.position = w3d_from_sim(h->px, h->py, HERO_TACT_H);
+        cam.target   = w3d_from_sim(h->px, h->py, 0.0f);
+        cam.up       = (Vector3){0.0f, 0.0f, -1.0f};
+        return cam;
+    }
     if (h->first_person) {
         /* Balancement de marche (1re personne seulement, subtil). */
         float bob = h->moving ? sinf(h->bob_t) * HERO_BOB_AMP : 0.0f;
@@ -249,6 +267,26 @@ static void hero_input(AppContext *ctx, float dt) {
         if (h->mouse_free) hero_mouse_capture(h, want_native);
         else               hero_mouse_release(h);
     }
+
+    /* ── MENU RADIAL (P1.4) : molette maintenue ───────────────────
+       Ouvert : les deltas souris deviennent un GESTE directionnel
+       (le regard est gelé). Relâche = applique le segment visé.    */
+    if (h->radial_open &&
+        (IsMouseButtonReleased(MOUSE_MIDDLE_BUTTON) || h->mouse_free ||
+         h->down || h->tactical_view || h->control_tower >= 0)) {
+        if (IsMouseButtonReleased(MOUSE_MIDDLE_BUTTON))
+            hero_radial_apply(ctx);
+        h->radial_open = 0;
+    }
+    if (!h->radial_open && IsMouseButtonPressed(MOUSE_MIDDLE_BUTTON) &&
+        !h->mouse_free && !h->down && !h->tactical_view &&
+        h->control_tower < 0) {
+        h->radial_open = 1;
+        h->radial_dx   = 0.0f;
+        h->radial_dy   = 0.0f;
+        h->radial_sel  = -1;
+        audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+    }
     if (h->mouse_free && IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
         hero_mouse_capture(h, want_native);   /* clic = reprendre le contrôle */
     /* L'option a changé en cours de partie (via pause→Options) → resync. */
@@ -268,15 +306,24 @@ static void hero_input(AppContext *ctx, float dt) {
             Vector2 md = GetMouseDelta();
             dx = md.x; dy = md.y;
         } else {
-            /* STANDARD : écart au centre (position absolue, fiable partout)
-               + recentrage. Le curseur — s'il reste visible malgré
-               HideCursor (WSLg) — demeure ÉPINGLÉ au centre, sous le
-               réticule, et le plein écran l'empêche de fuir. */
+            /* STANDARD : écart à la RÉFÉRENCE de recentrage (auto-calibrée :
+               on relit la position virtuelle EXACTE juste après le warp —
+               élimine la dérive au repos due aux arrondis centre-écran).
+               Curseur re-caché + recentré chaque frame, plein écran imposé
+               → il reste épinglé sous le réticule. */
             if (!IsCursorHidden()) HideCursor();
             Vector2 vm = virt_mouse();
-            dx = vm.x - (float)g_canvas_virt_w * 0.5f;
-            dy = vm.y - (float)g_canvas_virt_h * 0.5f;
+            float rx = h->look_ref_ok ? h->look_ref_x
+                                      : (float)g_canvas_virt_w * 0.5f;
+            float ry = h->look_ref_ok ? h->look_ref_y
+                                      : (float)g_canvas_virt_h * 0.5f;
+            dx = vm.x - rx;
+            dy = vm.y - ry;
             SetMousePosition(GetScreenWidth() / 2, GetScreenHeight() / 2);
+            Vector2 ref = virt_mouse();       /* position réelle du warp */
+            h->look_ref_x  = ref.x;
+            h->look_ref_y  = ref.y;
+            h->look_ref_ok = 1;
         }
         if (h->mouse_settle > 0) { h->mouse_settle--; dx = 0.0f; dy = 0.0f; }
         /* Anti-spike : un pic aberrant (alt-tab, glitch driver) ne fait
@@ -285,6 +332,31 @@ static void hero_input(AppContext *ctx, float dt) {
         if (dx < -HERO_LOOK_CLAMP) dx = -HERO_LOOK_CLAMP;
         if (dy >  HERO_LOOK_CLAMP) dy =  HERO_LOOK_CLAMP;
         if (dy < -HERO_LOOK_CLAMP) dy = -HERO_LOOK_CLAMP;
+
+        /* MENU RADIAL ouvert : le geste absorbe les deltas (regard gelé).
+           Vecteur brut (ni accélération ni sensibilité : c'est une visée
+           de segment, pas un regard) borné à HERO_RADIAL_MAX_PX. */
+        if (h->radial_open) {
+            h->radial_dx += dx;
+            h->radial_dy += dy;
+            float gl = sqrtf(h->radial_dx * h->radial_dx +
+                             h->radial_dy * h->radial_dy);
+            if (gl > HERO_RADIAL_MAX_PX) {
+                h->radial_dx *= HERO_RADIAL_MAX_PX / gl;
+                h->radial_dy *= HERO_RADIAL_MAX_PX / gl;
+                gl = HERO_RADIAL_MAX_PX;
+            }
+            h->radial_sel = -1;
+            if (gl > HERO_RADIAL_DEAD_PX) {
+                /* 0 = haut, sens horaire ; segment le plus proche */
+                float ang = atan2f(h->radial_dx, -h->radial_dy);
+                if (ang < 0.0f) ang += 2.0f * PI;
+                float step = 2.0f * PI / (float)HERO_RADIAL_N;
+                h->radial_sel = (int)(ang / step + 0.5f) % HERO_RADIAL_N;
+            }
+            dx = 0.0f;
+            dy = 0.0f;
+        }
 
         /* Courbe d'accélération réglable : 50 = ×1.0 = LINÉAIRE (aucune
            accélération ajoutée) ; <50 amortit, >50 accentue les gestes
@@ -303,10 +375,12 @@ static void hero_input(AppContext *ctx, float dt) {
     }
 
     /* ── Regard CLAVIER (secours toujours disponible) : flèches ───── */
-    if (IsKeyDown(KEY_RIGHT)) h->yaw   -= HERO_KEY_TURN * dt;
-    if (IsKeyDown(KEY_LEFT))  h->yaw   += HERO_KEY_TURN * dt;
-    if (IsKeyDown(KEY_UP))    h->pitch += HERO_KEY_TURN * 0.6f * dt;
-    if (IsKeyDown(KEY_DOWN))  h->pitch -= HERO_KEY_TURN * 0.6f * dt;
+    if (!h->radial_open) {
+        if (IsKeyDown(KEY_RIGHT)) h->yaw   -= HERO_KEY_TURN * dt;
+        if (IsKeyDown(KEY_LEFT))  h->yaw   += HERO_KEY_TURN * dt;
+        if (IsKeyDown(KEY_UP))    h->pitch += HERO_KEY_TURN * 0.6f * dt;
+        if (IsKeyDown(KEY_DOWN))  h->pitch -= HERO_KEY_TURN * 0.6f * dt;
+    }
 
     if (h->pitch >  HERO_PITCH_MAX) h->pitch =  HERO_PITCH_MAX;
     if (h->pitch < -HERO_PITCH_MAX) h->pitch = -HERO_PITCH_MAX;
@@ -314,16 +388,21 @@ static void hero_input(AppContext *ctx, float dt) {
     /* Touches configurables (Options > Commandes). */
     const int *hk = ctx->menu.opts.hero_keys;
 
-    /* Vue 1re/3e personne */
+    /* Vue 1re/3e personne + VUE TACTIQUE (drone, planification) */
     if (IsKeyPressed(hk[HK_VIEW])) h->first_person ^= 1;
+    if (IsKeyPressed(KEY_C) && h->control_tower < 0)
+        h->tactical_view ^= 1;
     if (IsKeyPressed(KEY_H)) h->show_help ^= 1;
 
-    /* Déplacement relatif au cap caméra */
+    /* Déplacement relatif au cap caméra — INHIBÉ pendant le contrôle
+       d'une tour (on est « monté » sur la tourelle). */
     float fwd = 0.0f, str = 0.0f;
-    if (IsKeyDown(hk[HK_FWD]))   fwd += 1.0f;
-    if (IsKeyDown(hk[HK_BACK]))  fwd -= 1.0f;
-    if (IsKeyDown(hk[HK_RIGHT])) str += 1.0f;
-    if (IsKeyDown(hk[HK_LEFT]))  str -= 1.0f;
+    if (h->control_tower < 0) {
+        if (IsKeyDown(hk[HK_FWD]))   fwd += 1.0f;
+        if (IsKeyDown(hk[HK_BACK]))  fwd -= 1.0f;
+        if (IsKeyDown(hk[HK_RIGHT])) str += 1.0f;
+        if (IsKeyDown(hk[HK_LEFT]))  str -= 1.0f;
+    }
     h->moving    = (fwd != 0.0f || str != 0.0f);
     h->sprinting = (h->moving && IsKeyDown(hk[HK_SPRINT]));
     if (h->moving) {
@@ -341,7 +420,8 @@ static void hero_input(AppContext *ctx, float dt) {
     }
 
     /* ── Saut + gravité (les ruines deviennent franchissables) ────── */
-    if (IsKeyPressed(hk[HK_JUMP]) && h->on_ground) {
+    if (h->control_tower < 0 &&
+        IsKeyPressed(hk[HK_JUMP]) && h->on_ground) {
         h->vz = HERO_JUMP_V;
         h->on_ground = 0;
     }
@@ -456,9 +536,22 @@ int hero_frame(AppContext *ctx, float dt) {
         }
     }
 
-    hero_input(ctx, dt);
-    game_state_update(gs, dt);              /* la MÊME sim que les autres modes */
-    fx_update(dt);
+    /* ── K.O. : la sim continue, le héros attend son respawn ─────── */
+    if (h->down) {
+        hero_down_frame(ctx, dt);
+        return 1;
+    }
+
+    /* Fenêtre en arrière-plan (alt-tab) : on GÈLE la simulation, comme en 2D
+       (cf. game_do_update). Le rendu, lui, continue : au retour du focus la
+       scène est déjà à l'écran, la reprise est instantanée. Le mode héros
+       est solo — aucun enjeu de désynchronisation réseau. */
+    if (IsWindowFocused()) {
+        hero_input(ctx, dt);
+        game_state_update(gs, dt);          /* la MÊME sim que les autres modes */
+        hero_survival_update(ctx, dt);      /* contact / régén / K.O.           */
+        fx_update(dt);
+    }
 
     /* Bannière aux transitions de phase (VAGUE N / vague repoussée). */
     if (h->wave_banner_t > 0.0f) h->wave_banner_t -= dt;

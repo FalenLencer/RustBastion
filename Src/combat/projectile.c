@@ -149,6 +149,10 @@ void projectile_update(TowerPool *tp, EnemyPool *ep, float dt) {
                 }
             }
 
+            /* FX 3D d'impact (mode héros) : au point touché, typé.
+               Émis à chaque coup, rebonds de chaîne compris. */
+            if (g_fx3d_impact) g_fx3d_impact(p->tx, p->ty, (int)p->dmg_type);
+
             if (p->chain_left > 0) {
                 float chain_rng2 = (TILE_SIZE * 2.5f) * (TILE_SIZE * 2.5f);
                 int chained = 0;

@@ -11,15 +11,17 @@ SRC = Src/main.c                                                              \
       Src/game/meta.c          Src/game/app.c         Src/game/runperks.c   \
       Src/game/app_tutorial.c  Src/game/app_mp.c                            \
       Src/game/hero.c          Src/game/hero_actions.c Src/game/hero_hud.c  \
-      Src/game/campaign_data.c                                              \
+      Src/game/hero_tower.c    Src/game/hero_survival.c                     \
+      Src/game/campaign_data.c Src/game/achievements.c                      \
       Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c       \
       Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c    \
       Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
       Src/combat/fx.c          Src/combat/move.c                             \
       Src/ui/renderer.c        Src/ui/ui_utils.c      Src/ui/tile_art.c     \
+      Src/ui/tile_art_decor.c  Src/ui/ambient.c                              \
       Src/ui/ui_anim.c                                                       \
       Src/ui/render3d.c        Src/ui/render3d_units.c Src/ui/render3d_enemies.c \
-      Src/ui/render3d_world.c                                                \
+      Src/ui/render3d_world.c  Src/ui/render3d_terrain.c Src/ui/render3d_fx.c \
       Src/ui/perk_art.c                                                     \
       Src/ui/hud.c             Src/ui/hud_input.c     Src/ui/hud_render.c   \
       Src/ui/menu.c            Src/ui/menu_screens.c  Src/ui/menu_campaign.c \

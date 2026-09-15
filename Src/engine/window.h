@@ -18,3 +18,16 @@ void window_center(void);
 // Fonctionne sur Windows, Linux (X11 + Wayland) et macOS
 // indépendamment des réglages driver/compositeur système.
 void window_disable_vsync(void);
+
+// ── Diagnostic du processeur graphique ───────────────────────
+// Le rendu passe TOUJOURS par OpenGL, donc par le GPU : il n'existe
+// aucune API OpenGL permettant d'énumérer ou de CHOISIR une carte
+// (c'est propre à Vulkan / Direct3D 12). Ce qui est utile et faisable,
+// c'est de DIRE au joueur quel processeur graphique travaille — et de
+// l'alerter si le pilote est retombé sur un rendu logiciel (llvmpipe,
+// GDI générique…), auquel cas c'est bien le CPU qui dessine, avec les
+// performances qu'on imagine.
+// À n'appeler qu'APRÈS InitWindow() (le contexte GL doit exister).
+const char *gpu_renderer_name(void);   // ex. "NVIDIA GeForce RTX 3060"
+const char *gpu_vendor_name  (void);   // ex. "NVIDIA Corporation"
+int         gpu_is_software  (void);   // 1 = rendu logiciel (CPU) détecté

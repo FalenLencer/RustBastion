@@ -245,6 +245,49 @@ void unit_assign_deposit(UnitPool *up, int unit_idx, int deposit_idx) {
     u->state       = USTATE_GOTO_DEPOSIT;
 }
 
+/* Dépôt ACTIF le plus proche d'une position (-1 si aucun).
+   Sert à l'enchaînement automatique des voyages de minage. */
+static int nearest_active_deposit(const Map *map, float x, float y) {
+    int   best = -1;
+    float best_d2 = FLT_MAX;
+    for (int d = 0; d < map->deposit_count; d++) {
+        const MaterialDeposit *dep = &map->deposits[d];
+        if (!dep->active) continue;
+        float dx = (dep->tile_x * TILE_SIZE + TILE_SIZE / 2.0f) - x;
+        float dy = (dep->tile_y * TILE_SIZE + TILE_SIZE / 2.0f) - y;
+        float d2 = dx * dx + dy * dy;
+        if (d2 < best_d2) { best_d2 = d2; best = d; }
+    }
+    return best;
+}
+
+/* ════════════════════════════════════════════════════
+   DÉBLAIEMENT D'UN OBSTACLE
+   Une ruine bloque le passage ET la construction (move_tile_blocked) ;
+   une roche minée est une TILE_RUIN laissée par le joueur lui-même.
+   L'ouvrier peut en débarrasser le terrain contre quelques pièces.
+   ════════════════════════════════════════════════════ */
+int unit_tile_clearable(const Map *map, const TowerPool *tp, int tx, int ty) {
+    if (!map) return 0;
+    if (tx < 0 || ty < 0 || tx >= map->w || ty >= map->h) return 0;
+    if (map->tiles[ty][tx].type != TILE_RUIN) return 0;
+    /* Une roche minée reste TILE_RUIN une fois bâtie dessus : sans ce
+       filtre, on « déblaierait » le sol sous sa propre tour. */
+    return !tower_at_tile(tp, tx, ty);
+}
+
+void unit_assign_clear(UnitPool *up, int unit_idx, int tx, int ty) {
+    if (unit_idx < 0 || unit_idx >= MAX_UNITS) return;
+    Unit *u = &up->units[unit_idx];
+    if (!u->active || u->type != UNIT_WORKER) return;
+    /* Cible = CENTRE de la tuile : la conversion inverse (÷ TILE_SIZE)
+       est alors exacte, on peut donc retrouver la tuile sans champ dédié. */
+    u->manual_x    = tx * TILE_SIZE + TILE_SIZE / 2.0f;
+    u->manual_y    = ty * TILE_SIZE + TILE_SIZE / 2.0f;
+    u->deposit_idx = -1;          /* annule toute mission de minage    */
+    u->state       = USTATE_GOTO_CLEAR;
+}
+
 /* ════════════════════════════════════════════════════
    DÉGÂTS
    ════════════════════════════════════════════════════ */
@@ -309,6 +352,12 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                       MaterialType *inventory, int *inv_count,
                       const TowerPool *towers)
 {
+    /* Invalide la grille de navigation : elle sera reconstruite par la
+       première unité qui se déplace, puis RÉUTILISÉE par toutes les
+       autres cette frame. Doit rester ici — c'est le seul endroit
+       traversé une fois par frame avant tout déplacement. */
+    move_nav_begin_frame();
+
     for (int i = 0; i < MAX_UNITS; i++) {
         Unit *u = &up->units[i];
         if (!u->active) continue;
@@ -354,8 +403,8 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     u->collect_timer    = u->collect_duration;
                 } else {
                     float step = u->speed * TILE_SIZE * dt;
-                    move_toward(map, towers, &u->x, &u->y,
-                                dep_x, dep_y, step, u->size, MOVE_F_ALLY);
+                    move_nav_toward(map, towers, &u->nav, &u->x, &u->y,
+                                    dep_x, dep_y, step, u->size, MOVE_F_ALLY);
                 }
                 break;
             }
@@ -406,6 +455,78 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 break;
             }
 
+            /* ── Déblaiement : rejoindre l'obstacle ────────────────
+               VOLONTAIREMENT non soumis à `mining_enabled` (contrairement
+               au minage) : c'est une tâche de génie, pas une récolte —
+               elle ne rapporte rien, donc l'autoriser en PRÉPARATION
+               n'ouvre aucun exploit et la rend utile au bon moment. */
+            case USTATE_GOTO_CLEAR: {
+                int ctx_ = (int)(u->manual_x / TILE_SIZE);
+                int cty_ = (int)(u->manual_y / TILE_SIZE);
+                /* L'obstacle a disparu entre-temps (tour posée sur une
+                   roche minée, autre ouvrier plus rapide) → on abandonne. */
+                if (!unit_tile_clearable(map, towers, ctx_, cty_)) {
+                    u->state = USTATE_PATROL;
+                    break;
+                }
+                float dist = gdist(u->x, u->y, u->manual_x, u->manual_y);
+                if (dist <= TILE_SIZE * UNIT_WORKER_CLEAR_REACH) {
+                    u->state            = USTATE_CLEARING;
+                    u->collect_duration = UNIT_WORKER_CLEAR_DURATION;
+                    u->collect_timer    = u->collect_duration;
+                } else {
+                    /* La tuile visée étant BLOQUÉE, move_nav_toward s'arrête
+                       naturellement sur une case voisine : c'est exactement
+                       le poste de travail voulu. */
+                    float step = u->speed * TILE_SIZE * dt;
+                    move_nav_toward(map, towers, &u->nav, &u->x, &u->y,
+                                    u->manual_x, u->manual_y,
+                                    step, u->size, MOVE_F_ALLY);
+                }
+                break;
+            }
+
+            /* ── Déblaiement : travail en cours ────────────────── */
+            case USTATE_CLEARING: {
+                int ctx_ = (int)(u->manual_x / TILE_SIZE);
+                int cty_ = (int)(u->manual_y / TILE_SIZE);
+                if (!unit_tile_clearable(map, towers, ctx_, cty_)) {
+                    u->state = USTATE_PATROL;
+                    break;
+                }
+                /* Même pénalité que le minage sous la menace : un ennemi
+                   proche ralentit le chantier (cohérence de traitement). */
+                float clear_rate = 1.0f;
+                if (ep) {
+                    float slow_px = UNIT_WORKER_ENEMY_SLOW_RANGE * TILE_SIZE;
+                    for (int j = 0; j < MAX_ENEMIES; j++) {
+                        const Enemy *e = &ep->enemies[j];
+                        if (!e->active || e->dead || e->spawn_delay > 0.0f) continue;
+                        if (gdist(u->x, u->y, e->x, e->y) <= slow_px) {
+                            clear_rate = UNIT_WORKER_ENEMY_SLOW_FACTOR;
+                            break;
+                        }
+                    }
+                }
+                u->collect_timer -= dt * clear_rate;
+                if (u->collect_timer <= 0.0f) {
+                    Tile *t   = &map->tiles[cty_][ctx_];
+                    t->type      = TILE_GROUND;
+                    t->passable  = 1;
+                    t->buildable = 1;
+                    /* Si l'obstacle était une roche minée, éteindre aussi le
+                       drapeau du gisement : sinon le sprite de roche (2D) et
+                       le cube (3D) resteraient dessinés sur un sol dégagé. */
+                    for (int d = 0; d < map->deposit_count; d++) {
+                        MaterialDeposit *dep = &map->deposits[d];
+                        if (dep->tile_x == ctx_ && dep->tile_y == cty_)
+                            dep->mined = 0;
+                    }
+                    u->state = USTATE_PATROL;
+                }
+                break;
+            }
+
             case USTATE_GOTO_BASE: {
                 // Retour à la base autorisé même en PHASE_PREP
                 float dist = gdist(u->x, u->y, u->home_base_px, u->home_base_py);
@@ -418,12 +539,23 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     }
                     u->carried_mat  = MAT_NONE;
                     u->has_material = 0;
-                    u->state        = USTATE_PATROL;
+                    /* L'ouvrier REPART MINER de lui-même. Sans cela il faut
+                       lui redonner un ordre après CHAQUE voyage : de la
+                       micro-gestion pure, sans aucune décision intéressante.
+                       Le joueur garde la main — cliquer un autre gisement
+                       (ou une ruine à déblayer) écrase la mission. */
+                    int nd = nearest_active_deposit(map, u->x, u->y);
+                    if (nd >= 0) {
+                        u->deposit_idx = nd;
+                        u->state       = USTATE_GOTO_DEPOSIT;
+                    } else {
+                        u->state       = USTATE_PATROL;
+                    }
                 } else {
                     float step = u->speed * TILE_SIZE * dt;
-                    move_toward(map, towers, &u->x, &u->y,
-                                u->home_base_px, u->home_base_py,
-                                step, u->size, MOVE_F_ALLY);
+                    move_nav_toward(map, towers, &u->nav, &u->x, &u->y,
+                                    u->home_base_px, u->home_base_py,
+                                    step, u->size, MOVE_F_ALLY);
                 }
                 break;
             }
@@ -513,9 +645,9 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     u->state = USTATE_PATROL;
                 } else {
                     float step = u->speed * TILE_SIZE * dt;
-                    move_toward(map, towers, &u->x, &u->y,
-                                u->manual_x, u->manual_y,
-                                step, u->size, MOVE_F_ALLY);
+                    move_nav_toward(map, towers, &u->nav, &u->x, &u->y,
+                                    u->manual_x, u->manual_y,
+                                    step, u->size, MOVE_F_ALLY);
                     u->state = USTATE_MOVE_MANUAL;
                 }
             }

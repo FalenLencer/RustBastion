@@ -12,6 +12,7 @@
 #include "app_tutorial.h"
 #include "../ui/renderer.h"    // g_map_x_off, g_canvas_virt_w_base, g_map_zoom
 #include "../ui/ui_utils.h"    // dtxt / mtxt / fh
+#include "../engine/audio.h"   // musique menu au retour (PASSER/TERMINER)
 #include "../ui/ui_anim.h"     // ui_dt / ea_out_cubic / ea_out_back
 #include "../ui/hud.h"         // ToolID / rectangles HUD
 #include "../combat/tower.h"   // Tower
@@ -150,9 +151,15 @@ static void tutorial_prepare_step(AppContext *ctx, int step) {
     }
 }
 
+/* PASSER / TERMINER : RETOUR AU MENU — le tutoriel est un couloir guidé,
+   pas une partie (avant : on restait bloqué dans l'arcade sans issue). */
 static void tutorial_finish(AppContext *ctx) {
     ctx->tutorial_active = 0;
     ctx->gs.wave_manager.suppress_auto = 0;
+    ctx->screen      = SCREEN_MENU;
+    ctx->menu.screen = MENU_TITLE;
+    ctx->menu.paused = 0;
+    audio_play_menu_music();
 }
 
 static void tutorial_block_click(AppContext *ctx, const char *msg) {

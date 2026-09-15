@@ -36,6 +36,30 @@ static inline Vector3 w3d_from_sim(float px, float py, float h) {
 
 struct AppContext;
 
+/* Teinte décalée par canal — délègue à la source unique ui_tint3
+   (ui_utils.h) ; noms w3d_* conservés pour les ~40 sites d'appel 3D. */
+#include "ui_utils.h"
+static inline Color w3d_tint3(Color c, int dr, int dg, int db) {
+    return ui_tint3(c, dr, dg, db);
+}
+static inline Color w3d_shade(Color c, int d) { return ui_shade(c, d); }
+
+/* 1 = position monde devant la caméra (marge dos-caméra incluse) :
+   test de cull partagé par toute la scène (terrain, props, entités). */
+int w3d_in_front(Camera3D cam, Vector3 p);
+
+/* ── Brouillard CPU (formes au shader raylib par défaut : terrain, props,
+   bases, portails). Les modèles GLB, eux, ont le fog DANS leurs shaders.
+   setup à chaque frame (render3d_world_render) ; factor = 0..1 selon la
+   distance caméra ; mix = mélange vers la couleur d'horizon.            */
+void  w3d_fog_setup(Color col, float density);
+float w3d_fog_factor(Vector3 p, Camera3D cam);
+Color w3d_fog_mix(Color c, float f);
+
+/* Couleur des projectiles par type de dégâts (indices DamageType,
+   définition dans render3d_world.c) — réutilisée par les FX 3D. */
+extern const Color W3D_PROJ_COL[];
+
 /* Dessine la scène 3D complète (ClearBackground inclus) + les éléments
    monde du mode héros (traceur, fantôme de placement). */
 void render3d_world_render(struct AppContext *ctx, Camera3D cam);

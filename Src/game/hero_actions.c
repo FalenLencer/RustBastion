@@ -10,8 +10,12 @@
  */
 #include "hero.h"
 #include "app.h"
+#include "achievements.h"           /* succes ACH_BOSS_DOWN (kill direct) */
 #include "../ui/render3d_world.h"
+#include "../ui/render3d_fx.h"      /* r3dfx_impact (gerbe d'impact 3D)   */
 #include "../combat/projectile.h"   /* combat_apply_damage (chokepoint)   */
+#include "../combat/fx.h"           /* popup ACHEVE (rôle finisher)       */
+#include "../ui/hud_internal.h"     /* tool_is_unlocked (verrou des tours) */
 #include "../engine/audio.h"
 #include <math.h>
 #include <stdio.h>
@@ -26,6 +30,9 @@ typedef struct {
     float       splash_tiles; /* >0 : zone autour de l'impact         */
     int         chain;        /* >0 : rebonds sur ennemis proches     */
     AudioSfxID  sfx;
+    float       sfx_pitch;    /* P1.5 : pitch de base (1.0 = wav brut) —
+                                 distingue l'arme du heros de la TOUR qui
+                                 partage le meme fichier son            */
 } HeroWeaponDef;
 
 #define HW_SPLASH_FRAC  0.60f   /* dégâts de zone = 60 % du coup       */
@@ -35,11 +42,11 @@ typedef struct {
 
 static const HeroWeaponDef HW_DEFS[HW_COUNT] = {
     [HW_RIFLE]  = { "Fusil",     22.0f, 3.2f, 14.0f, DMG_PHYSICAL,
-                    0.0f, 0, AUDIO_SFX_TOWER_FIRE_GUN },
+                    0.0f, 0, AUDIO_SFX_TOWER_FIRE_GUN,    1.08f },
     [HW_CANNON] = { "Canon",     48.0f, 0.9f, 10.0f, DMG_FIRE,
-                    1.6f, 0, AUDIO_SFX_TOWER_FIRE_SNIPER },
+                    1.6f, 0, AUDIO_SFX_TOWER_FIRE_SNIPER, 0.72f },
     [HW_TESLA]  = { "Arc Tesla", 15.0f, 2.1f,  9.0f, DMG_ELECTRIC,
-                    0.0f, 2, AUDIO_SFX_TOWER_FIRE_TESLA },
+                    0.0f, 2, AUDIO_SFX_TOWER_FIRE_TESLA,  1.14f },
 };
 
 const char *hero_weapon_name(HeroWeapon w) {
@@ -69,6 +76,16 @@ static int hero_near_base(const AppContext *ctx, float *bpx, float *bpy) {
     return idx;
 }
 
+/* Le héros est-il dans la zone d'une base ? (pour le HUD : hotbar) */
+int hero_in_base_zone(AppContext *ctx) {
+    return hero_near_base(ctx, NULL, NULL) >= 0;
+}
+
+/* Verrou de progression des tours : MÊME règle que le HUD 2D. */
+int hero_tower_unlocked(struct AppContext *ctx, int tower_type) {
+    return tool_is_unlocked((ToolID)(TOOL_TOWER_GUN + tower_type), &ctx->gs);
+}
+
 /* Un ouvrier actif est-il à portée ? (thème : c'est LUI qui bâtit) */
 static int hero_near_worker(const AppContext *ctx) {
     const GameState *gs = &ctx->gs;
@@ -87,8 +104,8 @@ static int hero_near_worker(const AppContext *ctx) {
 /* ── Visée : ennemi sous le réticule (rayon caméra centre-écran) ──
    Réutilisé par le TIR et par le VISEUR RÉACTIF. Retourne l'indice
    d'ennemi (-1 si rien) ; remplit ray/dist si demandés. */
-static int hero_aim_pick(AppContext *ctx, float range,
-                         Ray *ray_out, float *dist_out) {
+int hero_aim_pick(AppContext *ctx, float range,
+                  Ray *ray_out, float *dist_out) {
     const HeroState *h  = &ctx->hero;
     const GameState *gs = &ctx->gs;
 
@@ -119,6 +136,18 @@ static int hero_aim_pick(AppContext *ctx, float range,
     return hit;
 }
 
+/* Coup TYPÉ du héros — rôle FINISHER : bonus sous le seuil de PV.
+   L'arme excelle à ACHEVER ce que les tours ont entamé (fuyards,
+   cibles prioritaires), au lieu de concurrencer leur DPS brut. */
+static void hero_typed_hit(Enemy *e, float dmg, DamageType dt_) {
+    int low = (e->hp <= e->max_hp * HERO_EXECUTE_THRESH);
+    if (low) dmg *= HERO_EXECUTE_MULT;
+    int was_dead = e->dead;
+    combat_apply_damage(e, dmg, dt_);
+    if (low && !was_dead && e->dead)
+        fx_popup(e->x, e->y - e->size, "ACHEVE !", (Color){255, 150, 60, 255});
+}
+
 /* ── Tir : dégâts typés via le chokepoint commun ────────────────── */
 static void hero_fire(AppContext *ctx) {
     HeroState *h  = &ctx->hero;
@@ -143,12 +172,13 @@ static void hero_fire(AppContext *ctx) {
     h->trace_hit  = (hit >= 0);
     h->fire_flash = 0.12f;
     h->fire_cd = 1.0f / hero_weapon_rate(h);
-    audio_play_sfx(wd->sfx);
+    audio_play_sfx_pitch(wd->sfx, wd->sfx_pitch);
 
     if (hit < 0) return;
     Enemy *e = &gs->enemies.enemies[hit];
     float dmg = hero_weapon_dmg(h);
-    combat_apply_damage(e, dmg, wd->dtype);
+    hero_typed_hit(e, dmg, wd->dtype);
+    r3dfx_impact(e->x, e->y, (int)wd->dtype);   /* gerbe 3D au point touché */
 
     /* Canon : zone autour de l'impact */
     if (wd->splash_tiles > 0.0f) {
@@ -160,7 +190,7 @@ static void hero_fire(AppContext *ctx) {
             if (!e2->active || e2->dead || e2->spawn_delay > 0.0f) continue;
             float dx = e2->x - e->x, dy = e2->y - e->y;
             if (dx * dx + dy * dy <= r2)
-                combat_apply_damage(e2, dmg * HW_SPLASH_FRAC, wd->dtype);
+                hero_typed_hit(e2, dmg * HW_SPLASH_FRAC, wd->dtype);
         }
     }
 
@@ -183,11 +213,27 @@ static void hero_fire(AppContext *ctx) {
             }
             if (nb < 0) break;
             Enemy *e2 = &gs->enemies.enemies[nb];
-            combat_apply_damage(e2, dmg * HW_CHAIN_FRAC, wd->dtype);
+            hero_typed_hit(e2, dmg * HW_CHAIN_FRAC, wd->dtype);
+            r3dfx_impact(e2->x, e2->y, (int)wd->dtype);  /* étincelles du rebond */
             fx = e2->x; fy = e2->y;
             done++;
         }
         (void)done;
+    }
+
+    /* Succes : un boss acheve par le heros voit son dead traite DANS la
+       meme frame (enemy_pool_update tourne apres hero_input) → le poll de
+       fin de game_state_update le raterait. Hook explicite ici. */
+    if (!ach_unlocked(ACH_BOSS_DOWN)) {
+        for (int i = 0; i < MAX_ENEMIES; i++) {
+            const Enemy *eb = &gs->enemies.enemies[i];
+            if (eb->active && eb->is_boss && eb->dead) {
+                ach_unlock(ACH_BOSS_DOWN, gs);
+                hero_toast(h, "SUCCES : Tueur de titans (+30 ferraille)",
+                           (Color){232, 152, 32, 255});
+                break;
+            }
+        }
     }
 }
 
@@ -230,7 +276,68 @@ static void hero_place_update(AppContext *ctx) {
     h->place_ok = tower_can_place(&gs->towers, &gs->map,
                                   h->place_tx, h->place_ty)
                && gs->towers.tower_count < gs->towers.tower_limit
-               && gs->gold >= cost;
+               && gs->gold >= cost
+               && hero_tower_unlocked(ctx, h->place_type);
+}
+
+/* ── MENU RADIAL (P1.4) : 3 armes + 4 tours ────────────────────── */
+/* Segments 0..HW_COUNT-1 = armes ; HW_COUNT.. = tours (TowerType).   */
+const char *hero_radial_label(AppContext *ctx, int i,
+                              int *cost, int *locked) {
+    GameState *gs = &ctx->gs;
+    if (cost)   *cost   = -1;
+    if (locked) *locked = 0;
+    if (i < 0 || i >= HERO_RADIAL_N) return "?";
+    if (i < (int)HW_COUNT) {
+        /* Arme : meme regle que [R] — changement en PREPARATION */
+        if (locked) *locked = (gs->phase != PHASE_PREP);
+        return HW_DEFS[i].name;
+    }
+    int t = i - (int)HW_COUNT;
+    if (cost)   *cost   = TOWER_BASE_STATS[t].cost;
+    if (locked) *locked = !hero_tower_unlocked(ctx, t);
+    return TOWER_BASE_STATS[t].name;
+}
+
+void hero_radial_apply(AppContext *ctx) {
+    HeroState *h  = &ctx->hero;
+    GameState *gs = &ctx->gs;
+    int i = h->radial_sel;
+    if (i < 0 || i >= HERO_RADIAL_N) return;
+
+    if (i < (int)HW_COUNT) {
+        /* Arme — PREP uniquement (choix de build, pas de swap en combat) ;
+           contrairement a [R], pas besoin d'etre a la base (ergonomie). */
+        if (gs->phase != PHASE_PREP) {
+            hero_toast(h, "Changement d'arme en PREPARATION seulement",
+                       (Color){231, 76, 60, 255});
+            return;
+        }
+        h->weapon = (HeroWeapon)i;
+        audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+        char nb[64];
+        snprintf(nb, sizeof(nb), "Arme : %s", hero_weapon_name(h->weapon));
+        hero_toast(h, nb, (Color){170, 220, 255, 255});
+        return;
+    }
+
+    /* Tour — memes regles que [interagir] + 1..4 : deblocage campagne
+       et ouvrier a portee (c'est LUI qui batit). */
+    int t = i - (int)HW_COUNT;
+    if (!hero_tower_unlocked(ctx, t)) {
+        hero_toast(h, "Tour verrouillee : progressez en campagne !",
+                   (Color){231, 76, 60, 255});
+        return;
+    }
+    if (!hero_near_worker(ctx)) {
+        hero_toast(h, "Approchez-vous d'un ouvrier pour construire",
+                   (Color){243, 156, 18, 255});
+        return;
+    }
+    h->place_mode = 1;
+    h->place_type = t;
+    hero_place_update(ctx);
+    audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
 }
 
 /* ── Boucle d'interactions (appelée par hero_input) ────────────── */
@@ -240,10 +347,17 @@ void hero_actions_update(AppContext *ctx, float dt) {
     const int *hk = ctx->menu.opts.hero_keys;   /* touches configurables */
     (void)dt;
 
+    /* MENU RADIAL ouvert : il capte tout (ni tir, ni achats, ni touches). */
+    if (h->radial_open) return;
+
     /* Viseur réactif : un ennemi est-il sous le réticule ce frame ? */
     h->aim_on_target =
         (hero_aim_pick(ctx, HW_DEFS[h->weapon].range_tiles * W3D_TILE,
                        NULL, NULL) >= 0);
+
+    /* MODE CONTRÔLE DE TOUR : gère visée/tir/upgrades/sortie, et
+       court-circuite toutes les autres interactions. */
+    if (hero_tower_update(ctx)) return;
 
     float bpx = 0.0f, bpy = 0.0f;
     int near_base   = hero_near_base(ctx, &bpx, &bpy);
@@ -252,10 +366,21 @@ void hero_actions_update(AppContext *ctx, float dt) {
     /* ── MODE PLACEMENT (prioritaire sur tout le reste) ─────────── */
     if (h->place_mode) {
         hero_place_update(ctx);
-        if (IsKeyPressed(KEY_ONE))   h->place_type = (int)TOWER_GUN;
-        if (IsKeyPressed(KEY_TWO))   h->place_type = (int)TOWER_SNIPER;
-        if (IsKeyPressed(KEY_THREE)) h->place_type = (int)TOWER_FLAME;
-        if (IsKeyPressed(KEY_FOUR))  h->place_type = (int)TOWER_TESLA;
+        /* Sélection du type — les tours VERROUILLÉES (progression campagne,
+           même règle que le HUD 2D) ne sont pas sélectionnables. */
+        int want = -1;
+        if (IsKeyPressed(KEY_ONE))   want = (int)TOWER_GUN;
+        if (IsKeyPressed(KEY_TWO))   want = (int)TOWER_SNIPER;
+        if (IsKeyPressed(KEY_THREE)) want = (int)TOWER_FLAME;
+        if (IsKeyPressed(KEY_FOUR))  want = (int)TOWER_TESLA;
+        if (want >= 0) {
+            if (hero_tower_unlocked(ctx, want)) {
+                h->place_type = want;
+            } else {
+                hero_toast(h, "Tour verrouillee : progressez en campagne !",
+                           (Color){231, 76, 60, 255});
+            }
+        }
         if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
             h->place_mode = 0;
             return;
@@ -272,8 +397,9 @@ void hero_actions_update(AppContext *ctx, float dt) {
         return;   /* pas de tir ni d'achats pendant le placement */
     }
 
-    /* ── TIR ────────────────────────────────────────────────────── */
-    if (IsMouseButtonDown(MOUSE_LEFT_BUTTON) && h->fire_cd <= 0.0f)
+    /* ── TIR (pas depuis le drone tactique) ─────────────────────── */
+    if (IsMouseButtonDown(MOUSE_LEFT_BUTTON) && h->fire_cd <= 0.0f &&
+        !h->tactical_view)
         hero_fire(ctx);
 
     /* ── OUVRIER : entrer en mode construction ──────────────────── */
@@ -282,6 +408,11 @@ void hero_actions_update(AppContext *ctx, float dt) {
         hero_place_update(ctx);
         return;
     }
+
+    /* ── TOUR proche : [E] contrôle, [O/P/L] améliorations ───────── */
+    int tnear = hero_tower_near(ctx);
+    if (tnear >= 0)
+        hero_tower_interact_near(ctx, tnear);
 
     /* ── BASE : vague / recruter / arme / améliorations ─────────── */
     if (near_base < 0) return;
@@ -331,7 +462,9 @@ void hero_actions_update(AppContext *ctx, float dt) {
         hero_toast(h, nb, (Color){170, 220, 255, 255});
     }
 
-    /* Améliorations roguelite : [O] dégâts, [P] cadence */
+    /* Améliorations roguelite de l'ARME : [O]/[P] — désactivées quand une
+       TOUR est à portée (les mêmes touches améliorent alors la tour). */
+    if (tnear >= 0) return;
     if (IsKeyPressed(KEY_O) && h->upg_dmg < HERO_UPG_MAX) {
         int cost = HERO_UPG_COST_BASE * (h->upg_dmg + 1);
         if (gs->gold >= cost) {
@@ -375,6 +508,10 @@ int hero_prompts(AppContext *ctx, char out[][64], int max) {
         return n;
     }
 
+    /* Contrôle / proximité de tour (prioritaire sur le reste) */
+    n = hero_tower_prompts(ctx, out, max, n);
+    if (ctx->hero.control_tower >= 0) return n;
+
     const int *hk = ctx->menu.opts.hero_keys;
     char kw[24], ki[24], kb[24];
     opts_key_name(hk[HK_WAVE],     kw, sizeof(kw));
@@ -388,18 +525,14 @@ int hero_prompts(AppContext *ctx, char out[][64], int max) {
                      wave_early_launch_bonus(&gs->wave_manager));
         if (n < max)
             snprintf(out[n++], 64,
-                     "[1]Soldat %d  [2]Lourd %d  [3]Medic %d  [4]Chien %d  [5]Ouvrier %d",
-                     UNIT_BASE_STATS[UNIT_SOLDIER].cost,
-                     UNIT_BASE_STATS[UNIT_HEAVY].cost,
-                     UNIT_BASE_STATS[UNIT_MEDIC].cost,
-                     UNIT_BASE_STATS[UNIT_DOG].cost,
-                     UNIT_BASE_STATS[UNIT_WORKER].cost);
+                     "[1-5] recruter (cartes ci-dessus)");
         if (n < max) {
-            char up[64] = "";
+            /* 30 chars max par moitié : tient toujours dans out[64] */
+            char up[30] = "";
             if (h->upg_dmg  < HERO_UPG_MAX)
                 snprintf(up, sizeof(up), "[O] +degats %d or   ",
                          HERO_UPG_COST_BASE * (h->upg_dmg + 1));
-            char up2[64] = "";
+            char up2[30] = "";
             if (h->upg_rate < HERO_UPG_MAX)
                 snprintf(up2, sizeof(up2), "[P] +cadence %d or",
                          HERO_UPG_COST_BASE * (h->upg_rate + 1));

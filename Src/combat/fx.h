@@ -58,3 +58,14 @@ void  fx_render_world(void);
 // Décalage de secousse à appliquer à la caméra (0 si désactivé / au repos).
 float fx_shake_dx(void);
 float fx_shake_dy(void);
+
+/* ── Relais MODE HÉROS (FX 3D) ────────────────────────────────
+   Pointeurs installés par ui/render3d_fx (r3dfx_install) : le combat
+   émet ses effets 3D aux MÊMES endroits que les FX 2D sans dépendre
+   de ui/. NULL tant que le mode héros n'a jamais été lancé.
+   - burst  : relayé par fx_burst (mort d'ennemi, jus) → fragments 3D.
+   - impact : appelé par projectile.c au point d'impact (type de dégâts).
+   - update : relayé par fx_update (mêmes pauses / speed_mult). */
+extern void (*g_fx3d_burst)(float x, float y, Color col, int n, float speed);
+extern void (*g_fx3d_impact)(float x, float y, int dmg_type);
+extern void (*g_fx3d_update)(float dt);

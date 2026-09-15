@@ -7,6 +7,7 @@
 #include "interlude.h"
 #include "ui_utils.h"
 #include "ui_anim.h"
+#include "ui_palette.h"   /* palette UI (source unique) */
 #include "perk_art.h"
 #include "../game/campaign_data.h"
 #include "../game/meta.h"
@@ -62,36 +63,10 @@ static void il_keycap(int x, int y, int w, int h, const char *lbl, Color col, in
             : (Color){22,17,9,255});
     DrawRectangleRoundedLinesEx(k, 0.3f, 4, 1.5f, col);
     int tw = mtxt(lbl, 12);
-    dtxt(lbl, x + w/2 - tw/2, y + h/2 - fh(12)/2, 12, hot ? (Color){250,245,230,255} : col);
+    dtxt(lbl, x + w/2 - tw/2, y + h/2 - fh(12)/2, 12, hot ? UI_TEXT : col);
 }
-// Glyphe pixel-art de catégorie : 0 tour, 1 éco, 2 unité, 3 survie.
-static void il_cat_glyph(int cx, int cy, int cat, Color col) {
-    Color sh = {(unsigned char)(col.r*0.55f),(unsigned char)(col.g*0.55f),(unsigned char)(col.b*0.55f),255};
-    switch (cat) {
-        case 1: // éco : pièce frappée
-            DrawCircle(cx, cy, 7, col);
-            DrawCircle(cx, cy, 4, sh);
-            DrawRectangle(cx-1, cy-3, 2, 6, col);
-            break;
-        case 2: // unité : casque
-            DrawCircle(cx, cy-1, 6, col);
-            DrawRectangle(cx-7, cy-1, 14, 3, col);
-            DrawRectangle(cx-2, cy-5, 4, 2, sh);
-            break;
-        case 3: // survie : bouclier
-            DrawRectangle(cx-5, cy-6, 10, 6, col);
-            DrawRectangle(cx-4, cy,   8, 2, col);
-            DrawRectangle(cx-3, cy+2, 6, 2, col);
-            DrawRectangle(cx-1, cy+4, 2, 2, col);
-            DrawRectangle(cx-2, cy-4, 4, 4, sh);
-            break;
-        default: // tour : socle + tourelle + canon
-            DrawRectangle(cx-6, cy+3, 12, 4, col);
-            DrawRectangle(cx-3, cy-4, 6, 7, col);
-            DrawRectangle(cx+2, cy-3, 6, 2, sh);   // canon
-            break;
-    }
-}
+/* (il_cat_glyph supprimé : le compteur Renfort utilise désormais
+   l'icône ferraille g_icon_scrap — c'était son seul site d'appel.) */
 // Petite caisse de ravitaillement (icône d'en-tête).
 static void il_crate(int cx, int cy, Color col) {
     Color sh = {(unsigned char)(col.r/2),(unsigned char)(col.g/2),(unsigned char)(col.b/2),col.a};
@@ -145,10 +120,16 @@ void interlude_render_dialog_before(const ActData *act, int node_id, int flags,
     DrawRectangle(0, 0, vw, vh, (Color){0,0,0,220});
 
     const char *echo = campaign_echo(node_id, flags);   // rappel d'un choix passé
-    int pw = 580, ph = echo ? 350 : 300;
+    /* Doctrines actives : la trace PERMANENTE des décisions passées. */
+    const DoctrineDef *doc[CAMPAIGN_DOCTRINES];
+    int ndoc = campaign_doctrines_active(flags, doc, CAMPAIGN_DOCTRINES);
+    /* En-tête + une ligne par doctrine : le panneau grandit avec le nombre
+       de décisions prises (4 max), sinon le dialogue serait rogné. */
+    int doc_h = ndoc ? (fh(9) + 2 + ndoc * (fh(9) + 3) + 3) : 0;
+    int pw = 580, ph = (echo ? 350 : 300) + doc_h;
     DrawRectangleRounded(
         (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        6.0f/ph, 8, (Color){10,6,2,252});
+        6.0f/ph, 8, UI_PANEL_BG);
     DrawRectangleRoundedLinesEx(
         (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
         6.0f/ph, 8, 2.0f, (Color){80,55,20,255});
@@ -162,8 +143,11 @@ void interlude_render_dialog_before(const ActData *act, int node_id, int flags,
     py += 14;
 
     // Titre de l'acte
-    txt_c(act->title, cx, py, 18, (Color){232,152,32,255});
-    py += 27;   // fh(18)=25 → séparateur 2px sous le bas du texte (était 24 → 1px DANS le texte)
+    txt_c(act->title, cx, py, 18, UI_ACCENT);
+    /* 27 px : valeur RÉGLÉE À L'OEIL sur l'encre réelle du glyphe, pas sur
+       fh(18)=29 (la boîte em inclut le jambage, plus haute que l'encre).
+       Ne pas « corriger » vers fh() sans revoir le rendu. */
+    py += 27;
 
     // Séparateur
     DrawLine(px, py, px+iw, py, (Color){60,40,12,160});
@@ -177,6 +161,28 @@ void interlude_render_dialog_before(const ActData *act, int node_id, int flags,
     dtxt(obj_buf, px + M_S, py, 12, (Color){150,220,150,255});
     py += 20;
 
+    /* DOCTRINE — ce que vos choix passés coûtent et rapportent, RAPPELÉ à
+       chaque acte. Sans le détail de l'effet, « Arsenal » ne veut plus rien
+       dire cinq actes plus tard : le joueur doit pouvoir relier en
+       permanence sa décision à la partie qu'il est en train de jouer. */
+    if (ndoc > 0) {
+        dtxt("DOCTRINE", px, py, 9, (Color){150, 120, 50, 220});
+        py += fh(9) + 2;
+        for (int i = 0; i < ndoc; i++) {
+            /* Méthodique = bleu acier (structure) ; imprévisible = ambre (tempo) */
+            Color tc = doc[i]->methodical ? (Color){120, 175, 215, 240}
+                                          : (Color){225, 165,  70, 240};
+            int nw = mtxt(doc[i]->name, 9);
+            dtxt(doc[i]->name, px + M_S, py, 9, tc);
+            char ebuf[128];
+            clip_text(doc[i]->effect, iw - M_S * 2 - nw - 10, 9,
+                      ebuf, sizeof(ebuf));
+            dtxt(ebuf, px + M_S + nw + 10, py, 9, (Color){140, 125, 95, 225});
+            py += fh(9) + 3;
+        }
+        py += 3;
+    }
+
     // Séparateur
     DrawLine(px, py, px+iw, py, (Color){60,40,12,160});
     py += M_S;
@@ -184,7 +190,9 @@ void interlude_render_dialog_before(const ActData *act, int node_id, int flags,
     // Dialogue (texte multi-ligne)
     // On affiche le dialogue ligne par ligne
     {
-        const char *d = act->dialog_before;
+        /* Source unique du texte d'intro : dynamique pour l'acte NEXUS
+           (il annonce l'indice de prédiction RÉELLEMENT calculé). */
+        const char *d = campaign_dialog_before(node_id, flags);
         char line[96];
         int li = 0, di = 0;
         int dy = py;
@@ -198,7 +206,7 @@ void interlude_render_dialog_before(const ActData *act, int node_id, int flags,
             if (li > 0) {
                 char tbuf[96];
                 clip_text(line, iw, 10, tbuf, sizeof(tbuf));
-                dtxt(tbuf, px, dy, 10, (Color){168,148,102,255});
+                dtxt(tbuf, px, dy, 10, UI_TEXT_SEC);
             }
             dy += 16; // fh(10)=14 + 2px marge
         }
@@ -208,7 +216,7 @@ void interlude_render_dialog_before(const ActData *act, int node_id, int flags,
     if (echo) {
         int ey = cy + ph/2 - M - 50;
         DrawLine(px, ey - 6, px + iw, ey - 6, (Color){90, 70, 26, 150});
-        dtxt("» RAPPEL", px, ey - 4, 8, (Color){150, 120, 50, 220});
+        dtxt("» RAPPEL", px, ey - 4, 10, (Color){150, 120, 50, 220});
         ey += 11;
         const char *e = echo; char el[96]; int ei;
         while (*e) {
@@ -216,15 +224,15 @@ void interlude_render_dialog_before(const ActData *act, int node_id, int flags,
             while (*e && *e != '\n' && ei < 95) el[ei++] = *e++;
             if (*e == '\n') e++;
             el[ei] = '\0';
-            char ec[96]; clip_text(el, iw, 9, ec, sizeof(ec));
-            dtxt(ec, px, ey, 9, (Color){205, 175, 95, 235});
+            char ec[96]; clip_text(el, iw, 10, ec, sizeof(ec));
+            dtxt(ec, px, ey, 10, (Color){205, 175, 95, 235});
             ey += 13;
         }
     }
 
     // Hint
     txt_c("ESPACE -- Commencer l'acte", cx, cy + ph/2 - M - 12, 10,
-          (Color){80,65,40,255});
+          UI_BORDER);
 }
 
 // ════════════════════════════════════════════════════
@@ -241,12 +249,14 @@ void interlude_render_dialog_after(const ActData *act, int stars,
 
     DrawRectangle(0, 0, vw, vh, (Color){0,0,0,200});
 
-    int pw = 580, ph = has_choice ? 372 : 330;
-    Color border_col = is_last ? (Color){232,152,32,255}
-                               : (Color){42,190,105,255};
+    /* Le bloc de choix porte 2 lignes par option (libellé + conséquence) :
+       le panneau s'agrandit d'autant, sinon le texte déborde par le bas. */
+    int pw = 580, ph = has_choice ? 424 : 330;
+    Color border_col = is_last ? UI_ACCENT
+                               : UI_SUCCESS;
     DrawRectangleRounded(
         (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        6.0f/ph, 8, (Color){10,6,2,252});
+        6.0f/ph, 8, UI_PANEL_BG);
     DrawRectangleRoundedLinesEx(
         (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
         6.0f/ph, 8, 2.0f, border_col);
@@ -286,8 +296,12 @@ void interlude_render_dialog_after(const ActData *act, int stars,
         char line[96];
         int li = 0, di = 0;
         int dy = py;
-        /* Réserve la zone basse pour le bloc de choix (sinon chevauchement). */
-        int dlimit = cy + ph/2 - (has_choice ? 78 : 44);
+        /* Réserve la zone basse pour le bloc de choix (sinon chevauchement).
+           Doit suivre la hauteur RÉELLE du bloc : séparateur + question +
+           2 options de 2 lignes chacune. */
+        int dlimit = cy + ph/2
+                   - (has_choice ? (M + fh(11) + 4 + (fh(11) + 2 + fh(9) + 6) * 2 + 10)
+                                 : 44);
         while (d[di] && dy < dlimit) {
             li = 0;
             while (d[di] && d[di] != '\n' && li < 95)
@@ -297,15 +311,19 @@ void interlude_render_dialog_after(const ActData *act, int stars,
             if (li > 0) {
                 char tbuf[96];
                 clip_text(line, iw, 10, tbuf, sizeof(tbuf));
-                dtxt(tbuf, px, dy, 10, (Color){168,148,102,255});
+                dtxt(tbuf, px, dy, 10, UI_TEXT_SEC);
             }
             dy += 16; // fh(10)=14 + 2px marge
         }
     }
 
     if (has_choice) {
-        /* Bifurcation : on présente la question + deux options (touches 1/2). */
-        int by = cy + ph/2 - M - 46;
+        /* Bifurcation : question + 2 options portant CHACUNE sa conséquence
+           chiffrée. Le joueur tranche en connaissance de cause — c'est ce qui
+           sépare une décision d'un simple embranchement de couloir.
+           Hauteurs dérivées de fh() (jamais de la taille brute). */
+        const int OPT_H = fh(11) + 2 + fh(9) + 6;
+        int by = cy + ph/2 - M - (fh(11) + 4 + OPT_H * 2);
         DrawLine(px, by - 6, px + iw, by - 6, (Color){50,35,10,160});
         const char *prompt = campaign_choice_prompt(node_id);
         if (prompt) {
@@ -313,28 +331,37 @@ void interlude_render_dialog_after(const ActData *act, int stars,
             clip_text(prompt, iw, 11, pbuf, sizeof(pbuf));
             txt_c(pbuf, cx, by, 11, (Color){232,200,120,255});
         }
-        by += 16;
+        by += fh(11) + 4;
         for (int o = 0; o < 2; o++) {
             const char *lbl = campaign_choice_label(node_id, o);
             if (!lbl) continue;
-            char obuf[110];
+            char obuf[110], cbuf[120];
             snprintf(obuf, sizeof(obuf), "[%d]  %s", o + 1, lbl);
-            char cbuf[120];
-            clip_text(obuf, iw, 11, cbuf, sizeof(cbuf));
+            clip_text(obuf, iw - M_S, 11, cbuf, sizeof(cbuf));
             dtxt(cbuf, px + M_S, by, 11, (Color){120,210,120,255});
-            by += 15;
+
+            /* Conséquence permanente de la doctrine installée. */
+            const char *eff = campaign_choice_effect(node_id, o);
+            if (eff) {
+                char ebuf[120];
+                clip_text(eff, iw - M_S * 3, 9, ebuf, sizeof(ebuf));
+                dtxt(ebuf, px + M_S * 3, by + fh(11) + 2, 9,
+                     (Color){190, 165, 105, 235});
+            }
+            by += OPT_H;
         }
     } else {
         const char *hint = is_last ? "ESPACE -- Retour au menu"
                                     : "ESPACE -- Stage suivant";
-        txt_c(hint, cx, cy + ph/2 - M - 12, 10, (Color){80,65,40,255});
+        txt_c(hint, cx, cy + ph/2 - M - 12, 10, UI_BORDER);
     }
 }
 
 // ════════════════════════════════════════════════════
 // GAME OVER
 // ════════════════════════════════════════════════════
-void interlude_render_gameover(const GameState *gs, int vw, int vh) {
+int interlude_render_gameover(const GameState *gs, Vector2 vm,
+                              int vw, int vh, int allow_replay) {
     int cx = vw/2, cy = vh/2;
     DrawRectangle(0, 0, vw, vh, (Color){0,0,0,180});
 
@@ -347,7 +374,9 @@ void interlude_render_gameover(const GameState *gs, int vw, int vh) {
         diverge = (dm != DEFEAT_GAMEOVER);
     }
 
-    int pw = 460, ph = diverge ? 250 : (gs->is_campaign ? 220 : 190);
+    /* P0.2 : le panneau non-bifurquant est un RÉCAP (stats + boutons) */
+    int pw = 460, ph = diverge ? 250 : 290;
+    int choice = 0;
     float rnd = 5.0f/(float)ph;
     Color border = diverge ? (Color){214, 140, 30, 255} : (Color){200, 40, 20, 255};
     DrawRectangleRounded(
@@ -370,12 +399,11 @@ void interlude_render_gameover(const GameState *gs, int vw, int vh) {
         py += 16;
     }
 
-    txt_c(TextFormat("Vague %d  |  Ennemis elimines : %d",
-                     gs->wave_manager.number, gs->kills),
-          cx, py, 11, (Color){120,80,60,255});
-    py += 22;
-
     if (diverge) {
+        txt_c(TextFormat("Vague %d  |  Ennemis elimines : %d",
+                         gs->wave_manager.number, gs->kills),
+              cx, py, 11, (Color){120,80,60,255});
+        py += 22;
         const char *flavor = (dm == DEFEAT_RETREAT)
             ? "Repli possible : la mission se poursuit ailleurs."
             : "Tout n'est pas perdu — un nouvel assaut est possible.";
@@ -388,12 +416,77 @@ void interlude_render_gameover(const GameState *gs, int vw, int vh) {
         txt_c("[ECHAP]   Abandonner  —  retour a la carte",
               cx, cy + ph/2 - M - 12, 10, (Color){185, 95, 70, 255});
     } else {
-        const char *hint = gs->is_campaign
-            ? "ESPACE  ou  clic  --  Retour a la carte"
-            : "ESPACE  ou  clic  --  Retour au menu";
-        txt_c(hint, cx, cy + ph/2 - M - 12, 10, (Color){80, 65, 40, 255});
+        /* ── P0.2 : RÉCAP — sobre et encourageant ────────────────
+           « Tenu N vagues » + record, kills, or final, perks (camp.),
+           puis [REJOUER] / [MENU] (campagne : [RETOUR A LA CARTE]). */
+        int waves = gs->wave_manager.number;
+        txt_c(TextFormat("Tenu %d vague%s", waves, waves > 1 ? "s" : ""),
+              cx, py, 16, UI_TEXT);
+        py += fh(16) + 4;
+
+        if (gs->is_endless) {
+            int best = gs->meta.endless_best_wave;
+            if (waves >= best && waves > 0)
+                txt_c("NOUVEAU RECORD !", cx, py, 12, UI_SUCCESS);
+            else
+                txt_c(TextFormat("Record : %d vagues", best),
+                      cx, py, 12, UI_TEXT_DIM);
+            py += fh(12) + 6;
+        }
+
+        txt_c(TextFormat("Ennemis elimines : %d", gs->kills),
+              cx, py, 11, UI_TEXT_SEC);
+        py += fh(11) + 3;
+
+        {   /* Or final : icône + valeur (centrés ensemble) */
+            char gb[28];
+            snprintf(gb, sizeof(gb), "Or final : %d", gs->gold);
+            int ic  = fh(11);
+            int tw2 = mtxt(gb, 11) + ic + 4;
+            draw_icon(g_icon_gold, cx - tw2/2, py, ic, WHITE);
+            dtxt(gb, cx - tw2/2 + ic + 4, py, 11, UI_TEXT_SEC);
+            py += fh(11) + 3;
+        }
+
+        if (gs->is_campaign) {
+            int np = 0;
+            for (int i = 0; i < PERK_COUNT; i++)
+                if (gs->run.count[i] > 0) np++;
+            txt_c(TextFormat("Perks de la run : %d", np),
+                  cx, py, 11, UI_TEXT_SEC);
+            py += fh(11) + 3;
+        }
+
+        /* Boutons (clic détecté ici, action exécutée par app.c) */
+        int bw2 = 170, bh2 = 38;
+        int byb = cy + ph/2 - M - bh2;
+        if (allow_replay) {
+            Rectangle rb = {(float)(cx - bw2 - 8), (float)byb,
+                            (float)bw2, (float)bh2};
+            Rectangle mb = {(float)(cx + 8), (float)byb,
+                            (float)bw2, (float)bh2};
+            int hr = CheckCollisionPointRec(vm, rb);
+            int hm = CheckCollisionPointRec(vm, mb);
+            il_keycap((int)rb.x, (int)rb.y, bw2, bh2, "REJOUER",
+                      UI_ACCENT, hr);
+            il_keycap((int)mb.x, (int)mb.y, bw2, bh2, "MENU",
+                      UI_BORDER, hm);
+            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                if (hr) choice = 1;
+                else if (hm) choice = 2;
+            }
+        } else {
+            const char *lbl = gs->is_campaign ? "RETOUR A LA CARTE" : "MENU";
+            int bwl = 230;
+            Rectangle mb = {(float)(cx - bwl/2), (float)byb,
+                            (float)bwl, (float)bh2};
+            int hm = CheckCollisionPointRec(vm, mb);
+            il_keycap((int)mb.x, (int)mb.y, bwl, bh2, lbl, UI_BORDER, hm);
+            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && hm) choice = 2;
+        }
     }
     (void)py;
+    return choice;
 }
 
 // ════════════════════════════════════════════════════
@@ -409,27 +502,27 @@ void interlude_render_extract(const GameState *gs, int vw, int vh,
     float rnd = 5.0f / ph;
     DrawRectangleRounded(
         (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        rnd, 8, (Color){10,6,2,252});
+        rnd, 8, UI_PANEL_BG);
     DrawRectangleRoundedLinesEx(
         (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        rnd, 8, 2.0f, (Color){232,152,32,255});
+        rnd, 8, 2.0f, UI_ACCENT);
 
     int px = cx - pw/2 + M;
     int py = cy - ph/2 + M;
     int iw = pw - M*2;
 
     /* Titre */
-    txt_c("POINT D'EXTRACTION", cx, py, 18, (Color){232,152,32,255});
+    txt_c("POINT D'EXTRACTION", cx, py, 18, UI_ACCENT);
     py += 24;
     DrawLine(px, py, px+iw, py, (Color){60,40,12,180}); py += 10;
 
     /* Infos */
     dtxt(TextFormat("Serie          : %d",  gs->endless_series+1),
-             px, py, 12, (Color){168,148,102,255}); py += 16;
+             px, py, 12, UI_TEXT_SEC); py += 16;
     dtxt(TextFormat("Vague          : %d",  gs->wave_manager.number),
-             px, py, 12, (Color){168,148,102,255}); py += 16;
+             px, py, 12, UI_TEXT_SEC); py += 16;
     dtxt(TextFormat("Multiplicateur : x%.1f", gs->endless_multiplier),
-             px, py, 12, (Color){232,152,32,255}); py += 16;
+             px, py, 12, UI_ACCENT); py += 16;
 
     int score = meta_endless_score(gs->wave_manager.number, gs->endless_multiplier);
     int scrap  = score / 10 > 200 ? 200 : score / 10;
@@ -452,10 +545,10 @@ void interlude_render_extract(const GameState *gs, int vw, int vh,
         DrawRectangleRounded(r, 5.0f/bh, 6,
             hov ? (Color){8,28,8,255} : (Color){4,16,4,255});
         DrawRectangleRoundedLinesEx(r, 5.0f/bh, 6, 1.5f,
-            hov ? (Color){42,190,105,255} : (Color){20,80,40,255});
+            hov ? UI_SUCCESS : (Color){20,80,40,255});
         const char *lbl = "E -- EXTRAIRE";
         dtxt(lbl, bx1+bw/2-mtxt(lbl,13)/2, by2+bh/2-7,
-                 13, (Color){42,190,105,255});
+                 13, UI_SUCCESS);
     }
     /* [ESPACE] CONTINUER */
     {
@@ -539,7 +632,7 @@ void interlude_render_draft(const RunBuild *rb, Vector2 vm, int vw, int vh) {
         txt_c("BUTIN DE GUERRE", L.cx, hy+9, 18, accent);
         il_brackets(pr, accent, 12);
         txt_c("Recupere un renfort  —  clic ou touches 1-3",
-              L.cx, hy+38, 9,
+              L.cx, hy+38, 10,
               (Color){175,150,100,(unsigned char)(235.0f * ha)});
     }
 
@@ -585,17 +678,17 @@ void interlude_render_draft(const RunBuild *rb, Vector2 vm, int vw, int vh) {
             dtxt(pd->name, L.px+70 + cdx, ry+6, 13, cc);
 
             const char *rn = rar_name(pd->rarity);
-            int rw = mtxt(rn, 8) + 10;
+            int rw = mtxt(rn, 10) + 10;
             DrawRectangleRounded(
                 (Rectangle){(float)(L.px+L.iw-rw-6 + cdx), (float)(ry+5),
                             (float)rw, 14.0f},
                 0.45f, 4,
                 (Color){(unsigned char)(rc.r/3),(unsigned char)(rc.g/3),
                         (unsigned char)(rc.b/3),ca});
-            dtxt(rn, L.px+L.iw-rw-1 + cdx, ry+7, 8, cc);
+            dtxt(rn, L.px+L.iw-rw-1 + cdx, ry+7, 10, cc);
 
-            char db[96]; clip_text(pd->desc, L.iw-72-rw-10, 9, db, sizeof(db));
-            dtxt(db, L.px+70 + cdx, ry+26, 9, (Color){185,168,135,ca});
+            char db[96]; clip_text(pd->desc, L.iw-72-rw-10, 10, db, sizeof(db));
+            dtxt(db, L.px+70 + cdx, ry+24, 10, (Color){185,168,135,ca});
         }
 
         /* Feedback de sélection : flash 1 frame (app.c ferme l'écran) */
@@ -606,7 +699,7 @@ void interlude_render_draft(const RunBuild *rb, Vector2 vm, int vw, int vh) {
         }
     }
 
-    txt_c("La rarete depend de la voie choisie.", L.cx, L.cy+L.ph/2-M-11, 8,
+    txt_c("La rarete depend de la voie choisie.", L.cx, L.cy+L.ph/2-M-16, 10,
           (Color){115,98,62,(unsigned char)(235.0f * pa)});
 }
 
@@ -689,10 +782,11 @@ void interlude_render_shop(const RunBuild *rb, int reroll_cost, Vector2 vm, int 
     // Compteur de Renfort (pièce + valeur) + aide — fondus avec l'en-tête
     int rny = hy + 40;
     if (ha > 0.0f) {
-        il_cat_glyph(L.px+10, rny+6, 1, gold);
-        dtxt(TextFormat("RENFORT  %d", rb->renfort), L.px+24, rny, 12, gold);
+        /* Icône ferraille (monnaie Renfort) + valeur */
+        draw_icon(g_icon_scrap, L.px+6, rny, fh(12), WHITE);
+        dtxt(TextFormat("RENFORT  %d", rb->renfort), L.px+10+fh(12), rny, 12, gold);
         const char *h = "clic / touches 1-4   ·   [R] relancer   ·   [ESPACE] partir";
-        dtxt(h, L.px+L.iw - mtxt(h,9), rny+3, 9,
+        dtxt(h, L.px+L.iw - mtxt(h,10), rny+3, 10,
              (Color){135,130,100,(unsigned char)(235.0f * ha)});
     }
 
@@ -750,14 +844,14 @@ void interlude_render_shop(const RunBuild *rb, int reroll_cost, Vector2 vm, int 
         Color costc = maxed  ? (Color){120,120,120,(unsigned char)(225.0f * kc)}
                     : afford ? (Color){232,200,80,ca}
                              : (Color){150,110,60,(unsigned char)(225.0f * kc)};
-        int cw = mtxt(cs, 10) + (maxed ? 0 : mtxt(" RNF", 9));
+        int cw = mtxt(cs, 10) + (maxed ? 0 : mtxt(" RNF", 10));
         DrawRectangleRounded((Rectangle){(float)(L.px+L.iw-cw-16 + cdx),(float)(ry+5),(float)(cw+12),14.0f},
                              0.45f, 4, (Color){18,18,10,(unsigned char)(230.0f * kc)});
         dtxt(cs, L.px+L.iw-cw-10 + cdx, ry+6, 10, costc);
-        if (!maxed) dtxt(" RNF", L.px+L.iw-cw-10+mtxt(cs,10) + cdx, ry+7, 9, costc);
+        if (!maxed) dtxt(" RNF", L.px+L.iw-cw-10+mtxt(cs,10) + cdx, ry+7, 10, costc);
 
-        char db[96]; clip_text(pd->desc, L.iw-66-cw-18, 9, db, sizeof(db));
-        dtxt(db, L.px+66 + cdx, ry+25, 9, (Color){165,160,140,ca});
+        char db[96]; clip_text(pd->desc, L.iw-66-cw-18, 10, db, sizeof(db));
+        dtxt(db, L.px+66 + cdx, ry+23, 10, (Color){165,160,140,ca});
     }
 
     // Boutons Relancer / Partir (pleine largeur des bandes cliquables ;

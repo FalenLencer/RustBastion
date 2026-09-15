@@ -10,6 +10,11 @@
 #include "../map/map_gen.h"
 #include "../map/theme.h"
 
+/* Durée de la phase de PRÉPARATION entre deux vagues (s). Publique : le HUD
+   l'utilise pour l'anneau de compte à rebours du bouton de lancement, et
+   wave_early_launch_bonus pour le bonus d'anticipation. SOURCE UNIQUE. */
+#define PREP_TIME  20.0f
+
 typedef enum {
     WAVE_IDLE = 0,
     WAVE_SPAWNING,

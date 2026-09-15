@@ -25,6 +25,7 @@
 #include "../combat/material.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>   /* memset : grille d'occupation des tours */
 
 // ── Couleurs des tours, unités et projectiles ─────────────────
 // Sans static → accessibles via extern dans renderer.h
@@ -186,10 +187,54 @@ static Color PATH_COLORS[MAX_PATHS] = {
 // Les décors PATH/SPAWN/BASE sont dessinés ensuite par
 // tile_art_draw_paths / tile_art_draw_spawns / render_bases.
 // ════════════════════════════════════════════════════
-void render_map(const Map *map) {
+/* Occupation des tuiles par les tours — CONSTRUITE UNE FOIS PAR FRAME.
+   Interroger tower_at_tile() pour chaque tuile coûte w×h×MAX_TOWERS, soit
+   jusqu'à 1792 × 64 ≈ 115 000 tests par frame sur une grande carte, alors
+   qu'il n'y a JAMAIS plus de MAX_TOWERS tours à marquer. On inverse donc
+   la boucle : on efface la grille puis on pose les ≤64 tours. */
+static unsigned char g_tower_occ[MAX_MAP_H][MAX_MAP_W];
+
+static void tower_occ_build(const Map *map, const TowerPool *tp) {
     for (int y = 0; y < map->h; y++)
-        for (int x = 0; x < map->w; x++)
-            tile_art_draw_tile_bg(map, x, y);
+        memset(g_tower_occ[y], 0, (size_t)map->w);
+    if (!tp) return;
+    for (int i = 0; i < MAX_TOWERS; i++) {
+        const Tower *tw = &tp->towers[i];
+        if (!tw->active) continue;
+        if (tw->tile_x < 0 || tw->tile_x >= map->w) continue;
+        if (tw->tile_y < 0 || tw->tile_y >= map->h) continue;
+        g_tower_occ[tw->tile_y][tw->tile_x] = 1;
+    }
+}
+
+void render_map(const Map *map, const TowerPool *tp, int cull_to_view) {
+    tile_art_tick(GetFrameTime());   /* horloge de l'eau (1×/frame) */
+    tower_occ_build(map, tp);
+
+    int x0 = 0, y0 = 0, x1 = map->w, y1 = map->h;
+    if (cull_to_view) {
+        /* CULLING : chaque tuile coûte plusieurs primitives procédurales.
+           Hors zoom, tout tient à l'écran et rien n'est coupé ; zoomé (ou
+           sur une grande carte), on évite de redessiner ce qui est hors
+           cadre. Marge d'1 tuile : bords partiels + secousse caméra. */
+        float area_h = (float)(g_canvas_virt_h - UI_HUD_HEIGHT);
+        Vector2 w0 = map_screen_to_world((Vector2){0.0f, 0.0f});
+        Vector2 w1 = map_screen_to_world((Vector2){(float)g_canvas_virt_w,
+                                                   area_h});
+        x0 = (int)(w0.x / TILE_SIZE) - 1;
+        y0 = (int)(w0.y / TILE_SIZE) - 1;
+        x1 = (int)(w1.x / TILE_SIZE) + 2;
+        y1 = (int)(w1.y / TILE_SIZE) + 2;
+        if (x0 < 0)      x0 = 0;
+        if (y0 < 0)      y0 = 0;
+        if (x1 > map->w) x1 = map->w;
+        if (y1 > map->h) y1 = map->h;
+    }
+
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++)
+            /* Une tour sur la tuile déblaie la ruine (sol nu dessous). */
+            tile_art_draw_tile_bg(map, x, y, g_tower_occ[y][x]);
 }
 
 void render_spawn_exclusion_zones(const Map *map) {
@@ -766,16 +811,22 @@ void render_units(const UnitPool *up) {
                            (Color){mc.r, mc.g, mc.b, 80});
             }
 
-            // Barre de collecte (au-dessus du sprite)
-            if (u->state == USTATE_COLLECT && u->collect_duration > 0.0f) {
+            // Barre de progression (collecte OU déblaiement d'obstacle)
+            if ((u->state == USTATE_COLLECT || u->state == USTATE_CLEARING) &&
+                u->collect_duration > 0.0f) {
                 float ratio = 1.0f - (u->collect_timer / u->collect_duration);
                 int   bw    = (int)(u->size * 3.0f);
                 int   bx    = (int)u->x - bw/2;
                 int   by    = (int)u->y - (int)(u->size * UNIT_SPRITE_HALF) - 10;
+                /* Ambre pour le déblaiement, cyan pour la collecte : deux
+                   chantiers distincts doivent se lire d'un coup d'oeil. */
+                int   clearing = (u->state == USTATE_CLEARING);
+                Color pc = clearing ? (Color){225, 165,  70, 255}
+                                    : (Color){ 80, 200, 220, 255};
                 DrawRectangle(bx, by, bw, 4, (Color){20, 20, 20, 200});
-                DrawRectangle(bx, by, (int)(bw * ratio), 4,
-                              (Color){80, 200, 220, 255});
-                dtxt("...", bx, by - 10, 8, (Color){80, 200, 220, 200});
+                DrawRectangle(bx, by, (int)(bw * ratio), 4, pc);
+                dtxt(clearing ? "deblaie" : "...", bx, by - 10, 8,
+                     (Color){pc.r, pc.g, pc.b, 200});
             }
         }
 
@@ -858,7 +909,7 @@ void render_units(const UnitPool *up) {
 // ════════════════════════════════════════════════════
 // DÉPÔTS DE MATÉRIAUX
 // ════════════════════════════════════════════════════
-void render_deposits(const Map *map) {
+void render_deposits(const Map *map, const TowerPool *tp) {
     static const char *MAT_ICONS[MAT_COUNT] = {
         [MAT_IRON]  = "Fe",
         [MAT_ACID]  = "Ac",
@@ -879,9 +930,11 @@ void render_deposits(const Map *map) {
             tile_art_draw_deposit(px, py, d->type, t);
             continue;
         }
-        // Filon épuisé : roche minée (difficile à construire).
+        // Filon épuisé : roche minée (difficile à construire). Une tour
+        // posée dessus déblaie le cratère (sol nu, dessiné par render_map).
         if (d->mined) {
-            tile_art_draw_mined_rock(px, py);
+            if (!tower_at_tile(tp, d->tile_x, d->tile_y))
+                tile_art_draw_mined_rock(px, py);
             continue;
         }
         // Filon verrouillé (apparaît à une vague future) : indicateur discret

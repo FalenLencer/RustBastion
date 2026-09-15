@@ -128,6 +128,32 @@ static Sound g_sfx_pool[ALIASED_SFX_COUNT][ALIAS_POOL_SIZE];
 static int   g_sfx_pool_valid[ALIASED_SFX_COUNT];
 static int   g_sfx_pool_next[ALIASED_SFX_COUNT];
 
+/* ── Jitter de pitch par SFX (P1.5 — identité sonore) ────────────
+   Fraction de variation aléatoire (±) appliquée à CHAQUE lecture :
+   0.06 = ±6 %. Les sons répétitifs (tirs, impacts, morts) respirent ;
+   les sons d'UI et d'alerte restent STRICTEMENT identiques (repères). */
+static const float SFX_PITCH_JITTER[AUDIO_SFX_COUNT] = {
+    0.00f, /* MENU_CLICK         — repere UI : jamais varie   */
+    0.00f, /* MENU_CONFIRM       — repere UI                  */
+    0.03f, /* TOWER_PLACE_GUN    — leger                      */
+    0.03f, /* TOWER_PLACE_SNIPER                              */
+    0.03f, /* TOWER_PLACE_FLAME                               */
+    0.03f, /* TOWER_PLACE_TESLA                               */
+    0.06f, /* TOWER_FIRE_GUN     — tres repete                */
+    0.05f, /* TOWER_FIRE_SNIPER                               */
+    0.06f, /* TOWER_FIRE_FLAME                                */
+    0.05f, /* TOWER_FIRE_TESLA                                */
+    0.04f, /* UNIT_SPAWN                                      */
+    0.05f, /* ENEMY_SPAWN                                     */
+    0.08f, /* ENEMY_HIT          — le plus frequent           */
+    0.07f, /* ENEMY_DEATH                                     */
+    0.00f, /* WAVE_START         — alerte : repere            */
+    0.00f, /* GAME_OVER                                       */
+    0.00f, /* VICTORY                                         */
+    0.04f, /* MATERIAL_COLLECT                                */
+    0.00f, /* MATERIAL_APPLY     — feedback precis            */
+};
+
 /* ── Throttle SFX ────────────────────────────────────────────────── */
 #define THROTTLE_COUNT 8
 static const AudioSfxID THROTTLED_SFX[THROTTLE_COUNT] = {
@@ -322,11 +348,18 @@ void audio_update(void) {
 /* ════════════════════════════════════════════════════════════════
    SFX
    ════════════════════════════════════════════════════════════════ */
-void audio_play_sfx(AudioSfxID id) {
+void audio_play_sfx_pitch(AudioSfxID id, float pitch) {
     if (!g_audio_ready) return;
     if (id < 0 || id >= AUDIO_SFX_COUNT) return;
     if (!g_sfx_valid[id]) return;
     if (g_throttle_timer[id] > 0.0f) return;
+
+    /* Pitch final = base demandee × jitter du type de son. TOUJOURS
+       applique (meme a 1.0) : SetSoundPitch persiste sur le Sound, un
+       pitch precedent ne doit jamais deteindre sur la lecture suivante. */
+    float j = SFX_PITCH_JITTER[id];
+    if (j > 0.0f)
+        pitch *= 1.0f + ((float)GetRandomValue(-100, 100) / 100.0f) * j;
 
     /* Sons avec pool d'alias : chevauchement propre, aucun StopSound */
     for (int a = 0; a < ALIASED_SFX_COUNT; a++) {
@@ -335,6 +368,7 @@ void audio_play_sfx(AudioSfxID id) {
         for (int p = 0; p < ALIAS_POOL_SIZE; p++) {
             int slot = (g_sfx_pool_next[a] + p) % ALIAS_POOL_SIZE;
             if (!IsSoundPlaying(g_sfx_pool[a][slot])) {
+                SetSoundPitch(g_sfx_pool[a][slot], pitch);
                 PlaySound(g_sfx_pool[a][slot]);
                 g_sfx_pool_next[a] = (slot + 1) % ALIAS_POOL_SIZE;
                 return;
@@ -345,6 +379,7 @@ void audio_play_sfx(AudioSfxID id) {
 
     /* Sons sans pool : on joue uniquement si le slot est libre */
     if (IsSoundPlaying(g_sfx[id])) return;
+    SetSoundPitch(g_sfx[id], pitch);
     PlaySound(g_sfx[id]);
 
     for (int k = 0; k < THROTTLE_COUNT; k++) {
@@ -353,6 +388,10 @@ void audio_play_sfx(AudioSfxID id) {
             break;
         }
     }
+}
+
+void audio_play_sfx(AudioSfxID id) {
+    audio_play_sfx_pitch(id, 1.0f);
 }
 
 /* ════════════════════════════════════════════════════════════════

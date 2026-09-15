@@ -30,6 +30,29 @@ static inline int mtxt(const char *text, int fontSize) {
 static inline int fh(int fontSize) {
     return (int)((float)fontSize * FONT_SCALE + 0.5f);
 }
+// Flottant aléatoire uniforme dans [lo, hi] — source unique (était
+// dupliqué dans render3d_fx.c et ambient.c).
+static inline float ui_frnd(float lo, float hi) {
+    return lo + (hi - lo) * (float)GetRandomValue(0, 1000) / 1000.0f;
+}
+// Teinte décalée par canal, bornée [0,255] — SOURCE UNIQUE des helpers
+// de couleur (2D tile_art + 3D w3d_* délèguent ici).
+static inline Color ui_tint3(Color c, int dr, int dg, int db) {
+    int r = c.r + dr, g = c.g + dg, b = c.b + db;
+    if (r < 0) r = 0; else if (r > 255) r = 255;
+    if (g < 0) g = 0; else if (g > 255) g = 255;
+    if (b < 0) b = 0; else if (b > 255) b = 255;
+    return (Color){(unsigned char)r, (unsigned char)g, (unsigned char)b, c.a};
+}
+static inline Color ui_shade(Color c, int d) { return ui_tint3(c, d, d, d); }
+// Texte avec OMBRE portée 1 px : pour tout texte posé sur la carte ou le
+// monde 3D (popups de dégâts/or…), où le fond varie — lisibilité garantie.
+static inline void dtxt_o(const char *text, int x, int y, int fontSize,
+                          Color color) {
+    dtxt(text, x + 1, y + 1, fontSize,
+         (Color){10, 8, 6, (unsigned char)(color.a * 3 / 4)});
+    dtxt(text, x, y, fontSize, color);
+}
 // Dessine une icône texturée carrée de `size` pixels, tintée par `tint`.
 // Sans effet si la texture n'est pas chargée (id == 0).
 static inline void draw_icon(Texture2D tex, int x, int y, int size, Color tint) {

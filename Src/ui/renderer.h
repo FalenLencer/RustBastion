@@ -51,7 +51,15 @@ Color renderer_enemy_color(EnemyType type);
 // bunker, l'onde de repérage et la barre de vie pour différencier les bases.
 Color renderer_base_color (int base_idx, int is_primary);
 
-void render_map          (const Map *map);
+// tp : pool de tours (peut être NULL) → une tour sur une tuile déblaie
+// le décor de ruine sous elle (sol nu). NULL = aucun déblaiement.
+/* Dessine les fonds de tuiles. `cull_to_view` = 1 : ne dessine QUE les
+   tuiles visibles, déduites de la caméra carte globale (map_origin /
+   map_eff_scale) — à n'utiliser QUE si l'appelant dessine avec cette
+   caméra-là. Passer 0 pour tout dessiner (ex. plateau de référence MP,
+   qui emploie sa propre caméra sans zoom ni pan). */
+void render_map          (const Map *map, const TowerPool *tp,
+                          int cull_to_view);
 void render_bases        (const Map *map);
 void render_paths        (const PathSet *ps);
 void render_enemies      (const EnemyPool *pool);
@@ -62,5 +70,6 @@ void render_units        (const UnitPool *up);
 void render_tower_preview(const Map *map, const TowerPool *tp,
                           TowerType type, int tile_x, int tile_y);
 void render_hud          (const GameState *gs);
-void render_deposits     (const Map *map);
+// tp (peut être NULL) : une tour sur une roche minée déblaie le cratère.
+void render_deposits     (const Map *map, const TowerPool *tp);
 void render_dropped_mats (const DroppedMat *mats, int count);

@@ -12,6 +12,11 @@
 
 FxSystem g_fx;
 
+/* Relais FX 3D du mode héros (cf. fx.h) — NULL = pas encore installés. */
+void (*g_fx3d_burst)(float x, float y, Color col, int n, float speed) = NULL;
+void (*g_fx3d_impact)(float x, float y, int dmg_type)                 = NULL;
+void (*g_fx3d_update)(float dt)                                       = NULL;
+
 // ── Réglages (pas de nombres magiques épars) ─────────────────
 #define FX_GRAVITY        140.0f   // px/s² appliqués aux particules
 #define FX_FRICTION         2.2f   // amortissement horizontal (1/s)
@@ -30,6 +35,8 @@ void fx_reset(void) {
 
 void fx_update(float dt) {
     if (dt > 0.1f) dt = 0.1f;       // robustesse (gros hoquet de frame)
+
+    if (g_fx3d_update) g_fx3d_update(dt);   // tick des FX 3D (mode héros)
 
     for (int i = 0; i < FX_MAX_PARTICLES; i++) {
         FxParticle *p = &g_fx.particles[i];
@@ -61,6 +68,7 @@ static FxParticle *fx_free_particle(void) {
 
 void fx_burst(float x, float y, Color col, int n, float speed) {
     if (!g_fx.enabled) return;
+    if (g_fx3d_burst) g_fx3d_burst(x, y, col, n, speed);   // miroir 3D
     for (int k = 0; k < n; k++) {
         FxParticle *p = fx_free_particle();
         if (!p) return;
@@ -122,9 +130,9 @@ void fx_render_world(void) {
         if (!u->active) continue;
         float t = u->life / u->max_life;          // 1 → 0
         unsigned char a = (unsigned char)((t > 0.5f ? 1.0f : t * 2.0f) * 255.0f);
-        int tw = mtxt(u->text, 9);
-        dtxt(u->text, (int)u->x - tw/2, (int)u->y, 9,
-             (Color){u->col.r, u->col.g, u->col.b, a});
+        int tw = mtxt(u->text, 10);
+        dtxt_o(u->text, (int)u->x - tw/2, (int)u->y, 10,
+               (Color){u->col.r, u->col.g, u->col.b, a});
     }
 }
 

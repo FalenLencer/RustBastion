@@ -11,7 +11,9 @@
    ils suivent le chemin). Anim : Walk s'ils avancent, sinon Idle.
    ════════════════════════════════════════════════════════════════ */
 #include "render3d_enemies.h"
-#include "render3d.h"          /* render3d_yaw_for_aim (visée caméra oblique) */
+#include "render3d.h"          /* render3d_yaw_for_aim (caméra oblique) */
+#include "render3d_skin.h"     /* helpers jumeaux units/enemies         */
+#include "../combat/combat_math.h" /* angle_approach (source unique)    */
 #include "rlgl.h"
 #include <math.h>
 #include <string.h>
@@ -27,37 +29,9 @@
 #define E_MOVE_EPS2   0.30f         /* seuil² (px) « bouge »                   */
 #define E_TURN_SPEED  12.0f         /* vitesse de rotation vers la direction   */
 
-static const Vector3 E_LIGHT = { -0.45f, -0.80f, -0.40f };
+/* (Lumière : R3D_LIGHT_DIR, source unique dans render3d.h.) */
 
-/* ── Shader vertex-color + éclairage directionnel (comme les unités) ── */
-static const char *VS_VC =
-"#version 330\n"
-"in vec3 vertexPosition;\n"
-"in vec3 vertexNormal;\n"
-"in vec4 vertexColor;\n"
-"uniform mat4 mvp;\n"
-"uniform mat4 matNormal;\n"
-"out vec3 fragNormal;\n"
-"out vec4 fragColor;\n"
-"void main(){\n"
-"    fragNormal = normalize(vec3(matNormal*vec4(vertexNormal,1.0)));\n"
-"    fragColor = vertexColor;\n"
-"    gl_Position = mvp*vec4(vertexPosition,1.0);\n"
-"}\n";
-static const char *FS_VC =
-"#version 330\n"
-"in vec3 fragNormal;\n"
-"in vec4 fragColor;\n"
-"uniform vec3 lightDir;\n"
-"uniform float gain;\n"                              // normalisation luminosite PAR MODELE
-"out vec4 finalColor;\n"
-"void main(){\n"
-"    float d = max(dot(normalize(fragNormal), normalize(-lightDir)), 0.0);\n"
-"    float l = 0.58 + 0.48*d;\n"                      // ombres relevees (moins sombre)
-"    vec3 c = clamp(fragColor.rgb*gain*l, 0.0, 1.0);\n"
-"    c = pow(c, vec3(1.0/1.8));\n"                     // remontee gamma : lineaire -> affichage
-"    finalColor = vec4(c, 1.0);\n"
-"}\n";
+/* (Shaders vertex-color : skin_vs_vc/skin_fs_vc, render3d_skin.h.) */
 
 /* ── Modèle par type d'ennemi (cadrage PROPRE à chaque type) ──────── */
 typedef struct {
@@ -87,60 +61,11 @@ static float           g_prev_y [MAX_ENEMIES];
 static float           g_facing [MAX_ENEMIES];
 static int             g_first  [MAX_ENEMIES];
 
-static int anim_match(const EnemyModel *em, const char *const *kw, int nkw) {
-    for (int i = 0; i < em->anim_count; i++) {
-        char low[64]; int n = 0;
-        const char *s = em->anims[i].name;
-        for (; s[n] && n < 63; n++) low[n] = (char)tolower((unsigned char)s[n]);
-        low[n] = '\0';
-        for (int k = 0; k < nkw; k++)
-            if (strstr(low, kw[k])) return i;
-    }
-    return -1;
-}
+/* (Matcher d'anims : skin_anim_match, render3d_skin.h.) */
 
-/* Fait tourner `cur` vers `tgt` d'au plus `max_d` rad (chemin le plus court). */
-static float angle_approach(float cur, float tgt, float max_d) {
-    float d = tgt - cur;
-    while (d >  3.14159265f) d -= 6.28318531f;
-    while (d < -3.14159265f) d += 6.28318531f;
-    if (d >  max_d) d =  max_d;
-    if (d < -max_d) d = -max_d;
-    return cur + d;
-}
+/* (Application du shader : skin_apply_vc, render3d_skin.h.) */
 
-static void shade_vc(Model *m) {
-    for (int i = 0; i < m->materialCount; i++) {
-        m->materials[i].shader = g_shader_vc;
-        m->materials[i].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
-    }
-}
-
-/* Certains modèles ont des vertex-colors très sombres (export). On calcule
-   un GAIN par modèle pour ramener la luminance moyenne vers une cible commune,
-   borné pour ne pas blanchir les clairs ni sur-booster les quasi-noirs. */
-#define GAIN_TARGET 0.34f
-#define GAIN_MIN    0.75f
-#define GAIN_MAX    4.5f
-static float model_gain(const Model *m) {
-    double sum = 0.0; long n = 0;
-    for (int j = 0; j < m->meshCount; j++) {
-        const unsigned char *c = m->meshes[j].colors;
-        if (!c) continue;
-        int vc = m->meshes[j].vertexCount;
-        for (int v = 0; v < vc; v++) {
-            double r = c[v*4]/255.0, g = c[v*4+1]/255.0, b = c[v*4+2]/255.0;
-            sum += 0.299*r + 0.587*g + 0.114*b; n++;
-        }
-    }
-    if (n == 0) return 1.0f;
-    double mean = sum / (double)n;
-    if (mean < 1e-4) return 1.0f;
-    double gain = GAIN_TARGET / mean;
-    if (gain < GAIN_MIN) gain = GAIN_MIN;
-    if (gain > GAIN_MAX) gain = GAIN_MAX;
-    return (float)gain;
-}
+/* (Gain de luminance : skin_model_gain, render3d_skin.h.) */
 
 static void load_enemy(int type, const char *path, Camera3D cam,
                        float dst_scale, float dst_yanchor,
@@ -148,17 +73,17 @@ static void load_enemy(int type, const char *path, Camera3D cam,
     EnemyModel *em = &g_em[type];
     em->model = LoadModel(path);
     if (em->model.meshCount == 0) { em->have = 0; return; }
-    shade_vc(&em->model);
-    em->gain = model_gain(&em->model);
+    skin_apply_vc(&em->model, g_shader_vc);
+    em->gain = skin_model_gain(&em->model);
     em->anims = LoadModelAnimations(path, &em->anim_count);
     static const char *KW_IDLE[]   = {"idle","stand","rest"};
     static const char *KW_WALK[]   = {"walk","run","move","march","drive","roll"};
     static const char *KW_ATTACK[] = {"attack","fight","hit","strike",
                                       "shoot","punch","slam","bite","melee",
                                       "mine","work"};
-    int ai = anim_match(em, KW_IDLE,   (int)(sizeof(KW_IDLE)  / sizeof(KW_IDLE[0])));
-    int aw = anim_match(em, KW_WALK,   (int)(sizeof(KW_WALK)  / sizeof(KW_WALK[0])));
-    int aa = anim_match(em, KW_ATTACK, (int)(sizeof(KW_ATTACK)/ sizeof(KW_ATTACK[0])));
+    int ai = skin_anim_match(em->anims, em->anim_count, KW_IDLE,   (int)(sizeof(KW_IDLE)  / sizeof(KW_IDLE[0])));
+    int aw = skin_anim_match(em->anims, em->anim_count, KW_WALK,   (int)(sizeof(KW_WALK)  / sizeof(KW_WALK[0])));
+    int aa = skin_anim_match(em->anims, em->anim_count, KW_ATTACK, (int)(sizeof(KW_ATTACK)/ sizeof(KW_ATTACK[0])));
     em->a_idle   = (ai >= 0) ? ai : 0;
     em->a_walk   = (aw >= 0) ? aw : em->a_idle;
     em->a_attack = (aa >= 0) ? aa : em->a_idle;
@@ -171,9 +96,9 @@ void render3d_enemies_init(void) {
     g_loaded = 0;
     for (int i = 0; i < ENEMY_TYPE_COUNT; i++) g_em[i].have = 0;
 
-    g_shader_vc = LoadShaderFromMemory(VS_VC, FS_VC);
+    g_shader_vc = LoadShaderFromMemory(skin_vs_vc(), skin_fs_vc());
     int loc = GetShaderLocation(g_shader_vc, "lightDir");
-    Vector3 ld = E_LIGHT;
+    Vector3 ld = R3D_LIGHT_DIR;
     if (loc >= 0) SetShaderValue(g_shader_vc, loc, &ld, SHADER_UNIFORM_VEC3);
     g_loc_gain = GetShaderLocation(g_shader_vc, "gain");
 
@@ -259,8 +184,14 @@ static void ensure_rt(int i) {
     g_rt[i] = LoadRenderTexture(E_RT_W, E_RT_H);
 }
 
+void render3d_enemies_set_fog(Color col, float density) {
+    if (!g_loaded) return;
+    skin_set_fog(g_shader_vc, col, density);
+}
+
 void render3d_enemies_prepass(const EnemyPool *ep) {
     if (!g_loaded || ep == NULL) return;
+    render3d_enemies_set_fog(BLANK, 0.0f);   /* mode 2D : pas de brouillard */
     float dt = GetFrameTime();
 
     for (int i = 0; i < MAX_ENEMIES; i++) {
@@ -336,14 +267,15 @@ Rectangle render3d_enemy_dst(int enemy_index, float x, float y, float size) {
    (pas de RenderTexture : anim + gain + orientation ici)
    ════════════════════════════════════════════════════ */
 int render3d_enemies_draw_world(int type, Vector3 pos, float heading_rad,
-                                float scale, int anim_kind, float anim_time) {
+                                float scale, int anim_kind, float anim_time,
+                                int update_anim) {
     if (!g_loaded || type < 0 || type >= ENEMY_TYPE_COUNT) return 0;
     EnemyModel *em = &g_em[type];
     if (!em->have) return 0;
 
     int aidx = (anim_kind == 2) ? em->a_attack
              : (anim_kind == 1) ? em->a_walk : em->a_idle;
-    if (em->anim_count > 0 && aidx >= 0) {
+    if (update_anim && em->anim_count > 0 && aidx >= 0) {
         int fc = em->anims[aidx].keyframeCount;
         int fr = (fc > 0) ? (int)fmodf(anim_time * E_ANIM_FPS, (float)fc) : 0;
         UpdateModelAnimation(em->model, em->anims[aidx], fr);

@@ -571,6 +571,10 @@ void menu_init(MenuState *m, const AppOptions *opts) {
     menu_refresh_slots(m);
     menu_load_bg_textures();
     menu_anim_init(&m->anim);
+
+    /* P0.1 — premier lancement (aucune méta sauvée) : le hub proposera
+       le tutoriel. Répondre déclenche un meta_save → plus jamais posé. */
+    m->first_run_ask = !meta_file_exists();
 }
 
 void menu_refresh_slots(MenuState *m) {
@@ -589,8 +593,25 @@ void menu_cleanup(MenuState *m) {
 MenuAction menu_update(MenuState *m, const MetaProgress *meta) {
     MenuAction act = {0};
     if (m->msg_timer > 0.0f) m->msg_timer -= GetFrameTime();
-    if (m->screen == MENU_TITLE)
+
+    /* P0.4 — la cinématique complète n'est jouée qu'au LANCEMENT :
+       tout retour à l'écran titre (jeu, sous-menus) reprend à l'état
+       final (tour plantée + célébration), et pendant l'anim un clic /
+       ENTREE / ESPACE la saute. */
+    static MenuScreen prev_screen = MENU_TITLE;
+    if (m->screen == MENU_TITLE) {
+        if (prev_screen != MENU_TITLE)
+            menu_anim_skip(&m->anim);
+        int in_intro = (m->anim.phase == ANIM_PHASE_WALK_IN ||
+                        m->anim.phase == ANIM_PHASE_SLAM    ||
+                        m->anim.phase == ANIM_PHASE_TOWER_POP);
+        if (in_intro && (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) ||
+                         IsKeyPressed(KEY_ENTER) ||
+                         IsKeyPressed(KEY_SPACE)))
+            menu_anim_skip(&m->anim);
         menu_anim_update(&m->anim, GetFrameTime());
+    }
+    prev_screen = m->screen;
     if (m->screen == MENU_UPGRADES) {
         if (IsKeyPressed(KEY_UP))
             m->sel_upg = (m->sel_upg - 1 + UPGRADE_COUNT) % UPGRADE_COUNT;

@@ -6,6 +6,7 @@
 
 #include "campaign_data.h"
 #include <stddef.h>
+#include <stdio.h>   /* snprintf : dialogues dynamiques (indice NEXUS) */
 
 // ════════════════════════════════════════════════════
 // DONNÉES DES 15 ACTES (5 chapitres × 3 actes)
@@ -673,6 +674,101 @@ int campaign_defeat_node(int stage_index) {
     return -1;
 }
 
+// ════════════════════════════════════════════════════
+// DOCTRINES — la contrepartie MÉCANIQUE des choix narratifs
+// ════════════════════════════════════════════════════
+// Règle de conception : chaque doctrine renforce un axe et en affaiblit un
+// autre. Aucune n'est strictement meilleure — elles proposent deux façons
+// de gagner. Les MÉTHODIQUES bâtissent (slots, vies) mais rendent le joueur
+// lisible ; les IMPRÉVISIBLES jouent le tempo (or, hordes réduites) au prix
+// de la solidité. Voir campaign_nexus_prediction pour la conséquence finale.
+/* SÉPARATION STRICTE DES DEUX FAMILLES — sans elle, un build mixte cumule
+   les baisses de pression des deux camps et écrase les deux identités
+   (mesuré : count ×0,748 en mixte contre ×0,81 en imprévisible pur).
+     • MÉTHODIQUE  : gagne de la STRUCTURE (slots, vies) ; ne réduit JAMAIS
+                     la pression ennemie — au contraire, il la paie.
+     • IMPRÉVISIBLE: réduit la PRESSION (nombre, PV) ou enrichit ; le paie
+                     en structure (slots, vies, vitesse ennemie).
+   Aucune doctrine ne doit offrir à la fois structure et pression réduite. */
+const DoctrineDef CAMPAIGN_DOCTRINE[CAMPAIGN_DOCTRINES] = {
+    /* ── Ch1 : le convoi blindé ───────────────────────────── */
+    { CFLAG_ESCORT, "CONVOI SAUVE", "Convoi",
+      "+1 unite deployable, +5% d'ennemis", 1,
+        0, 0, 0, 1,   1.05f, 1.00f, 1.00f },
+    { CFLAG_AMBUSH, "BUTIN DES CENDRES", "Butin",
+      "+30 or par acte, -8 vies par acte", 0,
+       30, -8, 0, 0,  1.00f, 1.00f, 1.00f },
+
+    /* ── Ch2 : la source du signal ────────────────────────── */
+    { CFLAG_LAB, "ARSENAL CHIMIQUE", "Arsenal",
+      "+1 tour deployable, ennemis +6% de PV", 1,
+        0, 0, 1, 0,   1.00f, 1.06f, 1.00f },
+    { CFLAG_TRACK, "RENSEIGNEMENT", "Renseign.",
+      "Ennemis -8% de PV, -20 or par acte", 0,
+      -20, 0, 0, 0,   1.00f, 0.92f, 1.00f },
+
+    /* ── Ch3 : l'IA militaire ─────────────────────────────── */
+    { CFLAG_ANCHOR, "LIGNE FORTIFIEE", "Ligne",
+      "+12 vies par acte, +6% d'ennemis", 1,
+        0, 12, 0, 0,  1.06f, 1.00f, 1.00f },
+    { CFLAG_FAST_STRIKE, "FRAPPE ECLAIR", "Frappe",
+      "-10% d'ennemis, -1 tour deployable", 0,
+        0, 0, -1, 0,  0.90f, 1.00f, 1.00f },
+
+    /* ── Ch5 : l'usine ────────────────────────────────────── */
+    { CFLAG_HACK, "CODES D'ACCES", "Codes",
+      "+1 unite deployable, +6% d'ennemis", 1,
+        0, 0, 0, 1,   1.06f, 1.00f, 1.00f },
+    { CFLAG_SABOTAGE, "CHAINE BRISEE", "Chaine",
+      "-10% d'ennemis, ennemis +10% de vitesse", 0,
+        0, 0, 0, 0,   0.90f, 1.00f, 1.10f },
+};
+
+const DoctrineDef *campaign_doctrine_by_flag(int flag) {
+    for (int i = 0; i < CAMPAIGN_DOCTRINES; i++)
+        if (CAMPAIGN_DOCTRINE[i].flag == flag) return &CAMPAIGN_DOCTRINE[i];
+    return NULL;
+}
+
+int campaign_doctrines_active(int flags, const DoctrineDef **out, int max) {
+    int n = 0;
+    for (int i = 0; i < CAMPAIGN_DOCTRINES && n < max; i++)
+        if (flags & CAMPAIGN_DOCTRINE[i].flag) out[n++] = &CAMPAIGN_DOCTRINE[i];
+    return n;
+}
+
+int campaign_doctrine_slots(int flags, int kind) {
+    int n = 0;
+    for (int i = 0; i < CAMPAIGN_DOCTRINES; i++) {
+        if (!(flags & CAMPAIGN_DOCTRINE[i].flag)) continue;
+        n += kind ? CAMPAIGN_DOCTRINE[i].unit_slots
+                  : CAMPAIGN_DOCTRINE[i].tower_slots;
+    }
+    return n;
+}
+
+// ── Indice de prédiction NEXUS ────────────────────────────────
+#define NEXUS_PRED_BASE      50   /* aucun choix posé : incertitude totale  */
+#define NEXUS_PRED_PER_DOC   12   /* poids d'une doctrine (± selon le type) */
+#define NEXUS_PRED_PER_LOSS   8   /* une défaite majeure = un comportement
+                                     acculé, donc PLUS prévisible           */
+#define NEXUS_PRED_MIN        4
+#define NEXUS_PRED_MAX       96
+
+int campaign_nexus_prediction(int flags) {
+    int p = NEXUS_PRED_BASE;
+    for (int i = 0; i < CAMPAIGN_DOCTRINES; i++) {
+        if (!(flags & CAMPAIGN_DOCTRINE[i].flag)) continue;
+        p += CAMPAIGN_DOCTRINE[i].methodical ? NEXUS_PRED_PER_DOC
+                                             : -NEXUS_PRED_PER_DOC;
+    }
+    if (flags & CFLAG_LOST_QUEEN)   p += NEXUS_PRED_PER_LOSS;
+    if (flags & CFLAG_LOST_GENERAL) p += NEXUS_PRED_PER_LOSS;
+    if (p < NEXUS_PRED_MIN) p = NEXUS_PRED_MIN;
+    if (p > NEXUS_PRED_MAX) p = NEXUS_PRED_MAX;
+    return p;
+}
+
 // ── Choix narratifs ───────────────────────────────────────────
 int campaign_has_choice(int stage_index) {
     return (stage_index == 1 || stage_index == 3 ||
@@ -689,22 +785,33 @@ const char *campaign_choice_prompt(int stage_index) {
     }
 }
 
+/* Libellés : ils annoncent la DOCTRINE installée, plus une vague promesse
+   de « risque » que rien ne tenait. La conséquence chiffrée est donnée
+   juste en dessous par campaign_choice_effect. */
 const char *campaign_choice_label(int stage_index, int idx) {
     switch (stage_index) {
         case 1:  return (idx == 0)
-            ? "Escorter prudemment le convoi  (sur)"
-            : "Tendre une embuscade dans les cendres  (risque)";
+            ? "Escorter le convoi           -> CONVOI SAUVE"
+            : "Tendre une embuscade         -> BUTIN DES CENDRES";
         case 3:  return (idx == 0)
-            ? "Fouiller le laboratoire englouti  (materiaux, plus sur)"
-            : "Traquer la source dans la brume  (direct, plus risque)";
+            ? "Fouiller le laboratoire      -> ARSENAL CHIMIQUE"
+            : "Traquer la source            -> RENSEIGNEMENT";
         case 6:  return (idx == 0)
-            ? "Tenir deux ancrages defensifs  (methodique)"
-            : "Course rapide vers l'IA  (rapide, expose)";
+            ? "Tenir deux ancrages          -> LIGNE FORTIFIEE"
+            : "Course rapide vers l'IA      -> FRAPPE ECLAIR";
         case 12: return (idx == 0)
-            ? "Pirater les robots un a un  (controle)"
-            : "Saboter la chaine de montage  (chaos, risque)";
+            ? "Pirater les robots           -> CODES D'ACCES"
+            : "Saboter la chaine            -> CHAINE BRISEE";
         default: return NULL;
     }
+}
+
+/* Conséquence mécanique lisible AVANT de trancher : le joueur décide en
+   connaissance de cause (une décision informée est une vraie décision). */
+const char *campaign_choice_effect(int stage_index, int idx) {
+    int flag = campaign_choice_flag(stage_index, idx);
+    const DoctrineDef *d = campaign_doctrine_by_flag(flag);
+    return d ? d->effect : NULL;
 }
 
 // ── Difficulté pilotée par la position narrative ──────────────
@@ -714,33 +821,46 @@ int campaign_difficulty_stage(int node_id) {
 }
 
 // ── Drapeaux narratifs ────────────────────────────────────────
+/* Les DEUX branches posent un drapeau : choisir la prudence EST un choix,
+   il installe sa propre doctrine et compte dans le modèle de NEXUS. */
 int campaign_choice_flag(int stage_index, int choice_idx) {
-    if (choice_idx != 1) return 0;   // branche 0 (sûre) : pas de drapeau
+    int risky = (choice_idx == 1);
     switch (stage_index) {
-        case 1:  return CFLAG_AMBUSH;
-        case 3:  return CFLAG_TRACK;
-        case 6:  return CFLAG_FAST_STRIKE;
-        case 12: return CFLAG_SABOTAGE;
+        case 1:  return risky ? CFLAG_AMBUSH      : CFLAG_ESCORT;
+        case 3:  return risky ? CFLAG_TRACK       : CFLAG_LAB;
+        case 6:  return risky ? CFLAG_FAST_STRIKE : CFLAG_ANCHOR;
+        case 12: return risky ? CFLAG_SABOTAGE    : CFLAG_HACK;
         default: return 0;
     }
 }
 
+/* Chaque branche a son écho : la voie prudente laisse une trace aussi
+   nette que la voie risquée — sinon jouer prudent revient à ne pas jouer. */
 const char *campaign_echo(int stage_index, int flags) {
     switch (stage_index) {
         case 4: case 15:
             if (flags & CFLAG_AMBUSH)
                 return "KIRA : Apres votre embuscade des Terres Brulees, les hordes\n"
                        "vous savent imprevisible. C'est un avantage — gardons-le.";
+            if (flags & CFLAG_ESCORT)
+                return "KIRA : Les rescapes du convoi se battent avec nous, maintenant.\n"
+                       "Ils connaissent le terrain. Ca compense ce qu'ils nous coutent.";
             break;
         case 6:
             if (flags & CFLAG_TRACK)
                 return "VARELA : Vous aviez traque la source vous-meme dans le marais.\n"
                        "On sait deja a quoi ressemble l'ennemi du desert.";
+            if (flags & CFLAG_LAB)
+                return "VARELA : L'arsenal chimique du labo tient toujours la route.\n"
+                       "Une position de plus a armer — mais ils ont eu le temps aussi.";
             break;
         case 9:
             if (flags & CFLAG_FAST_STRIKE)
                 return "KIRA : Votre frappe eclair contre l'IA a laisse des traces.\n"
                        "La Faction Acier vous attend de pied ferme.";
+            if (flags & CFLAG_ANCHOR)
+                return "VOSS : Nos ancrages du desert tiennent encore. On avance lentement,\n"
+                       "mais on n'a rien cede. La ville se prendra de la meme facon.";
             if (flags & CFLAG_LOST_GENERAL)
                 return "VOSS : On a plie face au general, mais on est encore la.\n"
                        "La ville sera notre revanche.";
@@ -749,39 +869,97 @@ const char *campaign_echo(int stage_index, int flags) {
             if (flags & CFLAG_AMBUSH)
                 return "VARELA : Vos coups tordus depuis le debut paient :\n"
                        "NEXUS n'a jamais pu modeliser votre strategie.";
+            if (flags & CFLAG_ESCORT)
+                return "VARELA : NEXUS a toutes vos manoeuvres en archive. Chaque ligne\n"
+                       "que vous avez tenue proprement, il l'a apprise par coeur.";
             break;
         case 14:
             if (flags & CFLAG_SABOTAGE)
                 return "VARELA : La chaine sabotee a ampute ses defenses.\n"
                        "C'est notre fenetre de tir. Maintenant.";
+            if (flags & CFLAG_HACK)
+                return "VARELA : Les codes voles nous ouvrent ses couches basses.\n"
+                       "Il se defend moins bien — mais il vous voit venir.";
             break;
         default: break;
     }
     return NULL;
 }
 
+/* ── Dialogue d'introduction (dynamique pour NEXUS) ────────────
+   L'acte final EST la confrontation au modèle : NEXUS annonce le taux de
+   concordance RÉELLEMENT calculé sur les décisions du joueur. Buffers
+   statiques (rendu mono-thread) ; DEUX buffers distincts pour que l'intro
+   et l'épilogue ne puissent jamais s'écraser l'un l'autre. */
+static char g_dlg_buf[512];   /* campaign_dialog_before */
+static char g_epi_buf[512];   /* campaign_epilogue      */
+
+const char *campaign_dialog_before(int node_id, int flags) {
+    const ActData *a = campaign_act_get(node_id);
+    if (node_id != CAMPAIGN_TOTAL - 1) return a->dialog_before;
+
+    int pred = campaign_nexus_prediction(flags);
+    const char *verdict;
+    if (pred >= 74)
+        verdict = "VOS DECISIONS SUIVENT UN SCHEMA. JE LES CONNAIS DEJA.\n"
+                  "TOUTES LES UNITES SONT POSITIONNEES OU VOUS IREZ.";
+    else if (pred >= 40)
+        verdict = "VOTRE SCHEMA RESTE PARTIELLEMENT RESOLU.\n"
+                  "MARGE D'ERREUR ACCEPTABLE. J'ENGAGE.";
+    else
+        verdict = "VARIABLE NON RESOLUE. VOS DECISIONS NE CONVERGENT PAS.\n"
+                  "AUCUN MODELE FIABLE. J'ENGAGE SANS PREDICTION.";
+
+    snprintf(g_dlg_buf, sizeof(g_dlg_buf),
+             "NEXUS — IA CENTRALE :\n"
+             "\"COMMANDANT VOSS. MODELE COMPORTEMENTAL : %d POURCENT\n"
+             "DE CONCORDANCE.\n"
+             "%s\"\n", pred, verdict);
+    return g_dlg_buf;
+}
+
+/* Épilogue : la dernière chose que NEXUS dit avant de s'éteindre est la
+   MESURE de ce que le joueur a été. L'indice de prédiction n'est pas une
+   statistique cachée — c'est la conclusion morale de la campagne. */
 const char *campaign_epilogue(int flags) {
     int losses = (flags & (CFLAG_LOST_QUEEN | CFLAG_LOST_GENERAL)) ? 1 : 0;
-    int aggro  = 0;
-    if (flags & CFLAG_AMBUSH)      aggro++;
-    if (flags & CFLAG_FAST_STRIKE) aggro++;
-    if (flags & CFLAG_SABOTAGE)    aggro++;
-    if (flags & CFLAG_TRACK)       aggro++;
+    int pred   = campaign_nexus_prediction(flags);
 
-    if (losses)
-        return "VOSS :\n"
-               "\"NEXUS est hors ligne. On a saigne pour en arriver la —\n"
-               "des positions perdues, des camarades tombes. Mais on a tenu.\n"
-               "On reconstruira sur ces cendres. En leur memoire.\"\n";
-    if (aggro >= 3)
-        return "VOSS :\n"
-               "\"NEXUS s'effondre. Vous avez mene cette guerre a l'instinct,\n"
-               "sans jamais reculer. On se souviendra du commandant qui ne\n"
-               "laissait aucune machine debout. La paix, enfin — a votre facon.\"\n";
-    return "VOSS :\n"
-           "\"NEXUS est hors ligne. Methodique, mesure, vous avez demantele\n"
-           "la menace piece par piece sans gaspiller une vie. Le bastion tient,\n"
-           "intact. Maintenant, on reconstruit. Proprement.\"\n";
+    if (pred <= 30)
+        snprintf(g_epi_buf, sizeof(g_epi_buf),
+            "NEXUS — DERNIERE TRANSMISSION :\n"
+            "\"CONCORDANCE FINALE : %d POURCENT. JE NE VOUS AI JAMAIS VU VENIR.\"\n"
+            "\n"
+            "VOSS :\n"
+            "\"Il a modelise des armees entieres. Pas vous. Vous avez gagne\n"
+            "en refusant d'etre une equation%s\"\n",
+            pred,
+            losses ? " — et ca nous a coute des vies. Elles comptent aussi."
+                   : ". On reconstruit. A votre facon.");
+    else if (pred >= 70)
+        snprintf(g_epi_buf, sizeof(g_epi_buf),
+            "NEXUS — DERNIERE TRANSMISSION :\n"
+            "\"CONCORDANCE FINALE : %d POURCENT. JE VOUS AVAIS PREVU.\n"
+            "JE N'AVAIS PAS PREVU QUE CELA NE SUFFISE PAS.\"\n"
+            "\n"
+            "VOSS :\n"
+            "\"Il savait chacun de nos gestes. On les a faits quand meme,\n"
+            "mieux que lui%s\"\n",
+            pred,
+            losses ? ", et on a paye le prix fort. Le bastion s'en souviendra."
+                   : ". Discipline contre calcul. Le bastion tient, intact.");
+    else
+        snprintf(g_epi_buf, sizeof(g_epi_buf),
+            "NEXUS — DERNIERE TRANSMISSION :\n"
+            "\"CONCORDANCE FINALE : %d POURCENT. DONNEES INSUFFISANTES.\"\n"
+            "\n"
+            "VOSS :\n"
+            "\"Ni tout a fait previsible, ni tout a fait fou. On a fait ce\n"
+            "qu'il fallait, quand il le fallait%s\"\n",
+            pred,
+            losses ? ". On a perdu des positions. On les reprendra."
+                   : ". Maintenant, on reconstruit.");
+    return g_epi_buf;
 }
 
 int campaign_act_index(int chapter, int act) {

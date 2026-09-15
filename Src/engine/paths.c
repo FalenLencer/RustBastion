@@ -40,7 +40,7 @@ void setup_working_dir(void) {
     *sep = '\0';
     snprintf(dir, sizeof(dir), "%s", exe);
 
-    char test[512];
+    char test[520];   /* dir (511) + "/assets" (7) + NUL */
     snprintf(test, sizeof(test), "%s\\assets", dir);
     DWORD attr = GetFileAttributesA(test);
     if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
@@ -66,7 +66,7 @@ void setup_working_dir(void) {
     *sep = '\0';
     snprintf(dir, sizeof(dir), "%s", exe);
 
-    char test[512];
+    char test[520];   /* dir (511) + "/assets" (7) + NUL */
     struct stat st;
     snprintf(test, sizeof(test), "%s/assets", dir);
     if (stat(test, &st) == 0 && S_ISDIR(st.st_mode)) {

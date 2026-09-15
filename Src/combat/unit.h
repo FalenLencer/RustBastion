@@ -7,6 +7,7 @@
 #pragma once
 #include "raylib.h"
 #include "enemy.h"
+#include "move.h"               /* MoveNav (navigation à waypoint) */
 #include "../map/map_gen.h"
 #include "../game/meta.h"
 #include "../combat/material.h"
@@ -26,7 +27,20 @@
 #define UNIT_WORKER_COLLECT_DURATION   5.0f  /* durée de collecte au dépôt (s)      */
 #define UNIT_WORKER_ENEMY_SLOW_RANGE   3.5f  /* ennemis dans ce rayon = collecte slow*/
 #define UNIT_WORKER_ENEMY_SLOW_FACTOR  0.35f /* facteur de vitesse collecte ralentie */
+/* Rayon de DÉPLOIEMENT autour d'une base (tuiles). SOURCE UNIQUE : le
+   cercle d'aperçu dessiné par le HUD et le test de validité du clic
+   DOIVENT être le même nombre — sinon le cercle affiché ment au joueur. */
+#define UNIT_DEPLOY_RADIUS_TILES       5.0f
+/* Fraction du coût remboursée au renvoi d'une unité. SOURCE UNIQUE :
+   montant AFFICHÉ sur le bouton et montant réellement crédité. */
+#define UNIT_SELL_REFUND               0.5f
 #define UNIT_DEPOSIT_ARRIVE_DIST       0.8f  /* seuil d'arrivée au dépôt (en tiles) */
+/* ── Déblaiement d'obstacle (ruines / roches minées) ─────────── */
+#define UNIT_WORKER_CLEAR_COST         5     /* or dépensé à l'ordre        */
+#define UNIT_WORKER_CLEAR_DURATION     3.0f  /* durée du déblaiement (s)    */
+/* L'obstacle étant INFRANCHISSABLE, l'ouvrier travaille depuis une tuile
+   voisine : 1.0 tuile en orthogonal, 1.41 en diagonale → 1.6 couvre les deux. */
+#define UNIT_WORKER_CLEAR_REACH        1.6f  /* portée d'action (tiles)     */
 #define UNIT_BASE_ARRIVE_DIST          1.0f  /* seuil d'arrivée à la base (en tiles)*/
 #define UNIT_WORKER_PATROL_ANGLE_SPEED 0.3f  /* vitesse angulaire patrouille (rad/s)*/
 #define UNIT_WORKER_PATROL_RADIUS      1.5f  /* rayon de patrouille ouvrier (tiles) */
@@ -58,6 +72,11 @@ typedef enum {
     USTATE_COLLECT,      // ← en train de collecter
     USTATE_GOTO_BASE,    // ← revient à la base avec le matériau
     USTATE_MOVE_MANUAL,  // ← déplacement manuel vers destination
+    /* Déblaiement d'un obstacle (ruine / roche minée). Ajoutés EN FIN
+       d'énumération : sizeof(Unit) est inchangé, donc les sauvegardes
+       existantes restent lisibles (rsec compare les tailles de section). */
+    USTATE_GOTO_CLEAR,   // ← se dirige vers l'obstacle à déblayer
+    USTATE_CLEARING,     // ← en train de déblayer
 } UnitState;
 
 // ── Comportement (ordre du joueur) ───────────────────────────
@@ -122,8 +141,16 @@ typedef struct {
     UnitBehavior behavior;
     int          escort_idx;       // UBEH_ESCORT_WORKER: index de l'ouvrier ; UBEH_FOLLOW_UNIT: index de l'unité suivie
     int          guard_tower_idx;  // UBEH_GUARD_TOWER: index de la tour
-    float        manual_x, manual_y; // UBEH_MANUAL: destination
+    float        manual_x, manual_y; // UBEH_MANUAL: destination (unités de combat)
+                                   // OUVRIER en USTATE_GOTO_CLEAR/CLEARING :
+                                   // centre de la tuile à déblayer. Réemploi sûr —
+                                   // manual_* n'est lu que sous UBEH_MANUAL, un
+                                   // comportement réservé aux unités de COMBAT
+                                   // (la sélection de groupe exclut les ouvriers).
     int          manual_moving;    // 1 = se déplace vers manual_x/y
+
+    // Navigation à waypoint (déblocage BFS autour du relief profond)
+    MoveNav      nav;
 } Unit;
 
 typedef struct UnitPool {
@@ -149,6 +176,15 @@ void unit_pool_update  (UnitPool *up, EnemyPool *ep, Map *map, float dt,
                         const TowerPool *towers);
 void unit_damage       (Unit *u, float dmg);
 void unit_assign_deposit(UnitPool *up, int unit_idx, int deposit_idx);
+/* Envoie un ouvrier déblayer l'obstacle de la tuile (tx,ty). L'appelant a
+   déjà validé la tuile et débité UNIT_WORKER_CLEAR_COST. */
+void unit_assign_clear  (UnitPool *up, int unit_idx, int tx, int ty);
+/* 1 si la tuile porte un obstacle déblayable par un ouvrier (ruine ou
+   roche minée). SOURCE UNIQUE : partagée par l'input, le rendu et la
+   logique. `tp` exclut les tuiles occupées par une TOUR — une roche minée
+   reste TILE_RUIN après construction, sans quoi cliquer sa propre tour
+   déclencherait un déblaiement payant au lieu de la sélectionner. */
+int  unit_tile_clearable(const Map *map, const TowerPool *tp, int tx, int ty);
 int unit_active_limit(const MetaBonuses *bonuses, int base_count);
 /* Médics rattachés à la base (bpx,bpy) — pour le cap MAX_MEDICS_PER_BASE. */
 int unit_medic_count_at_base(const UnitPool *up, float bpx, float bpy);

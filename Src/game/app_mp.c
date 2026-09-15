@@ -8,6 +8,7 @@
  *  identique). Voir app_mp.h pour l'API appelée par app.c.
  */
 #include "app_mp.h"
+#include "achievements.h"     // succes ACH_MULTI (lancement de partie)
 #include "game_init.h"        // game_init_arcade / game_init_custom
 #include "../ui/renderer.h"   // render_*, g_map_*, renderer_*_color
 #include "../ui/tile_art.h"   // tile_art_draw_*
@@ -79,6 +80,7 @@ static const MpSend INV_ROSTER[INV_ROSTER_COUNT] = {
 // Lance la partie multijoueur (mode Course) avec le seed partagé.
 void mp_launch_game(AppContext *ctx) {
     NetSession *s = &ctx->session;
+    ach_unlock(ACH_MULTI, &ctx->gs);   /* succes : premiere partie multi */
     ctx->mp_in_game      = 1;
     ctx->mp_peer_valid   = 0;
     ctx->mp_result       = 0;
@@ -568,7 +570,7 @@ void mp_invader_render(AppContext *ctx) {
     cam.offset = (Vector2){(float)g_map_x_off, 0.0f};
     cam.zoom   = g_map_render_scale;
     BeginMode2D(cam);
-        render_map(&gs->map);
+        render_map(&gs->map, NULL, 0);   // carte de référence figée (marqueurs séparés)
         tile_art_draw_paths(&gs->map);
         tile_art_draw_spawns(&gs->map);
         render_spawn_exclusion_zones(&gs->map);

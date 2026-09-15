@@ -115,9 +115,27 @@ typedef struct {
     // Fiches de découverte (campagne) — file d'attente, gèle le jeu tant que non vide
     DiscEntry     disc_queue[DISC_QUEUE_CAP];
     int           disc_count;
+    // Bandeau de fin de vague (P1.1) — rempli par game_state.c (transition
+    // WAVE→PREP), tick au dt REEL (fige en pause), rendu par hud_render.c.
+    float         wave_banner_t;     /* temps d'affichage restant (0 = cache) */
+    int           wave_banner_wave;  /* numero de la vague repoussee          */
+    int           wave_banner_kills; /* ennemis detruits pendant cette vague  */
+    int           wave_banner_gold;  /* or gagne pendant cette vague          */
+    int           wave_kills_start;  /* interne : gs->kills au debut de vague */
+    int           wave_gold_acc;     /* interne : or accumule pendant la vague*/
 } UIState;
 
+/* Duree totale d'affichage du bandeau de fin de vague (s) */
+#define WAVE_BANNER_TIME 5.0f
+
 void       ui_init            (UIState *ui);
+/* Annule TOUTE sélection en cours (outil, tour, unité, groupe, ordre de
+   comportement en attente). SOURCE UNIQUE — utilisée par le clic droit
+   dans le vide ET par ECHAP. */
+void       ui_clear_selection (UIState *ui, GameState *gs);
+/* 1 si quelque chose est sélectionné. ECHAP annule d'abord la sélection,
+   et ne met en pause que s'il n'y a rien à annuler. */
+int        ui_has_selection   (const UIState *ui);
 void       ui_disc_push       (UIState *ui, DiscType type, int idx);
 void       ui_push_notif      (UIState *ui, const char *text, Color col);
 void       ui_set_mouse_offset(float ox, float oy, float sx, float sy);

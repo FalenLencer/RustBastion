@@ -119,6 +119,22 @@ int  tower_place       (TowerPool *tp, TowerType type,
 void tower_pool_update (TowerPool *tp, EnemyPool *ep, float dt);
 int  tower_can_place   (const TowerPool *tp, const Map *map,
                         int tile_x, int tile_y);
+
+// ── Raison d'un refus de pose (hors coût) ────────────────────
+// Permet à l'UI de dire au joueur POURQUOI son clic n'a rien fait,
+// au lieu de l'ignorer en silence. `tower_can_place` en dérive :
+// une seule implémentation des règles de placement.
+typedef enum {
+    TPF_NONE = 0,   // la tuile accepte une tour
+    TPF_TILE,       // hors carte, ou terrain non constructible
+    TPF_SPAWN,      // zone d'exclusion autour d'un point d'apparition
+    TPF_OCCUPIED,   // une tour occupe déjà la case
+} TowerPlaceFail;
+TowerPlaceFail tower_place_fail(const TowerPool *tp, const Map *map,
+                                int tile_x, int tile_y);
+// 1 si une tour ACTIVE occupe la tuile (tp NULL → 0). Source unique pour
+// le « déblaiement » du décor sous une tour (rendu 2D et 3D).
+int  tower_at_tile     (const TowerPool *tp, int tile_x, int tile_y);
 int  tower_cost_on_tile(TowerType type, const Map *map,
                         int tile_x, int tile_y);
 int  tower_active_limit(const MetaBonuses *bonuses);
@@ -138,3 +154,8 @@ void tower_upgrade_rate (Tower *t);  // +20% cadence
 void tower_set_material (Tower *t, MaterialType mat);
 
 void tower_do_repair(Tower *t);      // restaure HP à TOWER_MAX_HP
+
+/* MODE HÉROS — contrôle manuel : indice de la tour pilotée par le joueur
+   (-1 = aucune). Sa visée/tir AUTO sont suspendus (le héros vise et tire
+   via projectile_spawn) ; cooldown et étourdissement continuent. */
+extern int g_tower_manual_control;

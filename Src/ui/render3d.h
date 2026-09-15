@@ -23,6 +23,16 @@
 #include "../combat/enemy.h"   /* EnemyPool (pour l'élévation vers la cible) */
 #include <math.h>
 
+/* Direction de la lumière directionnelle — SOURCE UNIQUE, partagée par
+   les shaders des tours (render3d.c), des unités (render3d_units.c) et
+   des ennemis (render3d_enemies.c). */
+#define R3D_LIGHT_DIR (Vector3){ -0.45f, -0.80f, -0.40f }
+
+/* Brouillard de distance (MODE HÉROS) : les fragments sont mélangés vers
+   `col` (couleur d'horizon) selon la profondeur vue. density 0 = coupé —
+   les pré-passes 2D le remettent à 0 à chaque frame. */
+void render3d_set_fog(Color col, float density);
+
 /* ── VISÉE 3D correcte sous caméra oblique ────────────────────────────
    Problème : le jeu rend chaque tour/unité 3D dans une RT (caméra 3/4 fixe)
    puis blitte le sprite sur la carte 2D. Un simple `yaw = -angle` ne fait
@@ -76,3 +86,11 @@ Rectangle render3d_tower_dst(int tower_index, float cx, float cy, float tile);
    (= tw->angle, repère écran). Retourne 1 si modèle dispo, 0 sinon.       */
 int render3d_tower_draw_world(int type, Vector3 pos, float map_angle,
                               float scale);
+
+/* MODE HÉROS — version COMPLÈTE : visée réelle (yaw monde + pitch vers la
+   cible) ET animation de tir (recul/flash/jet, même détection par front de
+   fire_timer que la pré-passe — qui ne tourne pas en mode héros).
+   tower_index = indice dans le pool (état de tir par tour).               */
+int render3d_tower_draw_world_aimed(const Tower *tw, int tower_index,
+                                    const EnemyPool *ep, Vector3 pos,
+                                    float scale);

@@ -29,7 +29,11 @@ void interlude_render_dialog_before(const ActData *act, int node_id, int flags,
                                     int vw, int vh);
 void interlude_render_dialog_after(const ActData *act, int stars, int scrap_earned,
                                    int vw, int vh, int node_id, int flags);
-void interlude_render_gameover(const GameState *gs, int vw, int vh);
+/* P0.2 — écran de RÉCAP de fin de partie. Retourne le choix cliqué :
+   0 = rien, 1 = REJOUER (si allow_replay), 2 = MENU / RETOUR CARTE.
+   L'action est exécutée par l'appelant (app.c, game_handle_gameover). */
+int  interlude_render_gameover(const GameState *gs, Vector2 vm,
+                               int vw, int vh, int allow_replay);
 void interlude_render_extract(const GameState *gs, int vw, int vh, Vector2 vmouse);
 
 // ── Rogue-lite ────────────────────────────────────────────────

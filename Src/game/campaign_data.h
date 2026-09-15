@@ -70,17 +70,69 @@ const char *campaign_choice_label (int stage_index, int idx); // libellé option
 int         campaign_difficulty_stage(int node_id);
 
 // ── Drapeaux narratifs (choix & événements marquants) ────────
-// Persistent toute la campagne (sauvegardés) ; actes et dialogues y réagissent
-// → les décisions du joueur laissent une trace visible.
-#define CFLAG_AMBUSH       (1 << 0)  // Ch1 : embuscade (vs escorte)
-#define CFLAG_TRACK        (1 << 1)  // Ch2 : traque de la source (vs labo)
-#define CFLAG_FAST_STRIKE  (1 << 2)  // Ch3 : frappe rapide (vs défense)
-#define CFLAG_SABOTAGE     (1 << 3)  // Ch5 : sabotage (vs piratage)
+// Persistent toute la campagne (sauvegardés) ; actes, dialogues ET RÈGLES DU
+// JEU y réagissent → les décisions du joueur ont un coût et un bénéfice réels.
+// Chaque bifurcation pose un drapeau sur LES DEUX branches (une décision
+// prudente est une décision : elle se paie et se souvient, elle aussi).
+#define CFLAG_AMBUSH       (1 << 0)  // Ch1 : embuscade   (imprévisible)
+#define CFLAG_TRACK        (1 << 1)  // Ch2 : traque      (imprévisible)
+#define CFLAG_FAST_STRIKE  (1 << 2)  // Ch3 : frappe      (imprévisible)
+#define CFLAG_SABOTAGE     (1 << 3)  // Ch5 : sabotage    (imprévisible)
 #define CFLAG_LOST_QUEEN   (1 << 4)  // a perdu la Reine puis s'est replié
 #define CFLAG_LOST_GENERAL (1 << 5)  // a perdu le Général puis s'est replié
+#define CFLAG_ESCORT       (1 << 6)  // Ch1 : escorte     (méthodique)
+#define CFLAG_LAB          (1 << 7)  // Ch2 : laboratoire (méthodique)
+#define CFLAG_ANCHOR       (1 << 8)  // Ch3 : ancrages    (méthodique)
+#define CFLAG_HACK         (1 << 9)  // Ch5 : piratage    (méthodique)
+
+// ── DOCTRINES ────────────────────────────────────────────────
+// Un choix ne se contente plus de router le graphe : il installe une
+// DOCTRINE permanente, appliquée à CHAQUE acte restant, avec un vrai
+// arbitrage (un axe renforcé, un axe affaibli). Les doctrines
+// « méthodiques » renforcent la STRUCTURE (slots, vies) et rendent le
+// joueur lisible pour NEXUS ; les « imprévisibles » jouent le TEMPO
+// (moins d'ennemis, plus d'or) et dégradent son modèle.
+#define CAMPAIGN_DOCTRINES 8
+
+typedef struct {
+    int         flag;         // CFLAG_* correspondant
+    const char *name;         // "BUTIN DES CENDRES"
+    const char *tag;          // "Butin" — affichage compact
+    const char *effect;       // "+35 or/acte, +8% d'ennemis"
+    int         methodical;   // 1 = prévisible (NEXUS affine), 0 = imprévisible
+    // Modificateurs permanents appliqués à chaque acte
+    int   act_gold;           // + or au début de l'acte (peut être négatif)
+    int   act_lives;          // + vies au début de l'acte (peut être négatif)
+    int   tower_slots;        // + limite de tours
+    int   unit_slots;         // + limite d'unités
+    float count_mult;         // × nombre d'ennemis par vague
+    float scale_mult;         // × PV/dégâts des ennemis
+    float speed_mult;         // × vitesse des ennemis
+} DoctrineDef;
+
+extern const DoctrineDef CAMPAIGN_DOCTRINE[CAMPAIGN_DOCTRINES];
+
+// Doctrine correspondant à un drapeau (NULL si aucune).
+const DoctrineDef *campaign_doctrine_by_flag(int flag);
+// Remplit `out` avec les doctrines actives dans `flags`. Retourne le nombre.
+int  campaign_doctrines_active(int flags, const DoctrineDef **out, int max);
+// Somme des slots accordés par les doctrines actives (kind 0 = tours, 1 = unités).
+int  campaign_doctrine_slots(int flags, int kind);
+
+// ── INDICE DE PRÉDICTION NEXUS (0-100) ───────────────────────
+// Le cœur thématique : NEXUS est un moteur de prédiction, et les choix du
+// joueur en sont l'entrée. Méthodique → il vous modélise (indice haut,
+// hordes mieux coordonnées à l'acte final) ; imprévisible → son modèle
+// se délite (indice bas). Pilote la difficulté de NEXUS, son dialogue
+// (le pourcentage annoncé est CALCULÉ) et l'épilogue.
+int         campaign_nexus_prediction(int flags);
 
 // Drapeau posé par un choix (stage, branche 0/1) ; 0 = aucun.
 int         campaign_choice_flag(int stage_index, int choice_idx);
+// Conséquence mécanique d'une option, affichée SOUS son libellé (NULL = aucune).
+const char *campaign_choice_effect(int stage_index, int idx);
+// Dialogue d'introduction d'un acte — dynamique pour NEXUS (indice calculé).
+const char *campaign_dialog_before(int node_id, int flags);
 // Ligne de rappel narratif pour l'intro d'un acte selon les drapeaux (NULL = aucune).
 const char *campaign_echo(int stage_index, int flags);
 // Épilogue de fin de campagne, variant selon le parcours (drapeaux).

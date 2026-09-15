@@ -131,6 +131,7 @@ typedef struct {
     int         new_slot;
     int         campaign_order_seed;
     int         selected_campaign_act;  // acte cliqué sur la carte du monde (0 = début)
+    int         campaign_challenge_sel; // case MODE CHALLENGE cochée (carte du monde)
 
     CustomConfig custom_cfg;  // configuration partie personnalisée
 
@@ -138,12 +139,16 @@ typedef struct {
 
     AppOptions  opts;
     int         paused;
+    int         first_run_ask;      // P0.1 : 1 = proposer le tutoriel
+                                    // (fichier méta absent = 1er lancement)
 
     float       msg_timer;
     char        msg_buf[128];
 
     int         opt_tab;            // 0=General, 1=Audio, 2=Graphismes, 3=Commandes
     int         opt_dropdown_open;  // -1=none, 0=FPS, 1=Resolution, etc
+    int         opt_dd_guard;       // 1 = ignorer le clic d'OUVERTURE de la liste
+                                    //     (sinon elle se referme la même frame)
     int         opt_rebind;         // 0=aucun, sinon 1+HK_* en attente d'une touche
 
     // Bestiaire
@@ -192,6 +197,7 @@ typedef struct {
     int          new_slot;
     int          campaign_order_seed;
     int          start_campaign_act;  // acte de départ (0 = premier acte)
+    int          campaign_challenge;  // 1 = lancer en MODE CHALLENGE (+dur, +Renfort)
     CustomConfig custom_cfg;          // paramètres de la partie custom à lancer
 
     // ── Multijoueur (intentions traitées par app.c) ──────────

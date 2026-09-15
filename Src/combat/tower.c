@@ -109,27 +109,39 @@ void tower_pool_init(TowerPool *tp) {
 /* ════════════════════════════════════════════════════
    VÉRIFICATION PLACEMENT — inclut zone anti-spawn
    ════════════════════════════════════════════════════ */
-int tower_can_place(const TowerPool *tp, const Map *map, int tx, int ty) {
-    if (tx < 0 || tx >= map->w || ty < 0 || ty >= map->h) return 0;
-
-    const Tile *t = &map->tiles[ty][tx];
-    if (!t->buildable) return 0;
+/* Règles de placement — IMPLÉMENTATION UNIQUE, qui rend en plus la RAISON
+   du refus pour que l'UI puisse l'expliquer au joueur. */
+TowerPlaceFail tower_place_fail(const TowerPool *tp, const Map *map,
+                                int tx, int ty) {
+    if (tx < 0 || tx >= map->w || ty < 0 || ty >= map->h) return TPF_TILE;
+    if (!map->tiles[ty][tx].buildable)                    return TPF_TILE;
 
     // Zone d'exclusion autour de chaque spawn
     for (int i = 0; i < map->path_count; i++) {
         if (!map->paths[i].active) continue;
         Point sp   = map->paths[i].spawn;
         int   dist = abs(tx - sp.x) + abs(ty - sp.y);
-        if (dist <= SPAWN_EXCLUSION_RADIUS) return 0;
+        if (dist <= SPAWN_EXCLUSION_RADIUS) return TPF_SPAWN;
     }
 
     // Pas de tour déjà là
+    if (tower_at_tile(tp, tx, ty)) return TPF_OCCUPIED;
+    return TPF_NONE;
+}
+
+int tower_can_place(const TowerPool *tp, const Map *map, int tx, int ty) {
+    return tower_place_fail(tp, map, tx, ty) == TPF_NONE;
+}
+
+/* 1 si une tour active occupe la tuile — source unique du déblaiement
+   du décor (ruine/roche) sous une tour, en 2D comme en 3D. */
+int tower_at_tile(const TowerPool *tp, int tx, int ty) {
+    if (!tp) return 0;
     for (int i = 0; i < MAX_TOWERS; i++) {
-        if (tp->towers[i].active &&
-            tp->towers[i].tile_x == tx &&
-            tp->towers[i].tile_y == ty) return 0;
+        const Tower *tw = &tp->towers[i];
+        if (tw->active && tw->tile_x == tx && tw->tile_y == ty) return 1;
     }
-    return 1;
+    return 0;
 }
 
 /* ════════════════════════════════════════════════════
@@ -299,14 +311,10 @@ static int find_target(const Tower *tw, const EnemyPool *ep) {
 #define TOWER_TURN_SPEED  9.0f
 
 /* Fait tourner `cur` vers `tgt` d'au plus `max_d` rad (chemin le plus court). */
-static float angle_approach(float cur, float tgt, float max_d) {
-    float d = tgt - cur;
-    while (d >  3.14159265f) d -= 6.28318531f;
-    while (d < -3.14159265f) d += 6.28318531f;
-    if (d >  max_d) d =  max_d;
-    if (d < -max_d) d = -max_d;
-    return cur + d;
-}
+/* angle_approach : source unique dans combat_math.h */
+
+/* MODE HÉROS : tour actuellement pilotée à la main (-1 = aucune). */
+int g_tower_manual_control = -1;
 
 /* ════════════════════════════════════════════════════
    MISE À JOUR
@@ -319,6 +327,13 @@ void tower_pool_update(TowerPool *tp, EnemyPool *ep, float dt) {
         // Étourdie par une onde EMP de boss → ne tire pas
         if (tw->stun_timer > 0.0f) {
             tw->stun_timer -= dt;
+            continue;
+        }
+
+        // Pilotée par le HÉROS : visée/tir manuels (hero_tower.c) —
+        // seul le cooldown continue de s'écouler ici.
+        if (i == g_tower_manual_control) {
+            tw->fire_timer -= dt;
             continue;
         }
 

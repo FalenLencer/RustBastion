@@ -14,7 +14,8 @@
 #include "app.h"
 #include "../ui/render3d_world.h"   /* w3d_from_sim                       */
 #include "../ui/renderer.h"         /* g_canvas_virt_w/h                  */
-#include "../ui/ui_utils.h"         /* dtxt / mtxt / fh                   */
+#include "../ui/ui_utils.h"         /* dtxt / mtxt / fh / draw_icon       */
+#include "../ui/ui_anim.h"          /* ui_anim_tick / ui_dt (pop icônes)  */
 #include "../combat/fx.h"           /* g_fx (popups à projeter)           */
 #include "rlgl.h"                   /* depth test off (viewmodel)         */
 #include <math.h>
@@ -86,7 +87,85 @@ void hero_draw_world_popups(AppContext *ctx, Camera3D cam) {
         Color c = u->col;
         c.a = (unsigned char)(255.0f * a);
         int w = mtxt(u->text, 11);
-        dtxt(u->text, (int)s.x - w / 2, (int)s.y, 11, c);
+        dtxt_o(u->text, (int)s.x - w / 2, (int)s.y, 11, c);
+    }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   HOTBAR — cartes de sélection lisibles (tours / recrues)
+   ════════════════════════════════════════════════════════════════ */
+#define HB_CARD_W  96
+#define HB_CARD_H  46
+#define HB_GAP      8
+
+static void hotbar_card(int x, int y, char key, const char *name, int cost,
+                        Color col, int sel, int enabled, int locked) {
+    Rectangle r = {(float)x, (float)y, (float)HB_CARD_W, (float)HB_CARD_H};
+    Color bg = locked ? (Color){24, 24, 28, 230}
+             : sel    ? (Color){28, 44, 30, 242}
+                      : (Color){13, 17, 23, 228};
+    DrawRectangleRounded(r, 0.18f, 4, bg);
+    Color brd = sel    ? (Color){245, 205, 90, 255}
+              : locked ? (Color){70, 70, 78, 220} : col;
+    DrawRectangleRoundedLinesEx(r, 0.18f, 4, sel ? 2.4f : 1.4f, brd);
+
+    char kb[6];
+    snprintf(kb, sizeof(kb), "[%c]", key);
+    dtxt(kb, x + 6, y + 4, 10, (Color){170, 190, 210, 255});
+
+    Color nc = locked ? (Color){110, 110, 118, 255}
+             : enabled ? (Color){225, 232, 240, 255}
+                       : (Color){140, 140, 148, 255};
+    int nw = mtxt(name, 10);
+    if (nw > HB_CARD_W - 8) nw = HB_CARD_W - 8;
+    dtxt(name, x + HB_CARD_W / 2 - nw / 2, y + 15, 10, nc);
+
+    if (locked) {
+        dtxt("VERROUILLE", x + 6, y + HB_CARD_H - fh(10) - 4, 10,
+             (Color){220, 90, 70, 255});
+    } else {
+        /* Coût : icône or + nombre (alignés sur la hauteur du texte) */
+        char cb[16];
+        snprintf(cb, sizeof(cb), "%d", cost);
+        int cy2 = y + HB_CARD_H - fh(10) - 4;
+        int ic  = fh(10) - 4;
+        draw_icon(g_icon_gold, x + 6, cy2 + 2, ic,
+                  enabled ? WHITE : (Color){150, 130, 90, 255});
+        dtxt(cb, x + 6 + ic + 3, cy2, 10,
+             enabled ? (Color){238, 200, 92, 255} : (Color){150, 120, 70, 255});
+    }
+}
+
+/* Rangée contextuelle : types de TOUR en mode placement, RECRUES près
+   d'une base. y = bord haut de la rangée. */
+static void hero_hotbar(AppContext *ctx, int y) {
+    HeroState *h  = &ctx->hero;
+    GameState *gs = &ctx->gs;
+
+    if (h->place_mode) {
+        int n = (int)TOWER_TYPE_COUNT;
+        int x0 = g_canvas_virt_w / 2 - (n * HB_CARD_W + (n - 1) * HB_GAP) / 2;
+        for (int i = 0; i < n; i++) {
+            int locked  = !hero_tower_unlocked(ctx, i);
+            int cost    = TOWER_BASE_STATS[i].cost;
+            int enabled = !locked && gs->gold >= cost;
+            hotbar_card(x0 + i * (HB_CARD_W + HB_GAP), y, (char)('1' + i),
+                        TOWER_BASE_STATS[i].name, cost,
+                        renderer_tower_color((TowerType)i),
+                        h->place_type == i, enabled, locked);
+        }
+    } else if (hero_in_base_zone(ctx)) {
+        int n = (int)UNIT_TYPE_COUNT;
+        int x0 = g_canvas_virt_w / 2 - (n * HB_CARD_W + (n - 1) * HB_GAP) / 2;
+        for (int i = 0; i < n; i++) {
+            int cost    = UNIT_BASE_STATS[i].cost;
+            int enabled = (gs->gold >= cost) &&
+                          (gs->units.count < gs->units.unit_limit);
+            hotbar_card(x0 + i * (HB_CARD_W + HB_GAP), y, (char)('1' + i),
+                        UNIT_BASE_STATS[i].name, cost,
+                        renderer_unit_color((UnitType)i),
+                        0, enabled, 0);
+        }
     }
 }
 
@@ -98,9 +177,40 @@ void hero_hud(AppContext *ctx) {
     GameState *gs = &ctx->gs;
     int cx = g_canvas_virt_w / 2, cy = g_canvas_virt_h / 2;
 
+    /* ── Vignette de dégâts / PV bas (bords rouges) ────────────────── */
+    {
+        float ratio = (h->hp_max > 0.0f) ? h->hp / h->hp_max : 0.0f;
+        float a = (h->hurt_t > 0.0f) ? 0.55f * (h->hurt_t / HERO_HURT_FLASH_T)
+                                     : 0.0f;
+        if (ratio < 0.35f) {
+            float low = (0.35f - ratio) / 0.35f;
+            float pulse = 0.25f + 0.15f * sinf((float)GetTime() * 6.0f);
+            if (low * pulse > a) a = low * pulse;
+        }
+        if (a > 0.0f) {
+            unsigned char va = (unsigned char)(a * 200.0f);
+            Color vc = {180, 30, 25, va}, v0 = {180, 30, 25, 0};
+            int th = g_canvas_virt_h / 6, tw2 = g_canvas_virt_w / 8;
+            DrawRectangleGradientV(0, 0, g_canvas_virt_w, th, vc, v0);
+            DrawRectangleGradientV(0, g_canvas_virt_h - th, g_canvas_virt_w,
+                                   th, v0, vc);
+            DrawRectangleGradientH(0, 0, tw2, g_canvas_virt_h, vc, v0);
+            DrawRectangleGradientH(g_canvas_virt_w - tw2, 0, tw2,
+                                   g_canvas_virt_h, v0, vc);
+        }
+    }
+
+    /* Bannière VUE TACTIQUE */
+    if (h->tactical_view) {
+        const char *tb = "VUE TACTIQUE  -  [C] revenir au sol";
+        int tw3 = mtxt(tb, 12);
+        dtxt(tb, cx - tw3 / 2, 14, 12, (Color){150, 220, 255, 255});
+    }
+
     /* Viseur RÉACTIF : blanc au repos ; ROUGE + écarté sur une cible ;
-       flash orange au tir. */
-    int on = h->aim_on_target;
+       flash orange au tir. Masqué en vue tactique. */
+    int on = h->aim_on_target && !h->tactical_view;
+    if (!h->tactical_view) {
     Color cc = (h->fire_flash > 0.0f) ? (Color){255, 170, 80, 255}
              : on                     ? (Color){255,  85, 60, 255}
                                       : (Color){235, 235, 235, 210};
@@ -121,7 +231,7 @@ void hero_hud(AppContext *ctx) {
         DrawLine(cx - 12, cy + 12, cx - 6, cy + 6, hm);
         DrawLine(cx + 6,  cy + 6,  cx + 12, cy + 12, hm);
     }
-
+    }   /* fin viseur (masqué en vue tactique) */
     /* ── Bannière de VAGUE (transitions de phase) ─────────────────── */
     if (h->wave_banner_t > 0.0f) {
         float a = h->wave_banner_t / HERO_BANNER_TIME;
@@ -129,6 +239,82 @@ void hero_hud(AppContext *ctx) {
         int bw2 = mtxt(h->wave_banner, 24);
         Color bc = {245, 200, 90, (unsigned char)(255.0f * a)};
         dtxt(h->wave_banner, cx - bw2 / 2, cy - 130, 24, bc);
+        /* Recap P1.1 : sous la banniere « repoussee », les stats de vague */
+        if (gs->phase == PHASE_PREP && gs->ui.wave_banner_t > 0.0f) {
+            char st[64];
+            snprintf(st, sizeof(st), "%d ennemis detruits   +%d or",
+                     gs->ui.wave_banner_kills, gs->ui.wave_banner_gold);
+            int sw = mtxt(st, 12);
+            Color sc2 = {235, 225, 205, (unsigned char)(220.0f * a)};
+            dtxt(st, cx - sw / 2, cy - 130 + fh(24) + 4, 12, sc2);
+        }
+    }
+
+    /* ── MENU RADIAL (P1.4) : molette maintenue ─────────────────────
+       7 pastilles autour du centre (3 armes en haut, 4 tours) ; le
+       trait orange montre le geste, la pastille visee est accentuee. */
+    if (h->radial_open) {
+        int rr = HERO_RADIAL_R;
+        DrawCircle(cx, cy, (float)rr + 52.0f, (Color){6, 4, 2, 130});
+
+        /* Trait du geste (direction de visee du segment) */
+        float gl = sqrtf(h->radial_dx * h->radial_dx +
+                         h->radial_dy * h->radial_dy);
+        if (gl > 1.0f) {
+            float ll = gl > (float)rr ? (float)rr : gl;
+            DrawLineEx((Vector2){(float)cx, (float)cy},
+                       (Vector2){cx + h->radial_dx / gl * ll,
+                                 cy + h->radial_dy / gl * ll},
+                       2.0f, (Color){232, 152, 32, 170});
+        }
+        DrawCircle(cx, cy, 4.0f, (Color){232, 152, 32, 220});
+
+        for (int i = 0; i < HERO_RADIAL_N; i++) {
+            float a2  = (float)i * (2.0f * PI / (float)HERO_RADIAL_N);
+            int   px2 = cx + (int)(sinf(a2) * (float)rr);
+            int   py3 = cy - (int)(cosf(a2) * (float)rr);
+            int   cost = -1, locked = 0;
+            const char *lb = hero_radial_label(ctx, i, &cost, &locked);
+            int   sel2   = (h->radial_sel == i);
+            int   is_cur = (i < (int)HW_COUNT && (int)h->weapon == i);
+
+            char cb2[16];
+            int  has_cost = (cost >= 0);
+            if (has_cost) snprintf(cb2, sizeof(cb2), "%d or", cost);
+
+            int lw2 = mtxt(lb, 11);
+            int cw2 = has_cost ? mtxt(cb2, 10) : 0;
+            int pw2 = (lw2 > cw2 ? lw2 : cw2) + 16;
+            int ph2 = 6 + fh(11) + (has_cost ? fh(10) + 2 : 0) + 6;
+
+            Rectangle r = {(float)(px2 - pw2 / 2), (float)(py3 - ph2 / 2),
+                           (float)pw2, (float)ph2};
+            Color bg  = sel2   ? (Color){44, 30, 10, 245}
+                               : (Color){12,  8,  3, 215};
+            Color brd = sel2   ? (Color){232, 152, 32, 255}
+                      : locked ? (Color){70, 58, 40, 180}
+                               : (Color){110, 90, 55, 220};
+            DrawRectangleRounded(r, 0.3f, 4, bg);
+            DrawRectangleRoundedLinesEx(r, 0.3f, 4, sel2 ? 2.0f : 1.0f, brd);
+
+            Color tc = locked ? (Color){110, 95, 70, 220}
+                     : sel2   ? (Color){250, 225, 170, 255}
+                              : (Color){225, 210, 180, 240};
+            dtxt(lb, px2 - lw2 / 2, (int)r.y + 6, 11, tc);
+            if (has_cost)
+                dtxt(cb2, px2 - cw2 / 2, (int)r.y + 6 + fh(11) + 2, 10,
+                     locked ? (Color){100, 85, 60, 200}
+                            : (Color){215, 175, 70, 240});
+            /* Petit point : arme actuellement equipee */
+            if (is_cur)
+                DrawCircle((int)r.x - 6, py3, 3.0f, (Color){120, 220, 130, 255});
+        }
+
+        const char *hint = (h->radial_sel >= 0)
+            ? "Relachez la molette pour valider"
+            : "Poussez la souris vers un choix";
+        int hw2 = mtxt(hint, 10);
+        dtxt(hint, cx - hw2 / 2, cy + rr + 58, 10, (Color){190, 175, 145, 220});
     }
 
     /* ── MINIMAP (bas-droit) : la conscience tactique du TD ──────────
@@ -216,9 +402,19 @@ void hero_hud(AppContext *ctx) {
         dtxt(ob, cx - ow/2, 46, 11, (Color){150, 240, 160, 255});
     }
 
-    /* Stats (haut-gauche) */
-    char l1[64], l2[64];
-    snprintf(l1, sizeof(l1), "OR %d    VIES %d", gs->gold, gs->lives);
+    /* Stats (haut-gauche) : icônes or/vies + nombres, pop au changement */
+    ui_anim_tick();   /* horloge UI (inoffensif si déjà tické cette frame) */
+    static int   pgold = -1, plives = -1;
+    static float tgold = 1e9f, tlives = 1e9f;
+    if (pgold < 0 || plives < 0) { pgold = gs->gold; plives = gs->lives; }
+    if (gs->gold  != pgold)  { tgold  = 0.0f; pgold  = gs->gold;  }
+    if (gs->lives != plives) { tlives = 0.0f; plives = gs->lives; }
+    tgold  += ui_dt();
+    tlives += ui_dt();
+
+    char gb[16], vb[16], l2[64];
+    snprintf(gb, sizeof(gb), "%d", gs->gold);
+    snprintf(vb, sizeof(vb), "%d", gs->lives);
     if (gs->phase == PHASE_PREP) {
         snprintf(l2, sizeof(l2), "VAGUE %d  -  prepa %.0fs",
                  gs->wave_manager.number + 1, gs->wave_manager.prep_timer);
@@ -226,13 +422,47 @@ void hero_hud(AppContext *ctx) {
         snprintf(l2, sizeof(l2), "VAGUE %d  -  ennemis %d",
                  gs->wave_manager.number, enemy_pool_alive(&gs->enemies));
     }
-    DrawRectangle(8, 8, mtxt(l1, 12) > mtxt(l2, 10) ? mtxt(l1, 12) + 16 : mtxt(l2, 10) + 16,
+    int ih  = fh(12);
+    int sw1 = ih + 4 + mtxt(gb, 12) + 14 + ih + 4 + mtxt(vb, 12);
+    int sw2 = mtxt(l2, 10);
+    DrawRectangle(8, 10, (sw1 > sw2 ? sw1 : sw2) + 16,
                   fh(12) + fh(10) + 14, (Color){8, 10, 16, 190});
-    dtxt(l1, 16, 12, 12, (Color){240, 210, 120, 255});
+
+    /* Icône + valeur, avec pop d'échelle 0.22 s quand la valeur change */
+    int xx = 16;
+    {
+        int isz = ih;
+        if (tgold < 0.22f)
+            isz = (int)((float)ih * (1.0f + 0.3f * sinf((tgold / 0.22f) * PI)));
+        draw_icon(g_icon_gold, xx - (isz - ih) / 2, 12 - (isz - ih) / 2,
+                  isz, WHITE);
+        dtxt(gb, xx + ih + 4, 12, 12, (Color){240, 210, 120, 255});
+        xx += ih + 4 + mtxt(gb, 12) + 14;
+    }
+    {
+        int isz = ih;
+        if (tlives < 0.22f)
+            isz = (int)((float)ih * (1.0f + 0.3f * sinf((tlives / 0.22f) * PI)));
+        Color lc = (gs->lives <= 15) ? (Color){231, 76, 60, 255}
+                                     : (Color){235, 120, 110, 255};
+        draw_icon(g_icon_heart, xx - (isz - ih) / 2, 12 - (isz - ih) / 2,
+                  isz, lc);
+        dtxt(vb, xx + ih + 4, 12, 12, lc);
+    }
     dtxt(l2, 16, 12 + fh(12) + 4, 10, (Color){200, 210, 225, 255});
-    /* V1 : le héros n'est pas ciblable — assumé et affiché. */
-    dtxt("HEROS INVULNERABLE (beta)", 16, 8 + fh(12) + fh(10) + 14 + 3, 8,
-         (Color){140, 155, 175, 190});
+
+    /* Barre de PV du héros (le contact ennemi fait mal, la base soigne) */
+    {
+        float ratio = (h->hp_max > 0.0f) ? h->hp / h->hp_max : 0.0f;
+        if (ratio < 0.0f) ratio = 0.0f;
+        if (ratio > 1.0f) ratio = 1.0f;
+        int bw3 = 150, bx3 = 16, by3 = 8 + fh(12) + fh(10) + 14 + 4;
+        Color hc = (ratio > 0.5f)  ? (Color){ 90, 210,  90, 255}
+                 : (ratio > 0.25f) ? (Color){235, 190,  60, 255}
+                                   : (Color){225,  70,  55, 255};
+        DrawRectangle(bx3 - 1, by3 - 1, bw3 + 2, 10, (Color){10, 10, 14, 220});
+        DrawRectangle(bx3, by3, (int)(bw3 * ratio), 8, hc);
+    }
 
     /* Arme (haut-droit) */
     char w1[80];
@@ -240,7 +470,7 @@ void hero_hud(AppContext *ctx) {
              hero_weapon_name(h->weapon), hero_weapon_dmg(h),
              hero_weapon_rate(h), h->upg_dmg + h->upg_rate, HERO_UPG_MAX * 2);
     int ww = mtxt(w1, 10);
-    DrawRectangle(g_canvas_virt_w - ww - 24, 8, ww + 16, fh(10) + 10,
+    DrawRectangle(g_canvas_virt_w - ww - 24, 10, ww + 16, fh(10) + 10,
                   (Color){8, 10, 16, 190});
     dtxt(w1, g_canvas_virt_w - ww - 16, 13, 10, (Color){170, 220, 255, 255});
 
@@ -248,6 +478,9 @@ void hero_hud(AppContext *ctx) {
     char lines[6][64];
     int nl = hero_prompts(ctx, lines, 6);
     int py = g_canvas_virt_h - 30 - nl * (fh(10) + 4);
+
+    /* Hotbar de sélection au-dessus des invites */
+    hero_hotbar(ctx, py - HB_CARD_H - 10);
     for (int i = 0; i < nl; i++) {
         int lw = mtxt(lines[i], 10);
         DrawRectangle(cx - lw / 2 - 8, py - 2, lw + 16, fh(10) + 5,
@@ -268,11 +501,12 @@ void hero_hud(AppContext *ctx) {
         static const char *HL[] = {
             "Deplacement / SAUT / sprint / interactions :",
             "  touches configurables dans OPTIONS > COMMANDES",
-            "SOURIS     viser            CLIC G tirer",
-            "FLECHES    tourner la vue (secours clavier)",
-            "TAB        liberer / capturer la souris",
+            "SOURIS     viser            CLIC G tirer (x1.4 si cible <30% PV)",
+            "MOLETTE    (maintenir) MENU RADIAL : armes + tours au geste",
+            "C          vue TACTIQUE (drone) pour planifier",
+            "E          ouvrier: batir / tour: en prendre le CONTROLE",
+            "O / P / L  (tour) ameliorer   M / N  appliquer un materiau",
             "1-5        (pres d'une BASE) recruter une unite",
-            "O / P      (base) ameliorer degats / cadence",
             "ESC        pause    H  fermer l'aide",
         };
         int n = (int)(sizeof(HL) / sizeof(HL[0]));
@@ -316,6 +550,7 @@ int hero_overlay_panel(const char *title, Color col) {
 void hero_draw_viewmodel(const HeroState *h, Camera3D cam) {
     if (!h->first_person) return;
     if (h->place_mode) return;     /* arme baissée pendant la construction */
+    if (h->control_tower >= 0) return;   /* aux commandes d'une tour       */
 
     Vector3 f = { cam.target.x - cam.position.x,
                   cam.target.y - cam.position.y,

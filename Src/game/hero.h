@@ -39,6 +39,28 @@
 #define HERO_BASE_ZONE_TILES   2.6f  /* rayon « près d'une base »             */
 #define HERO_WORKER_ZONE_TILES 3.2f  /* rayon « près d'un ouvrier »           */
 #define HERO_PLACE_DIST_TILES  4.5f  /* portée max du placement de tour       */
+#define HERO_TOWER_ZONE_TILES  1.8f  /* rayon « près d'une tour » (contrôle)  */
+
+/* ── Contrôle manuel d'une tour ────────────────────────────────── */
+#define HERO_CTRL_EYE_H        2.35f /* hauteur des yeux sur la tourelle      */
+#define HERO_CTRL_RANGE_MULT   1.15f /* bonus de portée en visée manuelle     */
+
+/* ── Survie du héros (fini l'invulnérabilité) ──────────────────── */
+#define HERO_MAX_HP           100.0f /* points de vie                         */
+#define HERO_CONTACT_RANGE_PX  10.0f /* marge de contact (en plus des tailles)*/
+#define HERO_CONTACT_BASE_DPS   4.0f /* PV/s de base par ennemi au contact    */
+#define HERO_CONTACT_DMG_DPS    3.0f /* PV/s supplémentaires × e->damage      */
+#define HERO_REGEN_BASE_PS      9.0f /* régénération PV/s dans la zone de base*/
+#define HERO_KO_TIME            6.0f /* durée du K.O. avant respawn (s)       */
+#define HERO_RESPAWN_HP_FRAC    0.7f /* PV au respawn (fraction du max)       */
+#define HERO_HURT_FLASH_T       0.3f /* flash rouge à l'impact (s)            */
+
+/* ── Rôle de l'arme : FINISHER (là où les tours sont aveugles) ─── */
+#define HERO_EXECUTE_THRESH     0.30f /* seuil PV « achevable » (fraction)    */
+#define HERO_EXECUTE_MULT       1.40f /* bonus de dégâts sous le seuil        */
+
+/* ── Vue tactique (drone au-dessus du héros, touche C) ─────────── */
+#define HERO_TACT_H            30.0f  /* altitude de la caméra (monde)        */
 
 /* ── Arme du héros (roguelite) ─────────────────────────────────── */
 typedef enum { HW_RIFLE = 0, HW_CANNON, HW_TESLA, HW_COUNT } HeroWeapon;
@@ -84,6 +106,22 @@ typedef struct {
     int     trace_hit;     /* 1 = le tir a touché (flash d'impact à trace_b) */
     int     aim_on_target; /* 1 = un ennemi est sous le réticule (viseur réactif) */
 
+    /* Survie */
+    float hp, hp_max;      /* points de vie du héros                     */
+    float hurt_t;          /* >0 : vient d'encaisser (flash rouge)       */
+    float ko_t;            /* >0 : K.O. en cours (respawn à 0)           */
+    int   down;            /* 1 = à terre (aucune action possible)       */
+
+    /* Vue tactique (drone, touche C) */
+    int   tactical_view;
+
+    /* Sélection de matériau à appliquer ([N] cycle, [M] applique) */
+    int   mat_sel;
+
+    /* Contrôle manuel d'une tour ([E] près d'une tour) */
+    int   control_tower;   /* indice de la tour pilotée (-1 = aucune)    */
+    float ctrl_px, ctrl_py;/* position sim de la tour (caméra tourelle)  */
+
     /* Placement de tour (via un ouvrier) */
     int   place_mode;      /* 1 = fantôme de placement actif             */
     int   place_type;      /* TowerType en cours de sélection            */
@@ -96,11 +134,22 @@ typedef struct {
     int   mouse_settle;    /* frames à ignorer après (re)capture         */
     int   mouse_native;    /* 1 = capture native (GetMouseDelta) ; 0 =
                               mode compatible (recentrage manuel)         */
+    float look_ref_x;      /* mode compatible : position virtuelle EXACTE */
+    float look_ref_y;      /*   du point de recentrage (auto-calibrée —   */
+    int   look_ref_ok;     /*   élimine toute dérive de la vue au repos)  */
 
     /* Feel caméra */
     int   sprinting;       /* 1 = sprint en cours (élargit le FOV)       */
     float fov_cur;         /* FOV courant (interpolé vers base/sprint)   */
     float bob_t;           /* horloge du balancement de marche           */
+
+    /* Menu radial (P1.4) : molette maintenue → geste directionnel.
+       Fonctionne souris VERROUILLÉE (les deltas de regard deviennent le
+       geste), donc compatible modes natif ET compatible WSLg. */
+    int   radial_open;     /* 1 = menu radial affiché                    */
+    float radial_dx;       /* vecteur du geste souris cumulé (px)        */
+    float radial_dy;
+    int   radial_sel;      /* segment visé (-1 = zone morte)             */
 
     /* Bannière de vague (VAGUE N / repoussée) */
     float wave_banner_t;
@@ -144,11 +193,51 @@ int  hero_overlay_panel(const char *title, Color col);
    la scène 3D (BeginMode3D actif), en dernier. */
 void hero_draw_viewmodel(const HeroState *h, Camera3D cam);
 
+/* ── Menu radial (P1.4) : 3 armes + 4 tours à la molette ───────── */
+#define HERO_RADIAL_N        7       /* segments : HW_COUNT + 4 tours    */
+#define HERO_RADIAL_DEAD_PX  18.0f   /* zone morte du geste (px souris)  */
+#define HERO_RADIAL_MAX_PX  140.0f   /* longueur max du vecteur de geste */
+#define HERO_RADIAL_R       120      /* rayon d'affichage (px canvas)    */
+/* Libellé du segment i ; cost = coût or (-1 si sans coût), locked = 1
+   si indisponible dans le contexte courant (affichage grisé du HUD). */
+const char *hero_radial_label(struct AppContext *ctx, int i,
+                              int *cost, int *locked);
+/* Applique le segment sélectionné (à la relâche de la molette). */
+void hero_radial_apply(struct AppContext *ctx);
+
 /* ── hero_actions.c : interactions & tir ───────────────────────── */
 /* Gère tir, zones base/ouvrier, placement, achats, upgrades.       */
 void hero_actions_update(struct AppContext *ctx, float dt);
 /* Invites contextuelles pour le HUD (lignes de texte). Retourne n. */
 int  hero_prompts(struct AppContext *ctx, char out[][64], int max);
+/* 1 = héros dans la zone d'une base (hotbar de recrutement). */
+int  hero_in_base_zone(struct AppContext *ctx);
+/* 1 = type de tour débloqué (même règle que le HUD 2D). */
+int  hero_tower_unlocked(struct AppContext *ctx, int tower_type);
+/* Ennemi sous le réticule (rayon caméra). ray/dist optionnels (NULL). */
+int  hero_aim_pick(struct AppContext *ctx, float range,
+                   Ray *ray_out, float *dist_out);
+
+/* ── hero_survival.c : PV, dégâts de contact, K.O./respawn ─────── */
+/* Tuile praticable la plus proche de la base primaire (spawn/respawn). */
+void hero_find_spawn(struct AppContext *ctx, float *out_px, float *out_py);
+/* Contact ennemi → dégâts ; régén près d'une base ; passage à terre. */
+void hero_survival_update(struct AppContext *ctx, float dt);
+/* Frame complète pendant le K.O. (sim + rendu + compte à rebours). */
+void hero_down_frame(struct AppContext *ctx, float dt);
+
+/* ── hero_tower.c : contrôle manuel + améliorations de tours ───── */
+/* Tour active la plus proche dans HERO_TOWER_ZONE_TILES (-1 = aucune). */
+int  hero_tower_near(struct AppContext *ctx);
+/* Mode CONTRÔLE : visée/tir/upgrades/sortie. Retourne 1 si actif
+   (l'appelant ne traite alors rien d'autre). */
+int  hero_tower_update(struct AppContext *ctx);
+/* Hors contrôle, près d'une tour : [E] entre en contrôle, O/P/L
+   améliorent. tower_idx = résultat de hero_tower_near. */
+void hero_tower_interact_near(struct AppContext *ctx, int tower_idx);
+/* Invites du HUD pour le contrôle / la proximité de tour. */
+int  hero_tower_prompts(struct AppContext *ctx, char out[][64],
+                        int max, int n);
 /* Nom / stats de l'arme courante pour le HUD. */
 const char *hero_weapon_name(HeroWeapon w);
 float hero_weapon_dmg (const HeroState *h);

@@ -77,6 +77,19 @@ void meta_save(const MetaProgress *meta) {
     fclose(f);
 }
 
+/* P0.1 — 1 si le fichier méta existe déjà. Sert de détecteur de
+   « premier lancement » SANS toucher au format (pas de bump, pas de
+   reset) : répondre au prompt du tutoriel fait un meta_save → le
+   fichier existe → plus jamais de prompt. */
+int meta_file_exists(void) {
+    char path[512];
+    FILE *f = fopen(data_path(path, sizeof(path),
+                              "saves/rustbastion_meta.sav"), "rb");
+    if (!f) return 0;
+    fclose(f);
+    return 1;
+}
+
 int meta_load(MetaProgress *meta) {
     char path[512];
     FILE *f = fopen(data_path(path, sizeof(path), "saves/rustbastion_meta.sav"), "rb");

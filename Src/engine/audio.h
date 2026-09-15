@@ -46,6 +46,10 @@ int  audio_init(void);
 void audio_update(void);
 void audio_shutdown(void);
 void audio_play_sfx(AudioSfxID id);
+/* P1.5 — identité sonore : joue un SFX avec un pitch de base (1.0 =
+   normal). Un léger jitter aléatoire par type de son (table interne)
+   s'ajoute pour éviter l'effet « mitraillette » des sons répétés. */
+void audio_play_sfx_pitch(AudioSfxID id, float pitch);
 void audio_play_theme_music(ThemeID theme);
 void audio_play_menu_music(void);
 void audio_stop_music(void);

@@ -373,6 +373,7 @@ int campaign_save_write(const GameState *gs, int slot,
     ok &= (fwrite(&gs->slots_tower_bought,      sizeof(gs->slots_tower_bought),      1, f) == 1);
     ok &= (fwrite(&gs->slots_unit_bought,       sizeof(gs->slots_unit_bought),       1, f) == 1);
     ok &= (fwrite(&gs->campaign_flags,          sizeof(gs->campaign_flags),          1, f) == 1);
+    ok &= (fwrite(&gs->challenge_mode,          sizeof(gs->challenge_mode),          1, f) == 1);
     fclose(f);
     return ok;
 }
@@ -419,6 +420,7 @@ int campaign_save_read(GameState *gs, int slot,
     rscalar(f, &gs->slots_tower_bought,      sizeof(gs->slots_tower_bought));
     rscalar(f, &gs->slots_unit_bought,       sizeof(gs->slots_unit_bought));
     rscalar(f, &gs->campaign_flags,          sizeof(gs->campaign_flags));
+    rscalar(f, &gs->challenge_mode,          sizeof(gs->challenge_mode));
     fclose(f);
 
     meta_compute(&gs->meta, &gs->bonuses);   /* bonus autoritaires (recalcul depuis meta) */

@@ -4,98 +4,68 @@
  * Unauthorized copying or distribution is prohibited.
  */
 
-/*  menu_anim.c — Animation cinématique écran titre (v3)
+/*  menu_anim.c — Animation cinématique écran titre (v4, 100 % procédural)
  *
- *  Source rects vérifiés par inspection pixel (inspect_worker.c).
- *  Frames 7-8 ont un y différent (424/406) — rendus bottom-aligned.
+ *  Plus AUCUNE sprite sheet : l'ouvrier, la poussière et les étincelles
+ *  sont dessinés en primitives raylib (comme les arcs électriques). Seule
+ *  la tour utilise son splash art (tex_tower). L'anim tourne donc même si
+ *  aucun asset d'animation n'est présent.
  *
- *  Déroulé :
- *    WALK_IN  — ouvrier entre en portant la tour horizontale (7 s)
- *    SLAM     — plante violemment la tour (0.7 s)
- *    TOWER_POP — scale-pop + dust (1.0 s)
- *    VICTORY  — célèbre (3.0 s)
- *    PAUSE    — immobile (3.0 s)
- *    RESET    → boucle
+ *  Déroulé (inchangé) :
+ *    WALK_IN  — l'ouvrier entre en portant la tour, avance vers la cible
+ *    SLAM     — plante violemment la tour (s'accroupit, bras vers le bas)
+ *    TOWER_POP — scale-pop de la tour + gerbe de poussière + étincelles
+ *    VICTORY  — célèbre bras levés
+ *    PAUSE    — immobile, puis boucle
  */
 
 #include "menu_anim.h"
+#include "ui_anim.h"   /* ea_out_cubic (easing partagé) */
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
 
 /* ═══════════════════════════════════════════════════════════════
-   SOURCE RECTS — inspection pixel confirmée
-   anime_better.png 1264×842  (fond blanc retiré)
+   DIMENSIONS / DURÉES
    ═══════════════════════════════════════════════════════════════ */
-static const Rectangle WORKER_SRC[9] = {
-    {  22, 310, 125, 177 },   /* 0 walk A         */
-    { 161, 310, 114, 177 },   /* 1 walk B         */
-    { 287, 310, 122, 177 },   /* 2 walk C         */
-    { 431, 319,  99, 167 },   /* 3 carry A        */
-    { 555, 333, 114, 154 },   /* 4 carry B        */
-    { 679, 318, 148, 168 },   /* 5 victory A      */
-    { 832, 309, 125, 176 },   /* 6 victory B      */
-    { 962, 343, 159, 143 },   /* 7 slam (accroupi)*/
-    {1125, 334, 119, 151 },   /* 8 slam relâché   */
-};
+#define WORKER_DSP_REF   160.0f   /* hauteur de l'ouvrier à l'écran (px)  */
+#define WALK_CADENCE       1.7f   /* cycles de marche par seconde         */
 
-/* dust_anim.png 1536×1024 — 5 frames */
-static const Rectangle DUST_SRC[5] = {
-    {  65, 497, 211,  99 },
-    { 295, 358, 383, 248 },
-    { 700, 428, 370, 186 },
-    {1077, 476, 267, 128 },
-    {1353, 531, 163,  64 },
-};
+#define TOWER_CARRY_DW    40.0f   /* petite tour portée                   */
+#define TOWER_CARRY_DH    60.0f
+#define TOWER_PLANT_DW   200.0f   /* grande tour plantée                  */
+#define TOWER_PLANT_DH   300.0f
+
+#define DUR_CARRY_WALK     3.0f   /* marche d'entrée (était 7 s : trop long
+                                     à chaque lancement — P0.4)          */
+#define DUR_SLAM           0.7f
+#define DUR_TOWER_POP      1.0f
+#define DUR_VICTORY        3.0f
+#define DUR_PAUSE          3.0f
 
 /* ═══════════════════════════════════════════════════════════════
-   FRAME SETS
+   PALETTE OUVRIER (rust-punk, cohérente avec le reste du jeu)
    ═══════════════════════════════════════════════════════════════ */
-#define WALK_FS   0   /* frames marche (pieds qui bougent)   */
-#define WALK_FC   3
-#define CARRY_FS  3   /* frames carry (bras levés, statique) */
-#define CARRY_FC  2
-#define SLAM_FS   7
-#define SLAM_FC   2
-#define VIC_FS    5
-#define VIC_FC    2
-
-/* ═══════════════════════════════════════════════════════════════
-   DIMENSIONS D'AFFICHAGE
-
-   Rendu bottom-aligned : la hauteur de chaque frame est
-   proportionnelle à sa hauteur source (ref=217px → 160px).
-   Les frames "accroupies" (7-8) apparaissent donc plus courtes,
-   ce qui est naturel.
-   ═══════════════════════════════════════════════════════════════ */
-#define WORKER_SRC_REF   177.0f   /* hauteur de référence (frame droite) */
-#define WORKER_DSP_REF   160.0f   /* hauteur affichage correspondante     */
-
-/* Tour (rapport 2:3, portrait) */
-#define TOWER_CARRY_DW   40.0f   /* petite tour portée                   */
-#define TOWER_CARRY_DH   60.0f
-#define TOWER_PLANT_DW  200.0f   /* grande tour plantée                  */
-#define TOWER_PLANT_DH  300.0f
-
-/* ═══════════════════════════════════════════════════════════════
-   DURÉES (secondes)
-   ═══════════════════════════════════════════════════════════════ */
-#define DUR_CARRY_WALK   7.0f
-#define DUR_SLAM         0.7f
-#define DUR_TOWER_POP    1.0f
-#define DUR_VICTORY      3.0f
-#define DUR_PAUSE        3.0f
+#define W_HAT      (Color){224, 169,  62, 255}   /* casque jaune-alerte   */
+#define W_HAT_D    (Color){170, 122,  40, 255}
+#define W_SKIN     (Color){198, 142,  98, 255}
+#define W_GOGGLE   (Color){110, 195, 150, 255}   /* lunettes vertes       */
+#define W_JACKET   (Color){ 96, 104,  64, 255}   /* veste olive           */
+#define W_JACKET_D (Color){ 64,  70,  42, 255}
+#define W_PANT     (Color){ 92,  86,  64, 255}   /* pantalon kaki-gris    */
+#define W_PANT_D   (Color){ 66,  62,  46, 255}   /* jambe arrière (ombre) */
+#define W_BOOT     (Color){ 40,  34,  28, 255}
+#define W_GLOVE    (Color){ 44,  38,  30, 255}
 
 /* ═══════════════════════════════════════════════════════════════
    MATHS
    ═══════════════════════════════════════════════════════════════ */
-static float lerpf (float a, float b, float t) { return a+(b-a)*t; }
-static float clampf(float v, float lo, float hi){ return v<lo?lo:v>hi?hi:v; }
-static float ease_out(float t){ float u=1.f-t; return 1.f-u*u*u; }
-static float ease_in (float t){ return t*t; }
+static float lerpf (float a, float b, float t) { return a + (b - a) * t; }
+static float clampf(float v, float lo, float hi){ return v < lo ? lo : v > hi ? hi : v; }
+static float ease_in (float t){ return t * t; }
 
 /* ═══════════════════════════════════════════════════════════════
-   PARTICULES ÉTINCELLES
+   ÉTINCELLES DE SOUDURE (procédural)
    ═══════════════════════════════════════════════════════════════ */
 static void weld_spawn(WeldParticle *pool, float sx, float sy)
 {
@@ -114,56 +84,142 @@ static void weld_spawn(WeldParticle *pool, float sx, float sy)
         return;
     }
 }
-
 static void weld_burst(MenuAnimState *a, float sx, float sy, int n)
 {
     for (int i = 0; i < n; i++) weld_spawn(a->weld, sx, sy);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ARC ÉLECTRIQUE PROCÉDURAL
+   POUSSIÈRE (procédural) — puffs qui gonflent, montent et s'estompent
+   ═══════════════════════════════════════════════════════════════ */
+static void dust_burst(MenuAnimState *a, float x, float y, int n)
+{
+    for (int k = 0; k < n; k++) {
+        for (int i = 0; i < DUST_PARTICLE_MAX; i++) {
+            if (a->dust[i].active) continue;
+            float dir = (float)GetRandomValue(-25, 205) / 100.f;   /* ~horizontal + haut */
+            float spd = (float)GetRandomValue(40, 130);
+            float ml  = 0.5f + (float)GetRandomValue(0, 45) / 100.f;
+            a->dust[i].x        = x + (float)GetRandomValue(-6, 6);
+            a->dust[i].y        = y + (float)GetRandomValue(-4, 2);
+            a->dust[i].vx       = cosf(dir) * spd;
+            a->dust[i].vy       = -fabsf(sinf(dir)) * spd * 0.7f
+                                  - (float)GetRandomValue(10, 45);
+            a->dust[i].r0       = (float)GetRandomValue(6, 15);
+            a->dust[i].life     = ml;
+            a->dust[i].max_life = ml;
+            a->dust[i].active   = 1;
+            break;
+        }
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ARC ÉLECTRIQUE PROCÉDURAL (coins de l'écran)
    ═══════════════════════════════════════════════════════════════ */
 static void draw_arc(Vector2 from, Vector2 to, int segs, Color col, float seed)
 {
     if (segs > 18) segs = 18;
-    float dx = (to.x-from.x)/segs, dy = (to.y-from.y)/segs;
-    float px = -dy, py = dx, len = sqrtf(px*px+py*py);
+    float dx = (to.x - from.x) / segs, dy = (to.y - from.y) / segs;
+    float px = -dy, py = dx, len = sqrtf(px * px + py * py);
     if (len > 0.001f) { px /= len; py /= len; }
     Vector2 prev = from;
     for (int i = 1; i <= segs; i++) {
-        float t  = (float)i/segs;
-        float bx = from.x+dx*i, by = from.y+dy*i;
-        float amp = 14.f*(1.f-fabsf(t-.5f)*2.f);
-        float n   = sinf(seed*8.3f+i*1.9f)*amp;
-        Vector2 cur = {bx+px*n, by+py*n};
+        float t  = (float)i / segs;
+        float bx = from.x + dx * i, by = from.y + dy * i;
+        float amp = 14.f * (1.f - fabsf(t - .5f) * 2.f);
+        float n   = sinf(seed * 8.3f + i * 1.9f) * amp;
+        Vector2 cur = { bx + px * n, by + py * n };
         DrawLineEx(prev, cur, 1.3f, col);
         prev = cur;
     }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DESSIN OUVRIER — bottom-aligned, taille proportionnelle
+   OUVRIER PROCÉDURAL — chibi à casque, bottom-aligned
 
-   feet_x = centre X (bas du sprite)
-   feet_y = Y du sol
+   fx, fy : centre des pieds (sol). h : hauteur d'affichage.
+   walk   : phase de marche 0..1 (balancement des jambes).
+   armsup : 0 bras le long du corps → 1 bras levés (porter / victoire).
+   crouch : 0 debout → 1 accroupi (slam).
+   lean   : inclinaison du buste vers l'avant (px, +x = vers la droite).
+   bob    : oscillation verticale (px, marche / célébration).
    ═══════════════════════════════════════════════════════════════ */
-static void draw_worker(Texture2D tex, int idx,
-                         float feet_x, float feet_y,
-                         int flip, Color tint)
+static void draw_worker_proc(float fx, float fy, float h,
+                             float walk, float armsup, float crouch,
+                             float lean, float bob)
 {
-    if (!tex.id || idx < 0 || idx >= 9) return;
-    Rectangle src = WORKER_SRC[idx];
-    float scale = WORKER_DSP_REF / WORKER_SRC_REF;
-    float dh = src.height * scale;
-    float dw = src.width  * scale;
-    if (flip) src.width = -src.width;
-    DrawTexturePro(tex, src,
-        (Rectangle){feet_x - dw*0.5f, feet_y - dh, dw, dh},
-        (Vector2){0, 0}, 0.f, tint);
+    float baseY = fy - bob;
+    float hipV  = (0.42f - 0.10f * crouch) * h;   /* hauteur des hanches   */
+    float torso = (0.30f - 0.05f * crouch) * h;   /* hanches → épaules     */
+    float shoV  = hipV + torso;
+    float hipY  = baseY - hipV;
+    float shoY  = baseY - shoV;
+    float ux    = fx + lean;                       /* buste incliné         */
+
+    float bodyW = 0.40f * h;
+    float legTh = 0.15f * h;
+    float armTh = 0.10f * h;
+    float rHead = 0.13f * h;
+
+    /* ── Jambes (balancement opposé) ── */
+    float sw    = sinf(walk * 6.2832f) * 0.10f * h * (1.f - 0.7f * crouch);
+    float hipLx = fx - 0.07f * h, hipRx = fx + 0.07f * h;
+    /* jambe arrière (gauche) : plus sombre */
+    DrawLineEx((Vector2){hipLx, hipY}, (Vector2){hipLx - sw, fy},
+               legTh, W_PANT_D);
+    DrawRectangleRounded(
+        (Rectangle){hipLx - sw - 0.05f * h, fy - 0.06f * h, 0.16f * h, 0.06f * h},
+        0.5f, 4, W_BOOT);
+    /* jambe avant (droite) */
+    DrawLineEx((Vector2){hipRx, hipY}, (Vector2){hipRx + sw, fy},
+               legTh, W_PANT);
+    DrawRectangleRounded(
+        (Rectangle){hipRx + sw - 0.04f * h, fy - 0.06f * h, 0.17f * h, 0.06f * h},
+        0.5f, 4, W_BOOT);
+
+    /* ── Torse (veste) + ceinture ── */
+    DrawRectangleRounded(
+        (Rectangle){ux - bodyW * 0.5f, shoY, bodyW, hipY - shoY + 0.02f * h},
+        0.35f, 6, W_JACKET);
+    DrawRectangleRounded(
+        (Rectangle){ux - bodyW * 0.5f, shoY, bodyW * 0.32f, hipY - shoY},
+        0.35f, 6, W_JACKET_D);                     /* pan d'ombre à gauche  */
+    DrawRectangle((int)(ux - bodyW * 0.5f), (int)(hipY - 0.03f * h),
+                  (int)bodyW, (int)(0.04f * h), W_JACKET_D);   /* ceinture  */
+
+    /* ── Bras (interpolés bas ↔ haut selon armsup) ── */
+    for (int s = -1; s <= 1; s += 2) {
+        float shx = ux + s * bodyW * 0.42f;
+        float shy = shoY + 0.02f * h;
+        float downX = ux + s * bodyW * 0.55f, downY = hipY - 0.01f * h;
+        float upX   = ux + s * 0.08f * h,     upY   = shoY - 0.18f * h;
+        float hx = lerpf(downX, upX, armsup) + lean * 0.5f;
+        float hy = lerpf(downY, upY, armsup);
+        DrawLineEx((Vector2){shx, shy}, (Vector2){hx, hy}, armTh, W_JACKET);
+        DrawCircleV((Vector2){hx, hy}, armTh * 0.6f, W_GLOVE);   /* gant     */
+    }
+
+    /* ── Tête + casque + lunettes ── */
+    float hx = ux + lean * 0.3f;
+    float hy = shoY - rHead * 0.7f;
+    DrawCircleV((Vector2){hx, hy}, rHead, W_SKIN);
+    /* dôme du casque (recouvre le haut de la tête) */
+    DrawCircleV((Vector2){hx, hy - rHead * 0.45f}, rHead * 0.92f, W_HAT);
+    /* visière / bord avant */
+    DrawRectangleRounded(
+        (Rectangle){hx - rHead * 1.0f, hy - rHead * 0.32f,
+                    rHead * 2.3f, rHead * 0.30f},
+        0.5f, 4, W_HAT_D);
+    /* bande de lunettes (sur le front) */
+    DrawRectangleRounded(
+        (Rectangle){hx - rHead * 0.78f, hy - rHead * 0.02f,
+                    rHead * 1.55f, rHead * 0.34f},
+        0.5f, 4, W_GOGGLE);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DESSIN TOUR — pivot au centre géométrique + rotation
+   TOUR (splash art) — porté (rotation) ou planté (vertical)
    ═══════════════════════════════════════════════════════════════ */
 static void draw_tower_center(Texture2D tex, float cx, float cy,
                                float dw, float dh, float rot, Color tint)
@@ -172,79 +228,61 @@ static void draw_tower_center(Texture2D tex, float cx, float cy,
     DrawTexturePro(tex,
         (Rectangle){0, 0, (float)tex.width, (float)tex.height},
         (Rectangle){cx, cy, dw, dh},
-        (Vector2){dw*0.5f, dh*0.5f},
-        rot, tint);
+        (Vector2){dw * 0.5f, dh * 0.5f}, rot, tint);
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   DESSIN TOUR PLANTÉE — pivot bas-centre, verticale
-   ═══════════════════════════════════════════════════════════════ */
-static void draw_tower_planted(Texture2D tex,
-                                float base_cx, float base_y,
+static void draw_tower_planted(Texture2D tex, float base_cx, float base_y,
                                 float dw, float dh, Color tint)
 {
     if (!tex.id) return;
     DrawTexturePro(tex,
         (Rectangle){0, 0, (float)tex.width, (float)tex.height},
-        (Rectangle){base_cx - dw*0.5f, base_y - dh, dw, dh},
+        (Rectangle){base_cx - dw * 0.5f, base_y - dh, dw, dh},
         (Vector2){0, 0}, 0.f, tint);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   AVANCEMENT FRAME OUVRIER
-   ═══════════════════════════════════════════════════════════════ */
-static void frame_tick(MenuAnimState *a, float dt, float fps, int fs, int fc)
-{
-    a->worker_frame_t += dt;
-    if (a->worker_frame_t >= 1.f/fps) {
-        a->worker_frame_t -= 1.f/fps;
-        int local = (a->worker_frame - fs + 1) % fc;
-        a->worker_frame = fs + local;
-    }
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   INIT / CLEANUP
+   INIT / CLEANUP — aucun asset d'animation requis (procédural)
    ═══════════════════════════════════════════════════════════════ */
 void menu_anim_init(MenuAnimState *a)
 {
     memset(a, 0, sizeof(*a));
 
-    const char *pw = "assets/textures/Animation/anime_better.png";
-    const char *pd = "assets/textures/Animation/dust_anim.png";
+    /* Seule dépendance : le splash art de la tour (optionnel). */
     const char *pt = "assets/textures/splash_art/tower_sniper.png";
+    if (FileExists(pt)) {
+        a->tex_tower = LoadTexture(pt);
+        SetTextureFilter(a->tex_tower, TEXTURE_FILTER_BILINEAR);
+    }
 
-    if (!FileExists(pw)) return;
-    a->tex_worker = LoadTexture(pw);
-    if (FileExists(pd)) a->tex_dust  = LoadTexture(pd);
-    if (FileExists(pt)) a->tex_tower = LoadTexture(pt);
-
-    SetTextureFilter(a->tex_worker, TEXTURE_FILTER_BILINEAR);
-    if (a->tex_dust.id)  SetTextureFilter(a->tex_dust,  TEXTURE_FILTER_BILINEAR);
-    if (a->tex_tower.id) SetTextureFilter(a->tex_tower, TEXTURE_FILTER_BILINEAR);
-
-    a->loaded = 1;
-    a->phase  = ANIM_PHASE_WALK_IN;
-    a->timer  = 0.f;
+    a->loaded       = 1;                 /* l'ouvrier/poussière sont procéduraux */
+    a->phase        = ANIM_PHASE_WALK_IN;
+    a->timer        = 0.f;
     a->bg_timer     = 0.f;
     a->weld_spawn_t = 1.0f;
+    a->walk_cycle   = 0.f;
 
-    /* Valeurs initiales (recalculées dans render dès le 1er frame) */
-    a->tower_x = 1120.f * 0.35f;   /* ≈ 392 */
-    a->tower_y = 830.f  * 0.91f;   /* ≈ 705 */
+    a->tower_x  = 1120.f * 0.35f;
+    a->tower_y  = 830.f  * 0.91f;
+    a->worker_x = -(TOWER_CARRY_DH + WORKER_DSP_REF * 0.7f);
+}
 
-    /* Ouvrier démarre hors-champ gauche */
-    a->worker_x       = -(TOWER_CARRY_DH + WORKER_DSP_REF * 0.7f);
-    a->worker_frame   = WALK_FS;
-    a->worker_frame_t = 0.f;
+void menu_anim_skip(MenuAnimState *a)
+{
+    if (!a->loaded) return;
+    a->phase         = ANIM_PHASE_VICTORY;
+    a->timer         = 0.f;
+    a->tower_planted = 1;
+    a->tower_scale   = 1.f;
+    /* Ouvrier posé à côté de la tour, comme après le slam */
+    a->worker_x      = a->tower_x - WORKER_DSP_REF * 0.7f * 0.55f;
+    a->walk_cycle    = 0.f;
+    for (int i = 0; i < DUST_PARTICLE_MAX; i++) a->dust[i].active = 0;
 }
 
 void menu_anim_cleanup(MenuAnimState *a)
 {
     if (!a->loaded) return;
-    if (a->tex_worker.id) UnloadTexture(a->tex_worker);
-    if (a->tex_dust.id)   UnloadTexture(a->tex_dust);
-    if (a->tex_tower.id)  UnloadTexture(a->tex_tower);
+    if (a->tex_tower.id) UnloadTexture(a->tex_tower);
     a->loaded = 0;
 }
 
@@ -257,7 +295,7 @@ void menu_anim_update(MenuAnimState *a, float dt)
 
     a->bg_timer += dt;
 
-    /* Spawn d'étincelles sur les bords */
+    /* Spawn d'étincelles sur les bords (soudure d'ambiance) */
     a->weld_spawn_t -= dt;
     if (a->weld_spawn_t <= 0.f) {
         float vw = a->tower_x / 0.35f;
@@ -265,63 +303,61 @@ void menu_anim_update(MenuAnimState *a, float dt)
         int side = GetRandomValue(0, 2);
         float sx, sy;
         if (side == 0) {
-            sx = (float)GetRandomValue(4, (int)(vw*.22f));
-            sy = (float)GetRandomValue(10, (int)(vh-10));
+            sx = (float)GetRandomValue(4, (int)(vw * .22f));
+            sy = (float)GetRandomValue(10, (int)(vh - 10));
         } else if (side == 1) {
-            sx = (float)GetRandomValue((int)(vw*.78f), (int)(vw-4));
-            sy = (float)GetRandomValue(10, (int)(vh-10));
+            sx = (float)GetRandomValue((int)(vw * .78f), (int)(vw - 4));
+            sy = (float)GetRandomValue(10, (int)(vh - 10));
         } else {
-            sx = (float)GetRandomValue(10, (int)(vw-10));
-            sy = (float)GetRandomValue(4, (int)(vh*.2f));
+            sx = (float)GetRandomValue(10, (int)(vw - 10));
+            sy = (float)GetRandomValue(4, (int)(vh * .2f));
         }
         weld_burst(a, sx, sy, GetRandomValue(2, 5));
-        a->weld_spawn_t = 2.0f + (float)GetRandomValue(0, 200)/100.f;
+        a->weld_spawn_t = 2.0f + (float)GetRandomValue(0, 200) / 100.f;
     }
 
-    /* Mise à jour particules */
+    /* Étincelles : gravité + décès */
     for (int i = 0; i < WELD_PARTICLE_MAX; i++) {
         WeldParticle *p = &a->weld[i];
         if (!p->active) continue;
         p->life -= dt;
         p->x  += p->vx * dt;
         p->y  += p->vy * dt;
-        p->vy += 80.f  * dt;
+        p->vy += 80.f * dt;
         if (p->life <= 0.f) p->active = 0;
     }
 
-    /* Poussière */
-    if (a->dust_active) {
-        a->dust_frame_t += dt;
-        while (a->dust_frame_t >= 1.f/8.f) {
-            a->dust_frame_t -= 1.f/8.f;
-            a->dust_frame++;
-            if (a->dust_frame >= 5) { a->dust_active = 0; a->dust_frame = 0; break; }
-        }
+    /* Poussière : gonfle en montant, retombe, s'estompe */
+    for (int i = 0; i < DUST_PARTICLE_MAX; i++) {
+        DustParticle *p = &a->dust[i];
+        if (!p->active) continue;
+        p->life -= dt;
+        p->x  += p->vx * dt;
+        p->y  += p->vy * dt;
+        p->vy += 90.f * dt;                 /* retombe doucement */
+        p->vx -= p->vx * 1.6f * dt;         /* freinage horizontal */
+        if (p->life <= 0.f) p->active = 0;
     }
 
     a->timer += dt;
 
-    float tgt_x = a->tower_x;
-    float tgt_y = a->tower_y;
-    /* "end_x" : centre X où l'ouvrier se place pour planter */
-    float slam_x = tgt_x - WORKER_DSP_REF * 0.7f * 0.3f;   /* ≈ tgt_x - 34 */
+    float tgt_x  = a->tower_x;
+    float tgt_y  = a->tower_y;
+    float slam_x = tgt_x - WORKER_DSP_REF * 0.7f * 0.3f;
 
     switch (a->phase) {
 
-    /* ── WALK_IN : entre en portant la tour, avance vers la cible ── */
+    /* ── WALK_IN : entre en portant la tour ── */
     case ANIM_PHASE_WALK_IN: {
         float start_x = -(TOWER_CARRY_DH + WORKER_DSP_REF * 0.7f);
-        float end_x   = tgt_x - WORKER_DSP_REF * 0.7f * 0.55f;   /* ≈ tgt_x - 62 */
+        float end_x   = tgt_x - WORKER_DSP_REF * 0.7f * 0.55f;
         float t       = clampf(a->timer / DUR_CARRY_WALK, 0.f, 1.f);
-        a->worker_x   = lerpf(start_x, end_x, ease_out(t));
-
-        frame_tick(a, dt, 6.f, WALK_FS, WALK_FC);
-
+        a->worker_x   = lerpf(start_x, end_x, ea_out_cubic(t));
+        a->walk_cycle += dt * WALK_CADENCE;
+        if (a->walk_cycle >= 1.f) a->walk_cycle -= 1.f;
         if (a->timer >= DUR_CARRY_WALK) {
-            a->phase          = ANIM_PHASE_SLAM;
-            a->timer          = 0.f;
-            a->worker_frame   = SLAM_FS;
-            a->worker_frame_t = 0.f;
+            a->phase = ANIM_PHASE_SLAM;
+            a->timer = 0.f;
         }
         break;
     }
@@ -331,25 +367,13 @@ void menu_anim_update(MenuAnimState *a, float dt)
         float prev_x = tgt_x - WORKER_DSP_REF * 0.7f * 0.55f;
         float t      = clampf(a->timer / DUR_SLAM, 0.f, 1.f);
         a->worker_x  = lerpf(prev_x, slam_x, t);
-
-        frame_tick(a, dt, (float)SLAM_FC / DUR_SLAM, SLAM_FS, SLAM_FC);
-
         if (a->timer >= DUR_SLAM) {
             a->phase         = ANIM_PHASE_TOWER_POP;
             a->timer         = 0.f;
             a->tower_planted = 1;
             a->tower_scale   = 0.15f;
-
             weld_burst(a, tgt_x, tgt_y - 5.f, 18);
-
-            a->dust_active  = 1;
-            a->dust_frame   = 0;
-            a->dust_frame_t = 0.f;
-            a->dust_x       = tgt_x;
-            a->dust_y       = tgt_y;
-
-            a->worker_frame   = VIC_FS;
-            a->worker_frame_t = 0.f;
+            dust_burst(a, tgt_x, tgt_y, DUST_PARTICLE_MAX);
         }
         break;
     }
@@ -358,16 +382,11 @@ void menu_anim_update(MenuAnimState *a, float dt)
     case ANIM_PHASE_TOWER_POP: {
         float t = clampf(a->timer / DUR_TOWER_POP, 0.f, 1.f);
         if (t <= 0.6f)
-            a->tower_scale = lerpf(0.15f, 1.2f, ease_out(t / 0.6f));
+            a->tower_scale = lerpf(0.15f, 1.2f, ea_out_cubic(t / 0.6f));
         else
             a->tower_scale = lerpf(1.2f, 1.0f, ease_in((t - 0.6f) / 0.4f));
         a->tower_scale = clampf(a->tower_scale, 0.f, 1.25f);
-
-        /* L'ouvrier recule un peu sous l'effet du choc */
-        a->worker_x -= 45.f * dt;
-
-        frame_tick(a, dt, 3.f, VIC_FS, VIC_FC);
-
+        a->worker_x -= 45.f * dt;            /* recule sous le choc */
         if (a->timer >= DUR_TOWER_POP) {
             a->phase       = ANIM_PHASE_VICTORY;
             a->timer       = 0.f;
@@ -377,38 +396,30 @@ void menu_anim_update(MenuAnimState *a, float dt)
     }
 
     /* ── VICTORY ── */
-    case ANIM_PHASE_VICTORY: {
-        frame_tick(a, dt, 3.f, VIC_FS, VIC_FC);
+    case ANIM_PHASE_VICTORY:
         if (a->timer >= DUR_VICTORY) {
             a->phase = ANIM_PHASE_PAUSE;
             a->timer = 0.f;
         }
         break;
-    }
 
     /* ── PAUSE ── */
-    case ANIM_PHASE_PAUSE: {
+    case ANIM_PHASE_PAUSE:
         if (a->timer >= DUR_PAUSE) {
             a->phase = ANIM_PHASE_RESET;
             a->timer = 0.f;
         }
         break;
-    }
 
     /* ── RESET ── */
-    case ANIM_PHASE_RESET: {
-        a->phase          = ANIM_PHASE_WALK_IN;
-        a->timer          = 0.f;
-        a->worker_x       = -(TOWER_CARRY_DH + WORKER_DSP_REF * 0.7f);
-        a->worker_frame   = WALK_FS;
-        a->worker_frame_t = 0.f;
-        a->worker_flip    = 0;
-        a->tower_scale    = 0.f;
-        a->tower_planted  = 0;
-        a->dust_active    = 0;
-        a->dust_frame     = 0;
+    case ANIM_PHASE_RESET:
+        a->phase         = ANIM_PHASE_WALK_IN;
+        a->timer         = 0.f;
+        a->worker_x      = -(TOWER_CARRY_DH + WORKER_DSP_REF * 0.7f);
+        a->walk_cycle    = 0.f;
+        a->tower_scale   = 0.f;
+        a->tower_planted = 0;
         break;
-    }
 
     default:
         a->phase = ANIM_PHASE_WALK_IN;
@@ -426,33 +437,33 @@ void menu_anim_render(const MenuAnimState *a, int vw, int vh)
 
     float tgt_x = (float)vw * 0.35f;
     float tgt_y = (float)vh * 0.91f;
-    /* Mise à jour position cible pour update() */
-    ((MenuAnimState*)a)->tower_x = tgt_x;
-    ((MenuAnimState*)a)->tower_y = tgt_y;
+    ((MenuAnimState *)a)->tower_x = tgt_x;   /* nourrit update() */
+    ((MenuAnimState *)a)->tower_y = tgt_y;
 
-    float feet_y = tgt_y;   /* sol : ouvrier et base de tour au même Y */
+    float feet_y = tgt_y;
+    float H      = WORKER_DSP_REF;
 
     /* ── 1. Arcs électriques (coins) ── */
     {
         float bt = a->bg_timer;
-        unsigned char alf = (unsigned char)(45 + 30*sinf(bt*2.8f));
+        unsigned char alf = (unsigned char)(45 + 30 * sinf(bt * 2.8f));
         Color arc = {85, 165, 255, alf};
-        if ((int)(bt*1.9f)%3 != 0)
+        if ((int)(bt * 1.9f) % 3 != 0)
             draw_arc((Vector2){0, 0},
-                     (Vector2){75+16*sinf(bt*4.1f), 55+12*cosf(bt*3.7f)},
+                     (Vector2){75 + 16 * sinf(bt * 4.1f), 55 + 12 * cosf(bt * 3.7f)},
                      9, arc, bt);
-        if ((int)(bt*2.3f)%3 != 1)
+        if ((int)(bt * 2.3f) % 3 != 1)
             draw_arc((Vector2){(float)vw, 0},
-                     (Vector2){(float)vw-82+16*cosf(bt*5.1f), 50+16*sinf(bt*4.3f)},
-                     9, arc, bt+1.7f);
-        if ((int)(bt*1.7f)%4 != 2)
+                     (Vector2){(float)vw - 82 + 16 * cosf(bt * 5.1f), 50 + 16 * sinf(bt * 4.3f)},
+                     9, arc, bt + 1.7f);
+        if ((int)(bt * 1.7f) % 4 != 2)
             draw_arc((Vector2){0, (float)vh},
-                     (Vector2){65+13*sinf(bt*3.3f), (float)vh-44-13*cosf(bt*4.9f)},
-                     9, arc, bt+3.4f);
-        if ((int)(bt*2.1f)%3 != 0)
+                     (Vector2){65 + 13 * sinf(bt * 3.3f), (float)vh - 44 - 13 * cosf(bt * 4.9f)},
+                     9, arc, bt + 3.4f);
+        if ((int)(bt * 2.1f) % 3 != 0)
             draw_arc((Vector2){(float)vw, (float)vh},
-                     (Vector2){(float)vw-70+20*cosf(bt*3.6f), (float)vh-52+17*sinf(bt*5.2f)},
-                     9, arc, bt+5.1f);
+                     (Vector2){(float)vw - 70 + 20 * cosf(bt * 3.6f), (float)vh - 52 + 17 * sinf(bt * 5.2f)},
+                     9, arc, bt + 5.1f);
     }
 
     /* ── 2. Étincelles ── */
@@ -461,7 +472,7 @@ void menu_anim_render(const MenuAnimState *a, int vw, int vh)
         if (!p->active) continue;
         float fade = clampf(p->life / p->max_life, 0.f, 1.f);
         unsigned char alf = (unsigned char)(fade * 230.f);
-        float sz = 2.5f*fade + 0.5f;
+        float sz = 2.5f * fade + 0.5f;
         Color col = fade > 0.5f ? (Color){255, 190, 30, alf}
                                 : (Color){255, 100, 10, alf};
         DrawCircleV((Vector2){p->x, p->y}, sz, col);
@@ -474,49 +485,69 @@ void menu_anim_render(const MenuAnimState *a, int vw, int vh)
         draw_tower_planted(a->tex_tower, tgt_x, tgt_y, dw, dh, WHITE);
     }
 
-    /* ── 4. Ouvrier ── */
-    draw_worker(a->tex_worker, a->worker_frame,
-                a->worker_x, feet_y,
-                a->worker_flip, WHITE);
+    /* ── 4. Ouvrier PROCÉDURAL (pose selon la phase) ── */
+    {
+        float walk = 0.f, armsup = 1.f, crouch = 0.f, lean = 0.f, bob = 0.f;
+        switch (a->phase) {
+        case ANIM_PHASE_WALK_IN:
+            walk   = a->walk_cycle;
+            armsup = 1.f;                                     /* porte la tour */
+            bob    = fabsf(sinf(a->walk_cycle * 6.2832f)) * 2.0f;
+            break;
+        case ANIM_PHASE_SLAM: {
+            float t = clampf(a->timer / DUR_SLAM, 0.f, 1.f);
+            crouch  = ea_out_cubic(t);
+            armsup  = 1.f - t;                                /* bras plongent */
+            lean    = t * 0.10f * H;
+            break;
+        }
+        case ANIM_PHASE_TOWER_POP: {
+            float t = clampf(a->timer / DUR_TOWER_POP, 0.f, 1.f);
+            crouch  = (1.f - t) * 0.6f;
+            armsup  = 0.2f;
+            lean    = -3.f * (1.f - t);                       /* recul */
+            break;
+        }
+        case ANIM_PHASE_VICTORY:
+        case ANIM_PHASE_PAUSE:
+            armsup = 1.f;                                     /* bras en V */
+            bob    = sinf(a->bg_timer * 3.0f) * 2.5f;
+            break;
+        default: break;
+        }
+        draw_worker_proc(a->worker_x, feet_y, H, walk, armsup, crouch,
+                         lean, bob);
+    }
 
-    /* ── 5. Tour portée / en train d'être plantée ── */
+    /* ── 5. Tour portée / en cours de plantation ── */
     if (!a->tower_planted) {
-        /* Centre de la tour au-dessus de la tête de l'ouvrier */
         float carry_cx = a->worker_x;
         float carry_cy = feet_y - WORKER_DSP_REF - TOWER_CARRY_DH * 0.5f + 8.f;
 
         if (a->phase == ANIM_PHASE_WALK_IN) {
-            /* Tour horizontale (rotation=90°) portée au-dessus de la tête */
-            draw_tower_center(a->tex_tower,
-                              carry_cx, carry_cy,
-                              TOWER_CARRY_DW, TOWER_CARRY_DH,
-                              90.f, WHITE);
-
+            draw_tower_center(a->tex_tower, carry_cx, carry_cy,
+                              TOWER_CARRY_DW, TOWER_CARRY_DH, 90.f, WHITE);
         } else if (a->phase == ANIM_PHASE_SLAM) {
-            /* Tour pivote 90°→0° et tombe vers la cible */
             float st  = clampf(a->timer / DUR_SLAM, 0.f, 1.f);
             float rot = lerpf(90.f, 0.f, ease_in(st));
-
-            /* Position : du centre de portage vers mi-hauteur de la cible */
             float end_cy = tgt_y - TOWER_PLANT_DH * 0.5f;
-            float cur_cx = lerpf(carry_cx, tgt_x,   ease_in(st));
-            float cur_cy = lerpf(carry_cy, end_cy,   ease_in(st));
-
-            /* Taille : grandit de la petite taille à la taille finale */
+            float cur_cx = lerpf(carry_cx, tgt_x, ease_in(st));
+            float cur_cy = lerpf(carry_cy, end_cy, ease_in(st));
             float dw = lerpf(TOWER_CARRY_DW, TOWER_PLANT_DW, st);
             float dh = lerpf(TOWER_CARRY_DH, TOWER_PLANT_DH, st);
-
             draw_tower_center(a->tex_tower, cur_cx, cur_cy, dw, dh, rot, WHITE);
         }
     }
 
-    /* ── 6. Dust VFX ── */
-    if (a->dust_active && a->tex_dust.id && a->dust_frame < 5) {
-        Rectangle src = DUST_SRC[a->dust_frame];
-        float dh = 130.f;
-        float dw = (src.width / src.height) * dh;
-        DrawTexturePro(a->tex_dust, src,
-            (Rectangle){a->dust_x - dw*0.5f, a->dust_y - dh*0.91f, dw, dh},
-            (Vector2){0, 0}, 0.f, WHITE);
+    /* ── 6. Poussière PROCÉDURALE (puffs qui gonflent) ── */
+    for (int i = 0; i < DUST_PARTICLE_MAX; i++) {
+        const DustParticle *p = &a->dust[i];
+        if (!p->active) continue;
+        float t = clampf(p->life / p->max_life, 0.f, 1.f);   /* 1 → 0 */
+        float r = p->r0 * (1.5f - 0.5f * t);                  /* gonfle */
+        unsigned char alf = (unsigned char)(t * 150.f);
+        DrawCircleV((Vector2){p->x, p->y}, r, (Color){200, 170, 120, alf});
+        DrawCircleV((Vector2){p->x, p->y}, r * 0.6f,
+                    (Color){225, 200, 155, (unsigned char)(alf * 0.7f)});
     }
 }

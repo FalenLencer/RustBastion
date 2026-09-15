@@ -16,6 +16,7 @@
 
 #include "hud_internal.h"
 #include "ui_anim.h"                 // horloge + hover animés de l'UI
+#include "ui_palette.h"              // palette UI (source unique)
 #include "../game/campaign_data.h"   // campaign_difficulty_stage (aperçu de vague)
 
 // ════════════════════════════════════════════════════
@@ -158,12 +159,15 @@ static void draw_tool_btn(const Rectangle *r, ToolID id,
              can_afford ? (Color){200, 185, 160, 255}
                         : (Color){75, 58, 38, 255});
 
-    // Coût
+    // Coût : icône or + nombre (centrés ensemble)
     char cost_buf[20];
-    snprintf(cost_buf, sizeof(cost_buf), "%d or", info->cost);
-    int cw = mtxt(cost_buf, name_fs);
-    dtxt(cost_buf,
-             (int)(r->x + r->width/2 - cw/2),
+    snprintf(cost_buf, sizeof(cost_buf), "%d", info->cost);
+    int ic = fh(name_fs) - 4;
+    int cw = ic + 3 + mtxt(cost_buf, name_fs);
+    int cx0 = (int)(r->x + r->width/2 - cw/2);
+    draw_icon(g_icon_gold, cx0, cost_y + 2, ic,
+              can_afford ? WHITE : (Color){140, 110, 80, 255});
+    dtxt(cost_buf, cx0 + ic + 3,
              cost_y, name_fs,
              can_afford ? (Color){230, 150, 32, 255}
                         : (Color){130, 55, 35, 255});
@@ -376,8 +380,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
         // Thème
         {
             char tbuf[26];
-            clip_text(th->name, UI_LEFT_PANEL_W - M * 2, 9, tbuf, sizeof(tbuf));
-            dtxt(tbuf, px, py, 9, (Color){48, 82, 48, 255});
+            clip_text(th->name, UI_LEFT_PANEL_W - M * 2, 10, tbuf, sizeof(tbuf));
+            dtxt(tbuf, px, py, 10, (Color){48, 82, 48, 255});
             py += 12;
         }
 
@@ -388,13 +392,18 @@ void ui_render(const UIState *ui, const GameState *gs) {
         }
 
         // ── Achats de slots supplémentaires (bas du panneau gauche) ──
-        {
+        // P1.2 : caches en debut de partie (predicat partage avec l'input) ;
+        // a la place, un rappel discret de l'aide pour les nouveaux joueurs.
+        if (!hud_show_slot_buys(gs)) {
+            dtxt("[H] commandes", px, HUD_Y + HUD_H - 44, 10,
+                     (Color){72, 58, 38, 190});
+        } else {
             const int bw = UI_LEFT_PANEL_W - M * 2 - 4;
 
             /* Séparateur + titre */
             draw_sep(px, HUD_Y + HUD_H - 59, bw,
                      (Color){40, 25, 6, 110});
-            dtxt("SLOTS", px, HUD_Y + HUD_H - 75, 9,
+            dtxt("SLOTS", px, HUD_Y + HUD_H - 75, 10,
                      (Color){72, 58, 38, 180});
 
             const char *slot_labels[2];
@@ -468,8 +477,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
         int row1y = (int)ui->tool_btns[TOOL_TOWER_GUN].y;
         int row2y = (int)ui->tool_btns[TOOL_UNIT_SOLDIER].y;
 
-        dtxt("TOURS",  lx, row1y - 15, 9, (Color){100, 70, 22, 255});
-        dtxt("UNITES", lx, row2y - 15, 9, (Color){38, 100, 38, 255});
+        dtxt("TOURS",  lx, row1y - 17, 10, (Color){100, 70, 22, 255});
+        dtxt("UNITES", lx, row2y - 17, 10, (Color){38, 100, 38, 255});
 
         for (int i = 0; i < TOOL_COUNT; i++) {
             int locked     = !tool_is_unlocked((ToolID)i, gs);
@@ -496,7 +505,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
     if (!gs->wave_manager.lock_manual) {
         const Rectangle *wb = &ui->wave_btn;
         int   in_prep = (gs->phase == PHASE_PREP);
-        float ratio   = gs->wave_manager.prep_timer / 20.0f;
+        float ratio   = gs->wave_manager.prep_timer / PREP_TIME;
         if (ratio < 0.0f) ratio = 0.0f;
         if (ratio > 1.0f) ratio = 1.0f;
 
@@ -540,9 +549,9 @@ void ui_render(const UIState *ui, const GameState *gs) {
                                         (Color){30, 30, 30, 255});
         }
 
-        Color tcol = ratio > 0.5f ? (Color){46,204,113,255}
-                   : ratio > 0.2f ? (Color){243,156,18,255}
-                                  : (Color){231,76,60,255};
+        Color tcol = ratio > 0.5f ? UI_SUCCESS
+                   : ratio > 0.2f ? UI_WARN
+                                  : UI_DANGER;
         draw_bar((int)wb->x + GAP,
                  (int)wb->y + (int)wb->height - 12,
                  (int)wb->width - GAP*2, 5,
@@ -556,15 +565,19 @@ void ui_render(const UIState *ui, const GameState *gs) {
             int lfs = 13 + (int)(whk + 0.5f);   // 13 → 14 px au survol
             dtxt(l1, wx - mtxt(l1,lfs)/2, (int)wb->y + M, lfs, wlbl);
 
+            /* Bonus de lancement anticipé : icône or + nombre */
             char b2[14];
-            snprintf(b2, sizeof(b2), "+%d or", (int)(ratio*15.0f));
-            dtxt(b2, wx - mtxt(b2,10)/2, (int)wb->y+27, 10,
+            snprintf(b2, sizeof(b2), "+%d", (int)(ratio*15.0f));
+            int ic2 = fh(10) - 4;
+            int b2w = ic2 + 3 + mtxt(b2, 10);
+            draw_icon(g_icon_gold, wx - b2w/2, (int)wb->y+29, ic2, WHITE);
+            dtxt(b2, wx - b2w/2 + ic2 + 3, (int)wb->y+27, 10,
                      (Color){225,145,28,255});
 
             char b3[10];
             snprintf(b3, sizeof(b3), "%.0fs", gs->wave_manager.prep_timer);
             dtxt(b3, wx - mtxt(b3,10)/2, (int)wb->y+40, 10,
-                     (Color){82,65,40,255});
+                     UI_BORDER);
         } else {
             const char *l1 = "EN COURS";
             dtxt(l1, wx - mtxt(l1,11)/2,
@@ -592,7 +605,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
                 const int ic = 22, ig = 4, ip = 7;
                 const char *hdr = "PROCHAINE VAGUE";
-                int hw     = mtxt(hdr, 8);
+                int hw     = mtxt(hdr, 10);
                 int stripw = npv*ic + (npv-1)*ig;
                 int pw     = (stripw > hw ? stripw : hw) + ip*2;
                 int ph     = ic + 16 + ip;
@@ -604,7 +617,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 DrawRectangleRoundedLinesEx((Rectangle){(float)ppx,(float)ppy,(float)pw,(float)ph},
                                             0.16f, 5, 1.2f,
                                             (Color){70, 48, 16, (unsigned char)(210.0f * pk)});
-                dtxt(hdr, ppx + pw/2 - hw/2, ppy + 4, 8,
+                dtxt(hdr, ppx + pw/2 - hw/2, ppy + 4, 10,
                      (Color){150, 120, 70, (unsigned char)(255.0f * pk)});
                 int ix = ppx + (pw - stripw)/2, iy = ppy + 15;
                 for (int k = 0; k < npv; k++) {
@@ -728,8 +741,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
             py += 7;
 
             // Stats — 2 colonnes (fs=13)
-            Color sc   = (Color){148,128,95,255};
-            Color nlc  = (Color){212,138,25,255};
+            Color sc   = UI_TEXT_DIM;
+            Color nlc  = UI_ACCENT_DIM;
             Color typc = (Color){82,155,200,255};
             Color matc = (Color){62,172,192,255};
             int   cx2  = rx + max_w / 2;
@@ -761,7 +774,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     : (tw->dmg_type == DMG_POISON)
                     ? "Synergie: corrode -> +25% phys/feu"
                     : "Frappe + fort gele / corrode";
-                clip_text(syn, max_w, 9, buf, sizeof(buf));
+                clip_text(syn, max_w, 10, buf, sizeof(buf));
                 ptxt(buf, rx, py, 9, (Color){120, 200, 140, 230});
                 py += 14;
             }
@@ -926,14 +939,24 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     int bw2 = mtxt(buf, 11);
                     dtxt(buf, (int)(ab.x + ab.width/2 - bw2/2),
                              (int)(ab.y + ab.height/2 - 7),
-                             11, (Color){62,175,200,255});
+                             11, UI_INFO);
                 } else {
                     clip_text(TextFormat("+ Appliquer  %s", MATERIAL_NAMES[mat]),
                               max_w - M, 13, buf, sizeof(buf));
                     int bw2 = mtxt(buf, 13);
                     dtxt(buf, (int)(ab.x + ab.width/2 - bw2/2),
                              (int)(ab.y + ab.height/2 - 7),
-                             13, (Color){62,175,200,255});
+                             13, UI_INFO);
+                }
+
+                /* P0.3 — Conseil de contre au moment de CHOISIR le
+                   matériau (ligne au-dessus du bouton APPLIQUER). */
+                char adv[80];
+                if (hud_counter_advice(gs, adv, sizeof(adv))) {
+                    char advc[80];
+                    clip_text(adv, max_w, 10, advc, sizeof(advc));
+                    dtxt(advc, (int)ab.x,
+                         (int)(ab.y - fh(10) - 2), 10, UI_INFO);
                 }
             }
 
@@ -950,7 +973,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 {243,156,18,255},{200,200,50,255}
             };
             Color ucol = (u->type < UNIT_TYPE_COUNT)
-                       ? UCOLS[u->type] : (Color){148,128,95,255};
+                       ? UCOLS[u->type] : UI_TEXT_DIM;
             const char *uname = (u->type < UNIT_TYPE_COUNT)
                               ? UNAMES[u->type] : "UNITE";
 
@@ -959,9 +982,9 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
             // HP bar — la barre « coule » vers la vraie valeur (2.5×/s)
             float hr = u->max_hp > 0.0f ? u->hp / u->max_hp : 0.0f;
-            Color hc = hr > 0.6f ? (Color){46,204,113,255}
-                     : hr > 0.3f ? (Color){243,156,18,255}
-                                 : (Color){231,76,60,255};
+            Color hc = hr > 0.6f ? UI_SUCCESS
+                     : hr > 0.3f ? UI_WARN
+                                 : UI_DANGER;
             static float disp_hr = 0.0f;
             if (hp_snap) { disp_hr = hr; hp_snap = 0; }
             disp_hr += (hr - disp_hr) * fminf(1.0f, ui_dt() * 2.5f);
@@ -974,12 +997,14 @@ void ui_render(const UIState *ui, const GameState *gs) {
             if (u->type == UNIT_WORKER) {
                 const char *ss;
                 switch (u->state) {
-                    case USTATE_GOTO_DEPOSIT: ss = "-> Depot";    break;
-                    case USTATE_COLLECT:      ss = "Collecte..."; break;
-                    case USTATE_GOTO_BASE:    ss = "<- Base";     break;
-                    default:                  ss = "En attente";  break;
+                    case USTATE_GOTO_DEPOSIT: ss = "-> Depot";     break;
+                    case USTATE_COLLECT:      ss = "Collecte...";  break;
+                    case USTATE_GOTO_BASE:    ss = "<- Base";      break;
+                    case USTATE_GOTO_CLEAR:   ss = "-> Obstacle";  break;
+                    case USTATE_CLEARING:     ss = "Deblaiement..."; break;
+                    default:                  ss = "En attente";   break;
                 }
-                ptxt(ss, rx, py, 13, (Color){148,128,95,255}); py += 17;
+                ptxt(ss, rx, py, 13, UI_TEXT_DIM); py += 17;
                 if (!gs->units.mining_enabled)
                     ptxt("Minage : pause vague", rx, py, 11,
                          (Color){200,180,50,200});
@@ -1013,11 +1038,17 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
             if (u->has_material && u->carried_mat != MAT_NONE) {
                 ptxt(TextFormat("Porte  %s", MATERIAL_NAMES[u->carried_mat]),
-                         rx, py, 13, (Color){62,175,200,255}); py += 17;
+                         rx, py, 13, UI_INFO); py += 17;
             }
 
-            if (u->type == UNIT_WORKER)
+            if (u->type == UNIT_WORKER) {
                 ptxt("Clic depot = mission", rx, py, 11, (Color){92,92,35,175});
+                py += 15;
+                char _cb[48];
+                snprintf(_cb, sizeof(_cb), "Clic ruine = deblayer (%d or)",
+                         UNIT_WORKER_CLEAR_COST);
+                ptxt(_cb, rx, py, 11, (Color){92,92,35,175});
+            }
 
             // ── Boutons de comportement (unités de combat seulement) ──
             if (u->type != UNIT_WORKER) {
@@ -1032,14 +1063,14 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     int _hov    = CheckCollisionPointRec(_vm4, *_br);
                     Color _bg   = _active ? (Color){20,12,4,240}
                                 : _hov   ? (Color){14,8,2,220}
-                                         : (Color){8,5,2,200};
+                                         : UI_PANEL_BG_SOFT;
                     Color _brd  = _active ? BCOL[_b] : _hov
                                 ? (Color){BCOL[_b].r/2,BCOL[_b].g/2,BCOL[_b].b/2,200}
                                 : (Color){50,38,14,150};
                     DrawRectangleRounded(*_br, 0.20f, 4, _bg);
                     DrawRectangleRoundedLinesEx(*_br, 0.20f, 4,
                         _active ? 2.0f : 1.0f, pal_c(_brd));
-                    int _tw4 = mtxt(BLBL[_b], 8);
+                    int _tw4 = mtxt(BLBL[_b], 10);
                     dtxt(BLBL[_b],
                          (int)(_br->x + _br->width/2 - _tw4/2),
                          (int)(_br->y + _br->height/2 - 5),
@@ -1053,7 +1084,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     Color _sc5  = {231, 76, 60, 255};
                     Color _bg5  = _act5 ? (Color){20,12,4,240}
                                 : _hov5 ? (Color){14,8,2,220}
-                                        : (Color){8,5,2,200};
+                                        : UI_PANEL_BG_SOFT;
                     Color _brd5 = _act5 ? _sc5
                                 : _hov5 ? (Color){_sc5.r/2,_sc5.g/2,_sc5.b/2,200}
                                         : (Color){50,38,14,150};
@@ -1061,7 +1092,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     DrawRectangleRoundedLinesEx(*_br5, 0.20f, 4,
                         _act5 ? 2.0f : 1.0f, pal_c(_brd5));
                     const char *_lbl5 = "SUIVRE UNITE";
-                    int _tw5 = mtxt(_lbl5, 8);
+                    int _tw5 = mtxt(_lbl5, 10);
                     dtxt(_lbl5,
                          (int)(_br5->x + _br5->width/2 - _tw5/2),
                          (int)(_br5->y + _br5->height/2 - 5),
@@ -1079,7 +1110,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     hov ? (Color){30,10,4,255} : (Color){14,4,2,255});
                 DrawRectangleRoundedLinesEx(ub, urnd, 6, 1.5f,
                     pal_c(hov ? (Color){192,80,48,255} : (Color){80,30,16,255}));
-                int refund = (int)(UNIT_BASE_STATS[u->type].cost * 0.5f);
+                int refund = (int)(UNIT_BASE_STATS[u->type].cost * UNIT_SELL_REFUND);
                 snprintf(buf, sizeof(buf), "Renvoyer  +%d or", refund);
                 int bw = mtxt(buf, 13);
                 dtxt(buf, (int)(ub.x + ub.width/2 - bw/2),
@@ -1106,7 +1137,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
             py += 7;
 
             // Stats 2 colonnes (fs=13)
-            Color sc2 = (Color){148,128,95,255};
+            Color sc2 = UI_TEXT_DIM;
             int   cx2 = rx + max_w / 2;
 
             ptxt(TextFormat("Dmg   %.0f",  info->dmg),
@@ -1130,15 +1161,15 @@ void ui_render(const UIState *ui, const GameState *gs) {
                              rx, py, 13, (Color){205,108,22,255}); py += 17;
                 } else {
                     ptxt(TextFormat("Cout  %d or", real_cost),
-                             rx, py, 13, (Color){212,138,25,255}); py += 17;
+                             rx, py, 13, UI_ACCENT_DIM); py += 17;
                 }
             } else {
                 ptxt(TextFormat("Cout  %d or", info->cost),
-                         rx, py, 13, (Color){212,138,25,255}); py += 17;
+                         rx, py, 13, UI_ACCENT_DIM); py += 17;
             }
             py += 3;
             clip_text(info->desc, max_w, 12, buf, sizeof(buf));
-            ptxt(buf, rx, py, 12, (Color){82,65,40,255});
+            ptxt(buf, rx, py, 12, UI_BORDER);
 
         } else {
             panel_right_empty:
@@ -1237,9 +1268,9 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 float _pp = (sinf(_tp * 5.0f) + 1.0f) * 0.5f;
                 Color lc;
                 if (gs->lives > 40) {
-                    lc = (Color){46, 204, 113, 255};
+                    lc = UI_SUCCESS;
                 } else if (gs->lives > 15) {
-                    lc = (Color){243, 156, 18, 255};
+                    lc = UI_WARN;
                 } else {
                     unsigned char _lcr = (unsigned char)(160 + (int)(71.0f * _pp));
                     unsigned char _lcg = (unsigned char)(30  + (int)(46.0f * _pp));
@@ -1280,7 +1311,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
             // Tours
             {
                 Color tc = gs->towers.tower_count >= gs->towers.tower_limit
-                    ? (Color){231, 76, 60, 255} : (Color){148, 128, 95, 255};
+                    ? UI_DANGER : UI_TEXT_DIM;
                 dtxt(TextFormat("Tours  %d / %d",
                              gs->towers.tower_count, gs->towers.tower_limit),
                          tx, ty, 10, tc);
@@ -1290,7 +1321,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
             // Unités
             {
                 Color uc = gs->units.count >= gs->units.unit_limit
-                    ? (Color){231, 76, 60, 255} : (Color){148, 128, 95, 255};
+                    ? UI_DANGER : UI_TEXT_DIM;
                 dtxt(TextFormat("Unites %d / %d",
                              gs->units.count, gs->units.unit_limit),
                          tx, ty, 10, uc);
@@ -1316,7 +1347,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
             int dragging_tr = (ui->dragging_overlay == 1);
             draw_overlay_frame(ox, oy, ow, oh, dragging_tr,
-                               (Color){231, 76, 60, 255});    // accent rouge = menace
+                               UI_DANGER);    // accent rouge = menace
 
             int tx = ox + OV_P, ty = oy + OV_P + 4;
             int inner_w = ow - OV_P * 2;
@@ -1377,7 +1408,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
             // Kills
             dtxt(TextFormat("Kills  %d", gs->kills),
-                     tx, ty, 10, (Color){148, 128, 95, 255});
+                     tx, ty, 10, UI_TEXT_DIM);
             ty += 14 + 3;
 
             // Ennemis restants
@@ -1395,8 +1426,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     prog = 1.0f - (float)total_left
                                 / (float)gs->wave_manager.total_to_spawn;
                 prog = prog < 0.0f ? 0.0f : prog > 1.0f ? 1.0f : prog;
-                Color pc = prog > 0.7f ? (Color){46, 204, 113, 255}
-                         : prog > 0.3f ? (Color){243, 156,  18, 255}
+                Color pc = prog > 0.7f ? UI_SUCCESS
+                         : prog > 0.3f ? UI_WARN
                                        : (Color){218,  90,  70, 255};
                 draw_bar(tx, ty, inner_w, 7,
                          in_wave ? prog : 0.0f,
@@ -1430,16 +1461,18 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 DrawRectangleRoundedLinesEx(sbr, 0.3f, 4, bhov ? 1.5f : 1.0f, bbrd);
                 // Affiche la prochaine vitesse pour indiquer l'effet du clic
                 const char *nxt = sl[ui->speed_mult % 3];
-                int nw = mtxt(nxt, 9);
+                int nw = mtxt(nxt, 10);
                 dtxt(nxt, (int)sbr.x + bw/2 - nw/2,
-                     (int)sbr.y + bh/2 - fh(9)/2, 9,
+                     (int)sbr.y + bh/2 - fh(10)/2, 10,
                      bhov ? sc[ui->speed_mult % 3] : (Color){120, 90, 45, 220});
             }
         }
     }
 
         // ── Bas-gauche : HP des bases + réparation ─────────────
-        if (ui->overlay_bl_pos.x >= 0.0f) {
+        // P1.2 : masque tant qu'inutile (1 base intacte) — meme predicat
+        // que l'input, aucune hitbox fantome.
+        if (ui->overlay_bl_pos.x >= 0.0f && hud_show_bases_panel(gs)) {
             int  _bh = overlay_bl_h(gs);
             const int _ow = OVERLAY_BL_W;
             const int _ox = (int)ui->overlay_bl_pos.x;
@@ -1551,7 +1584,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     float bpx = gs->map.bases[b].pos.x * TILE_SIZE + TILE_SIZE/2.0f;
                     float bpy = gs->map.bases[b].pos.y * TILE_SIZE + TILE_SIZE/2.0f;
                     DrawCircleLines((int)bpx, (int)bpy,
-                                    5.0f * TILE_SIZE,
+                                    UNIT_DEPLOY_RADIUS_TILES * TILE_SIZE,
                                     (Color){39, 174, 96, 100});
                 }
             }
@@ -1569,6 +1602,29 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 DrawCircleLines(cx, cy, TILE_SIZE/2 + 3,
                     (Color){192,192,42,
                             (unsigned char)(95 + (int)(pulse*100))});
+            }
+            /* Obstacle survolé : cadre ambre + coût. Rend le déblaiement
+               DÉCOUVRABLE — sans ce repère, rien n'indique qu'une ruine
+               est autre chose qu'un décor définitif. */
+            if (ui->hovered_tile_x >= 0 && ui->hovered_tile_y >= 0 &&
+                unit_tile_clearable(&gs->map, &gs->towers,
+                                    ui->hovered_tile_x,
+                                    ui->hovered_tile_y)) {
+                int hx = ui->hovered_tile_x * TILE_SIZE;
+                int hy = ui->hovered_tile_y * TILE_SIZE;
+                int afford = (gs->gold >= UNIT_WORKER_CLEAR_COST);
+                Color oc = afford ? (Color){225, 165, 70, 235}
+                                  : (Color){150, 100, 60, 190};
+                DrawRectangle(hx, hy, TILE_SIZE, TILE_SIZE,
+                              (Color){oc.r, oc.g, oc.b, 45});
+                DrawRectangleLinesEx(
+                    (Rectangle){(float)hx, (float)hy,
+                                (float)TILE_SIZE, (float)TILE_SIZE},
+                    2.0f, oc);
+                char lb[24];
+                snprintf(lb, sizeof(lb), "%d or", UNIT_WORKER_CLEAR_COST);
+                int lw = mtxt(lb, 10);
+                dtxt_o(lb, hx + TILE_SIZE/2 - lw/2, hy - fh(10) - 2, 10, oc);
             }
         }
 
@@ -1699,7 +1755,15 @@ void ui_render(const UIState *ui, const GameState *gs) {
             }
 
             int ph  = fh(FS) + 8;
+            /* BORNE DE LARGEUR : `total` croît avec le nombre de perks
+               possédés (jusqu'à PERK_COUNT). Sans plafond, un build de fin
+               de campagne dépasse la largeur du canvas et le ruban déborde
+               des DEUX côtés (px0 devient négatif). On borne le ruban et on
+               résume le surplus par un « +N ». */
+            const int RIB_MAX_W = g_canvas_virt_w_base - 40;
             int pw  = total + PAD*2;
+            int truncated = 0;
+            if (pw > RIB_MAX_W) { pw = RIB_MAX_W; truncated = 1; }
             int px0 = g_map_x_off + g_canvas_virt_w_base/2 - pw/2;
             int py0 = 6;
 
@@ -1713,10 +1777,16 @@ void ui_render(const UIState *ui, const GameState *gs) {
             dtxt(rbuf, x, ty, FS, (Color){232, 200, 80, 255});
             x += mtxt(rbuf, FS) + GAP;
 
+            /* Réserve de quoi écrire « +N » si tout ne rentre pas. */
+            int x_end = px0 + pw - PAD;
+            int drawn = 0;
             for (int k = 0; k < nt; k++) {
                 int id = ids[k];
                 RunColor rc = runperk_rarity_color(RUN_PERKS[id].rarity);
                 int tw = mtxt(tags[k], FS);
+                int need = tw + CHIP*2 + GAP;
+                int reserve = (truncated && k < nt - 1) ? mtxt("+99", FS) + GAP : 0;
+                if (x + need + reserve > x_end) break;
                 // Puce colorée selon la rareté
                 DrawRectangleRounded(
                     (Rectangle){(float)(x - CHIP), (float)(py0+2),
@@ -1724,8 +1794,67 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     0.5f, 4,
                     (Color){(unsigned char)(rc.r/5),(unsigned char)(rc.g/5),(unsigned char)(rc.b/5),230});
                 dtxt(tags[k], x, ty, FS, (Color){rc.r, rc.g, rc.b, 255});
-                x += tw + CHIP*2 + GAP;
+                x += need;
+                drawn++;
             }
+            if (drawn < nt) {
+                char more[8];
+                snprintf(more, sizeof(more), "+%d", nt - drawn);
+                dtxt(more, x, ty, FS, (Color){168, 148, 102, 235});
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════
+    // BANDEAU DE FIN DE VAGUE (P1.1)
+    // ════════════════════════════════════════════════
+    if (ui->wave_banner_t > 0.0f) {
+        /* Fondu : entree 0.35 s, sortie 0.5 s ; leger glissement vers le haut */
+        float el  = WAVE_BANNER_TIME - ui->wave_banner_t;      /* temps ecoule */
+        float a   = 1.0f;
+        if (el < 0.35f)                 a = el / 0.35f;
+        if (ui->wave_banner_t < 0.5f)   a = ui->wave_banner_t / 0.5f;
+        int   cx  = g_map_x_off + g_canvas_virt_w_base / 2;
+        int   by  = 46 - (int)(el * 3.0f);                     /* derive douce */
+        if (by < 38) by = 38;
+
+        char l1[48], l2[64], l3[80];
+        snprintf(l1, sizeof(l1), "VAGUE %d REPOUSSEE !", ui->wave_banner_wave);
+        snprintf(l2, sizeof(l2), "%d ennemi%s detruit%s    +%d",
+                 ui->wave_banner_kills,
+                 ui->wave_banner_kills > 1 ? "s" : "",
+                 ui->wave_banner_kills > 1 ? "s" : "",
+                 ui->wave_banner_gold);
+        int has_adv = hud_counter_advice(gs, l3, (int)sizeof(l3));
+
+        int w1 = mtxt(l1, 20), w2 = mtxt(l2, 12) + fh(12) + 2;
+        int w3 = has_adv ? mtxt(l3, 10) : 0;
+        int pw = w1; if (w2 > pw) pw = w2; if (w3 > pw) pw = w3;
+        pw += 36;
+        int ph = 8 + fh(20) + 4 + fh(12) + (has_adv ? 3 + fh(10) : 0) + 8;
+
+        Color bg = UI_PANEL_BG_SOFT;  bg.a = (unsigned char)(bg.a * a);
+        Color bd = UI_ACCENT;         bd.a = (unsigned char)(200 * a);
+        DrawRectangleRounded(
+            (Rectangle){(float)(cx - pw/2), (float)by, (float)pw, (float)ph},
+            0.25f, 6, bg);
+        DrawRectangleRoundedLinesEx(
+            (Rectangle){(float)(cx - pw/2), (float)by, (float)pw, (float)ph},
+            0.25f, 6, 1.4f, bd);
+
+        int ty2 = by + 8;
+        Color c1 = UI_ACCENT; c1.a = (unsigned char)(255 * a);
+        dtxt(l1, cx - w1/2, ty2, 20, c1);
+        ty2 += fh(20) + 4;
+        Color c2 = UI_TEXT;   c2.a = (unsigned char)(235 * a);
+        int lx = cx - w2/2;
+        dtxt(l2, lx, ty2, 12, c2);
+        Color gt = WHITE;     gt.a = (unsigned char)(235 * a);
+        draw_icon(g_icon_gold, lx + mtxt(l2, 12) + 2, ty2, fh(12), gt);
+        ty2 += fh(12) + 3;
+        if (has_adv) {
+            Color c3 = UI_INFO; c3.a = (unsigned char)(220 * a);
+            dtxt(l3, cx - w3/2, ty2, 10, c3);
         }
     }
 
@@ -1774,7 +1903,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
         Color border = locked ? (Color){80, 55, 20, 200} : TOOL_COLORS[ui->hovered_tool];
         DrawRectangleRounded(
             (Rectangle){(float)tx,(float)ty,(float)TW,(float)TH},
-            trnd, 6, (Color){10, 6, 2, 252});
+            trnd, 6, UI_PANEL_BG);
         DrawRectangleRoundedLinesEx(
             (Rectangle){(float)tx,(float)ty,(float)TW,(float)TH},
             trnd, 6, 1.5f, border);
@@ -1789,7 +1918,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
             const char *when = TOWER_UNLOCK_ACT_NAME[tt];
             clip_text(TextFormat("Deblocage : %s", when ? when : "?"),
                       TW-M*2, 9, dbuf, sizeof(dbuf));
-            dtxt(dbuf, tx+M, ty+30, 9, (Color){130, 95, 40, 255});
+            dtxt(dbuf, tx+M, ty+30, 10, (Color){130, 95, 40, 255});
         } else {
             clip_text(TextFormat("Dmg:%.0f  Port:%.1ft", info->dmg, info->range),
                       TW-M*2, 10, dbuf, sizeof(dbuf));
@@ -1797,8 +1926,8 @@ void ui_render(const UIState *ui, const GameState *gs) {
             clip_text(TextFormat("Cad:%.1f/s  Cout:%d or", info->rate, info->cost),
                       TW-M*2, 10, dbuf, sizeof(dbuf));
             dtxt(dbuf, tx+M, ty+35, 10, (Color){145,125,92,255});
-            clip_text(info->desc, TW-M*2, 9, dbuf, sizeof(dbuf));
-            dtxt(dbuf, tx+M, ty+49, 9, (Color){82,65,40,255});
+            clip_text(info->desc, TW-M*2, 10, dbuf, sizeof(dbuf));
+            dtxt(dbuf, tx+M, ty+49, 10, UI_BORDER);
 
             int at_tower_limit = ui_tool_is_tower((ToolID)ui->hovered_tool) &&
                                  gs->towers.tower_count >= gs->towers.tower_limit;
@@ -1806,8 +1935,20 @@ void ui_render(const UIState *ui, const GameState *gs) {
                                  gs->units.count >= gs->units.unit_limit;
             if (at_tower_limit || at_unit_limit) {
                 dtxt(TextFormat("LIMITE (%d bases)", gs->map.base_count),
-                         tx + M, ty + TH - 14, 9,
-                         (Color){231, 76, 60, 255});
+                         tx + M, ty + TH - 17, 10,
+                         UI_DANGER);
+            }
+
+            /* P0.3 — Conseil de contre sous le tooltip (tours only) :
+               « quelle tour pour la vague qui vient ? » */
+            if (ui_tool_is_tower((ToolID)ui->hovered_tool)) {
+                char adv[80];
+                if (hud_counter_advice(gs, adv, sizeof(adv))) {
+                    int aw = mtxt(adv, 10);
+                    DrawRectangle(tx, ty + TH + 2, aw + M * 2, fh(10) + 6,
+                                  UI_PANEL_BG_SOFT);
+                    dtxt(adv, tx + M, ty + TH + 5, 10, UI_INFO);
+                }
             }
         }
     }
@@ -1819,9 +1960,9 @@ void ui_render(const UIState *ui, const GameState *gs) {
         int fps = GetFPS();
         char fb[14];
         snprintf(fb, sizeof(fb), "%d FPS", fps);
-        Color fc = fps >= 150 ? (Color){46,204,113,255}
-                 : fps >= 60  ? (Color){243,156,18,255}
-                              : (Color){231,76,60,255};
+        Color fc = fps >= 150 ? UI_SUCCESS
+                 : fps >= 60  ? UI_WARN
+                              : UI_DANGER;
         int fw = mtxt(fb, 11);
         dtxt(fb, VIRT_W - 4 - fw,
              HUD_Y + UI_HUD_HEIGHT - 4 - fh(11), 11, fc);
@@ -1898,7 +2039,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
             de->type == DISC_ENEMY    ? "ENNEMI"  :
             de->type == DISC_TOWER    ? "TOUR"    :
             de->type == DISC_MATERIAL ? "MINERAI" : "UNITE";
-        int cl = mtxt(cat_lbl, 9);
+        int cl = mtxt(cat_lbl, 10);
         int badge_w = cl + 12, badge_h = 18;
         int bx = card_x + 12, by = card_y + hdr_h/2 - badge_h/2;
         /* Badge : « tamponne » à 0.30 s (scale 1.6 → 1.0, ea_out_back) */
@@ -1913,7 +2054,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 DrawRectangleRounded(
                     (Rectangle){bcx - bw2/2.0f, bcy - bh2/2.0f, bw2, bh2},
                     0.4f, 4, (Color){cat_col.r, cat_col.g, cat_col.b, ba});
-                dtxt(cat_lbl, bx + 6, by + badge_h/2 - fh(9)/2, 9,
+                dtxt(cat_lbl, bx + 6, by + badge_h/2 - fh(10)/2, 10,
                      (Color){8,5,2,ba});
             }
         }
@@ -2034,7 +2175,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                                         "Unite alliee";
         disc_txt(sub, txt_x, txt_y, 9, (Color){100,85,60,220},
                  dt_open, DISC_TXT_T0 + DISC_TXT_STEP);
-        txt_y += fh(9) + 8;
+        txt_y += fh(10) + 8;
 
         // Séparateur (fondu avec les lignes voisines)
         {
@@ -2136,7 +2277,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
             float kl = (dt_open - (DISC_TXT_T0 + 5*DISC_TXT_STEP)) / DISC_LINE_DUR;
             kl = kl < 0.0f ? 0.0f : kl > 1.0f ? 1.0f : kl;
             if (kl > 0.0f)
-                draw_wrapped(lore, fx, &desc_y, fw, 9,
+                draw_wrapped(lore, fx, &desc_y, fw, 10,
                              (Color){145,130,95,(unsigned char)(200.0f*kl)},
                              y_lim);
         }
@@ -2157,7 +2298,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
             snprintf(qbuf, sizeof(qbuf), "+%d en attente", ui->disc_count - 1);
             int qw = mtxt(qbuf, qfs);
             dtxt(qbuf, card_x + cw - pad - qw,
-                 card_y + ch - 14 - 34 - 4 - fh(9), qfs,
+                 card_y + ch - 14 - 34 - 4 - fh(10), qfs,
                  (Color){100,85,60,200});
         }
 

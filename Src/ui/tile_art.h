@@ -22,10 +22,31 @@
 #include "../map/map_gen.h"
 #include "../map/theme.h"
 
-// Dessine le fond pixel-art d'une tuile (sol / ruine / eau animée).
-// Les tuiles PATH/SPAWN/BASE reçoivent un fond de sol ; leurs décors
-// (routes, portails, bunkers) sont dessinés ensuite par-dessus.
-void tile_art_draw_tile_bg(const Map *map, int tx, int ty);
+struct TowerPool;
+
+// Avance l'horloge d'animation du module (eau). À appeler UNE fois par
+// frame (début de render_map) avec GetFrameTime() — convention projet :
+// jamais GetTime() pour la logique.
+void tile_art_tick(float dt);
+
+// Dessine le fond pixel-art d'une tuile (sol / ruine / eau animée),
+// puis ses franges de transition (rive dentelée contre l'eau, éboulis
+// le long d'une ruine voisine). Les tuiles PATH/SPAWN/BASE reçoivent
+// un fond de sol ; routes/portails/bunkers dessinés ensuite par-dessus.
+//   cleared : 1 = une tour occupe la tuile → le décor de RUINE est
+//   DÉBLAYÉ (sol nu constructible), comme en 3D (sinon la ruine reste
+//   visible sous la tour).
+void tile_art_draw_tile_bg(const Map *map, int tx, int ty, int cleared);
+
+// Franges de transition d'UNE tuile (rive dentelée contre l'eau,
+// éboulis le long d'une ruine voisine) — appelé par tile_art_draw_tile_bg
+// (implémentation dans tile_art_decor.c).
+void tile_art_draw_fringes(const Map *map, int tx, int ty);
+
+// Ombres portées courtes vers le SUD-EST (lumière NO) des ruines/
+// gratte-ciels et des tours. À appeler APRÈS tile_art_draw_paths
+// (l'ombre tombe sur les routes) et AVANT bases/minerais/tours.
+void tile_art_draw_shadows(const Map *map, const struct TowerPool *tp);
 
 // Dessine toutes les tuiles de chemin de la carte, avec raccordement
 // automatique aux voisins (route continue plutôt que traits).

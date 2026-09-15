@@ -22,7 +22,8 @@
  */
 
 #include "menu_internal.h"
-#include "../combat/fx.h"   // g_fx.enabled (toggle effets de jus)
+#include "../combat/fx.h"      // g_fx.enabled (toggle effets de jus)
+#include "../engine/window.h"  // diagnostic GPU (renderer, rendu logiciel)
 
 #define OPT_GAP    20   // espace vertical entre deux groupes label+bouton
 #define OPT_GAP_S   8   // espace entre boutons d'une même section
@@ -175,8 +176,10 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
                 snprintf(fps_display, sizeof(fps_display), "%d FPS",
                          m->opts.target_fps);
             if (draw_btn(fps_display, content_x, y, content_w, BTN_H, C_BLUE, 0)
-                && !ui_locked)
+                && !ui_locked) {
                 m->opt_dropdown_open = 0;
+                m->opt_dd_guard      = 1;   /* ignorer CE clic à la fermeture */
+            }
             draw_dropdown_arrow(content_x, y, content_w, BTN_H, C_BLUE);
             dd_x = content_x;
             dd_y = y + BTN_H + 4;
@@ -256,8 +259,10 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             snprintf(res_display, sizeof(res_display), "%d x %d",
                      m->opts.win_width, m->opts.win_height);
             if (draw_btn(res_display, content_x, y, content_w, BTN_H, C_BLUE, 0)
-                && !ui_locked)
+                && !ui_locked) {
                 m->opt_dropdown_open = 1;
+                m->opt_dd_guard      = 1;   /* ignorer CE clic à la fermeture */
+            }
             draw_dropdown_arrow(content_x, y, content_w, BTN_H, C_BLUE);
             dd_x = content_x;
             dd_y = y + BTN_H + 4;
@@ -295,6 +300,38 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
                 if (draw_btn(cb_lbl, content_x, y, content_w, BTN_H,
                              C_BLUE, m->opts.colorblind) && !ui_locked)
                     m->opts.colorblind ^= 1;   // appliqué via g_colorblind (app.c)
+            }
+            y += BTN_H + OPT_GAP;
+
+            /* ── Processeur graphique ────────────────────────────
+               PAS un sélecteur : OpenGL n'offre aucun moyen de choisir
+               une carte (c'est propre à Vulkan/D3D12). En revanche on
+               DIT laquelle travaille — et on alerte si le pilote est
+               retombé en rendu logiciel, seul cas où le CPU dessine. */
+            draw_text_boxed("Processeur graphique", content_x, y, 11, C_GOLD);
+            y += 16;
+            {
+                int  soft = gpu_is_software();
+                char gbuf[96];
+                clip_text(gpu_renderer_name(), content_w - 8, 10,
+                          gbuf, sizeof(gbuf));
+                draw_text_boxed(gbuf, content_x, y, 10,
+                                soft ? (Color){231, 76, 60, 255}
+                                     : (Color){120, 210, 130, 255});
+                y += 15;
+                if (soft) {
+                    draw_text_boxed("RENDU LOGICIEL : c'est le processeur qui dessine.",
+                                    content_x, y, 9, (Color){231, 76, 60, 235});
+                    y += 13;
+                    draw_text_boxed("Installez/activez un pilote graphique.",
+                                    content_x, y, 9, (Color){168, 148, 102, 235});
+                } else {
+                    draw_text_boxed("Rendu materiel actif (carte dedie demandee au pilote).",
+                                    content_x, y, 9, (Color){168, 148, 102, 235});
+                    y += 13;
+                    draw_text_boxed("Pour imposer une autre carte : reglages GPU du systeme.",
+                                    content_x, y, 9, (Color){120, 110, 90, 220});
+                }
             }
         }
         break;
@@ -419,9 +456,14 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
                 picked = 1;
             }
         }
-        /* Clic (item ou extérieur) = fermeture ; hors clic la liste reste */
-        if (picked || IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+        /* Clic (item ou extérieur) = fermeture — mais PAS le clic qui vient
+           d'ouvrir la liste (même frame), sinon elle se rétracte direct. */
+        if (picked) {
             m->opt_dropdown_open = -1;
+        } else if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            if (m->opt_dd_guard) m->opt_dd_guard = 0;
+            else                 m->opt_dropdown_open = -1;
+        }
     } else if (m->opt_dropdown_open == 1 && m->opt_tab == 2) {
         /* Résolution */
         int picked = 0;
@@ -439,8 +481,12 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
                 picked = 1;
             }
         }
-        if (picked || IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+        if (picked) {
             m->opt_dropdown_open = -1;
+        } else if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            if (m->opt_dd_guard) m->opt_dd_guard = 0;
+            else                 m->opt_dropdown_open = -1;
+        }
     } else if (m->opt_dropdown_open >= 0) {
         /* Liste orpheline (onglet changé par clavier, etc.) : fermer */
         m->opt_dropdown_open = -1;

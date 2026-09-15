@@ -48,6 +48,9 @@ typedef struct AppContext {
     MenuScreen     prev_menu_screen;
     int            applied_fps;
     int            gameover_meta_done;   /* garde : meta_endless_end déjà appelé */
+    int            gameover_choice;      /* P0.2 : bouton cliqué sur le récap
+                                            (0 rien, 1 REJOUER, 2 MENU) —
+                                            posé au rendu, consommé à l'update */
 
     /* Bannière de carte : affichée 5 s au démarrage puis fondu */
     float          banner_timer;         /* > 0 = visible, fondu sur la dernière 0.5 s */

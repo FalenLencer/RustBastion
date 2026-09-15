@@ -13,7 +13,9 @@
    renderer.c blitte cette texture à la place du sprite (si g_units_3d).
    ════════════════════════════════════════════════════════════════ */
 #include "render3d_units.h"
-#include "render3d.h"          /* render3d_yaw_for_aim (visée caméra oblique) */
+#include "render3d.h"          /* render3d_yaw_for_aim (caméra oblique) */
+#include "render3d_skin.h"     /* helpers jumeaux units/enemies         */
+#include "../combat/combat_math.h" /* angle_approach (source unique)    */
 #include "rlgl.h"
 #include <math.h>
 #include <string.h>
@@ -30,38 +32,10 @@
 #define U_FACE_EPS2   0.30f         /* seuil² pour rafraîchir l'orientation */
 #define U_TURN_SPEED  10.0f         /* vitesse de rotation vers cible/dir (rad/s)*/
 
-static const Vector3 U_LIGHT   = { -0.45f, -0.80f, -0.40f };
-/* La caméra et le cadrage (dst) sont PAR TYPE (cf. UnitModel/load_unit). */
+/* (Lumière : R3D_LIGHT_DIR, source unique dans render3d.h.)
+   La caméra et le cadrage (dst) sont PAR TYPE (cf. UnitModel/load_unit). */
 
-/* ── Shader vertex-color + éclairage directionnel (comme les tours) ── */
-static const char *VS_VC =
-"#version 330\n"
-"in vec3 vertexPosition;\n"
-"in vec3 vertexNormal;\n"
-"in vec4 vertexColor;\n"
-"uniform mat4 mvp;\n"
-"uniform mat4 matNormal;\n"
-"out vec3 fragNormal;\n"
-"out vec4 fragColor;\n"
-"void main(){\n"
-"    fragNormal = normalize(vec3(matNormal*vec4(vertexNormal,1.0)));\n"
-"    fragColor = vertexColor;\n"
-"    gl_Position = mvp*vec4(vertexPosition,1.0);\n"
-"}\n";
-static const char *FS_VC =
-"#version 330\n"
-"in vec3 fragNormal;\n"
-"in vec4 fragColor;\n"
-"uniform vec3 lightDir;\n"
-"uniform float gain;\n"                              // normalisation luminosite PAR MODELE
-"out vec4 finalColor;\n"
-"void main(){\n"
-"    float d = max(dot(normalize(fragNormal), normalize(-lightDir)), 0.0);\n"
-"    float l = 0.58 + 0.48*d;\n"                      // ombres relevees (moins sombre)
-"    vec3 c = clamp(fragColor.rgb*gain*l, 0.0, 1.0);\n"
-"    c = pow(c, vec3(1.0/1.8));\n"                     // remontee gamma : couleurs lineaires -> affichage
-"    finalColor = vec4(c, 1.0);\n"
-"}\n";
+/* (Shaders vertex-color : skin_vs_vc/skin_fs_vc, render3d_skin.h.) */
 
 /* ── Modèles par type d'unité (cadrage PROPRE à chaque type) ───────── */
 typedef struct {
@@ -80,6 +54,7 @@ static int             g_loaded = 0;
 static Shader          g_shader_vc;
 static int             g_loc_gain = -1;            /* uniform "gain" du shader */
 static UnitModel       g_um[UNIT_TYPE_COUNT];
+static UnitModel       g_hero_um;                  /* modèle DÉDIÉ du héros    */
 
 static RenderTexture2D g_rt[MAX_UNITS];
 static int             g_used[MAX_UNITS];
@@ -91,79 +66,27 @@ static float           g_prev_y [MAX_UNITS];
 static float           g_facing [MAX_UNITS];
 static int             g_first  [MAX_UNITS];     /* 1 tant que pas initialisé */
 
-/* Cherche l'anim dont le nom (INSENSIBLE À LA CASSE) contient l'un des
-   mots-clés ; renvoie son index, ou -1 si aucune. Tolère les conventions
-   de nommage variées des modèles importés (Idle/idle, Attack/Fight/mine…). */
-static int anim_match(const UnitModel *um, const char *const *kw, int nkw) {
-    for (int i = 0; i < um->anim_count; i++) {
-        char low[64]; int n = 0;
-        const char *s = um->anims[i].name;
-        for (; s[n] && n < 63; n++) low[n] = (char)tolower((unsigned char)s[n]);
-        low[n] = '\0';
-        for (int k = 0; k < nkw; k++)
-            if (strstr(low, kw[k])) return i;
-    }
-    return -1;
-}
+/* (Matcher d'anims : skin_anim_match, render3d_skin.h.) */
 
-/* Fait tourner `cur` vers `tgt` d'au plus `max_d` rad (chemin le plus court). */
-static float angle_approach(float cur, float tgt, float max_d) {
-    float d = tgt - cur;
-    while (d >  3.14159265f) d -= 6.28318531f;
-    while (d < -3.14159265f) d += 6.28318531f;
-    if (d >  max_d) d =  max_d;
-    if (d < -max_d) d = -max_d;
-    return cur + d;
-}
+/* (Application du shader : skin_apply_vc, render3d_skin.h.) */
 
-static void shade_vc(Model *m) {
-    for (int i = 0; i < m->materialCount; i++) {
-        m->materials[i].shader = g_shader_vc;
-        m->materials[i].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
-    }
-}
+/* (Gain de luminance : skin_model_gain, render3d_skin.h.) */
 
-/* Gain de luminosité par modèle : ramène la luminance moyenne des vertex-
-   colors vers une cible commune (certains modèles sont exportés très sombres). */
-#define GAIN_TARGET 0.34f
-#define GAIN_MIN    0.75f
-#define GAIN_MAX    4.5f
-static float model_gain(const Model *m) {
-    double sum = 0.0; long n = 0;
-    for (int j = 0; j < m->meshCount; j++) {
-        const unsigned char *c = m->meshes[j].colors;
-        if (!c) continue;
-        int vc = m->meshes[j].vertexCount;
-        for (int v = 0; v < vc; v++) {
-            double r = c[v*4]/255.0, g = c[v*4+1]/255.0, b = c[v*4+2]/255.0;
-            sum += 0.299*r + 0.587*g + 0.114*b; n++;
-        }
-    }
-    if (n == 0) return 1.0f;
-    double mean = sum / (double)n;
-    if (mean < 1e-4) return 1.0f;
-    double gain = GAIN_TARGET / mean;
-    if (gain < GAIN_MIN) gain = GAIN_MIN;
-    if (gain > GAIN_MAX) gain = GAIN_MAX;
-    return (float)gain;
-}
-
-static void load_unit(int type, const char *path, Camera3D cam,
-                      float dst_scale, float dst_yanchor,
-                      float rest_phi, float yaw_off) {
-    UnitModel *um = &g_um[type];
+static void load_um(UnitModel *um, const char *path, Camera3D cam,
+                    float dst_scale, float dst_yanchor,
+                    float rest_phi, float yaw_off) {
     um->model = LoadModel(path);
     if (um->model.meshCount == 0) { um->have = 0; return; }
-    shade_vc(&um->model);
-    um->gain = model_gain(&um->model);
+    skin_apply_vc(&um->model, g_shader_vc);
+    um->gain = skin_model_gain(&um->model);
     um->anims = LoadModelAnimations(path, &um->anim_count);   /* 0 = modèle statique */
     static const char *KW_IDLE[]   = {"idle","stand","rest"};
     static const char *KW_WALK[]   = {"walk","run","move"};
     static const char *KW_ATTACK[] = {"attack","fight","mine","dig","hit","strike",
                                       "shoot","punch","slam","bite","melee","work"};
-    int ai = anim_match(um, KW_IDLE,   (int)(sizeof(KW_IDLE)  /sizeof(KW_IDLE[0])));
-    int aw = anim_match(um, KW_WALK,   (int)(sizeof(KW_WALK)  /sizeof(KW_WALK[0])));
-    int aa = anim_match(um, KW_ATTACK, (int)(sizeof(KW_ATTACK)/sizeof(KW_ATTACK[0])));
+    int ai = skin_anim_match(um->anims, um->anim_count, KW_IDLE,   (int)(sizeof(KW_IDLE)  /sizeof(KW_IDLE[0])));
+    int aw = skin_anim_match(um->anims, um->anim_count, KW_WALK,   (int)(sizeof(KW_WALK)  /sizeof(KW_WALK[0])));
+    int aa = skin_anim_match(um->anims, um->anim_count, KW_ATTACK, (int)(sizeof(KW_ATTACK)/sizeof(KW_ATTACK[0])));
     um->a_idle   = (ai >= 0) ? ai : 0;            /* défaut : 1ʳᵉ anim         */
     um->a_walk   = (aw >= 0) ? aw : um->a_idle;   /* pas de walk → idle        */
     um->a_attack = (aa >= 0) ? aa : um->a_idle;   /* pas d'attaque → idle      */
@@ -172,13 +95,20 @@ static void load_unit(int type, const char *path, Camera3D cam,
     um->have = 1;
 }
 
+static void load_unit(int type, const char *path, Camera3D cam,
+                      float dst_scale, float dst_yanchor,
+                      float rest_phi, float yaw_off) {
+    load_um(&g_um[type], path, cam, dst_scale, dst_yanchor,
+            rest_phi, yaw_off);
+}
+
 void render3d_units_init(void) {
     g_loaded = 0;
     for (int i = 0; i < UNIT_TYPE_COUNT; i++) g_um[i].have = 0;
 
-    g_shader_vc = LoadShaderFromMemory(VS_VC, FS_VC);
+    g_shader_vc = LoadShaderFromMemory(skin_vs_vc(), skin_fs_vc());
     int loc = GetShaderLocation(g_shader_vc, "lightDir");
-    Vector3 ld = U_LIGHT;
+    Vector3 ld = R3D_LIGHT_DIR;
     if (loc >= 0) SetShaderValue(g_shader_vc, loc, &ld, SHADER_UNIFORM_VEC3);
     g_loc_gain = GetShaderLocation(g_shader_vc, "gain");
 
@@ -224,11 +154,20 @@ void render3d_units_init(void) {
     load_unit(UNIT_WORKER, "assets/3d/3D_Troupes/ouvrier.glb",
               cam_worker, 2.5f, 0.84f, 0.0f, 0.0f);
 
+    /* HÉROS (mode héros) : ~1.55 de haut, manteau + casque + fusil.
+       Dessiné en DIRECT dans la scène (jamais de RT) — la caméra sert
+       juste de gabarit. Anims : Idle / Run / Shoot. */
+    memset(&g_hero_um, 0, sizeof(g_hero_um));
+    Camera3D cam_hero = BIPED_CAM(0.78f); cam_hero.fovy = 2.2f;
+    load_um(&g_hero_um, "assets/3d/3D_Troupes/hero.glb",
+            cam_hero, 2.5f, 0.84f, 0.0f, 0.0f);
+
     for (int i = 0; i < MAX_UNITS; i++) {
         g_rt[i].id = 0; g_used[i] = 0; g_rt_type[i] = -1; g_anim_t[i] = 0; g_anim_i[i] = -1;
         g_prev_x[i] = 0; g_prev_y[i] = 0; g_facing[i] = 0; g_first[i] = 1;
     }
     for (int i = 0; i < UNIT_TYPE_COUNT; i++) if (g_um[i].have) g_loaded = 1;
+    if (g_hero_um.have) g_loaded = 1;
 }
 
 void render3d_units_shutdown(void) {
@@ -239,6 +178,12 @@ void render3d_units_shutdown(void) {
         if (!g_um[t].have) continue;
         if (g_um[t].anims) UnloadModelAnimations(g_um[t].anims, g_um[t].anim_count);
         UnloadModel(g_um[t].model);
+    }
+    if (g_hero_um.have) {
+        if (g_hero_um.anims)
+            UnloadModelAnimations(g_hero_um.anims, g_hero_um.anim_count);
+        UnloadModel(g_hero_um.model);
+        g_hero_um.have = 0;
     }
     UnloadShader(g_shader_vc);
     g_loaded = 0;
@@ -255,8 +200,14 @@ static void ensure_rt(int i) {
     g_rt[i] = LoadRenderTexture(U_RT_W, U_RT_H);
 }
 
+void render3d_units_set_fog(Color col, float density) {
+    if (!g_loaded) return;
+    skin_set_fog(g_shader_vc, col, density);
+}
+
 void render3d_units_prepass(const UnitPool *up, const EnemyPool *ep) {
     if (!g_loaded || up == NULL) return;
+    render3d_units_set_fog(BLANK, 0.0f);   /* mode 2D : pas de brouillard */
     float dt = GetFrameTime();
 
     for (int i = 0; i < MAX_UNITS; i++) {
@@ -348,15 +299,14 @@ Rectangle render3d_unit_dst(int unit_index, float cx, float cy, float size) {
    MODE HÉROS — dessin direct dans la scène 3D courante
    (pas de RenderTexture : anim + gain + orientation ici)
    ════════════════════════════════════════════════════ */
-int render3d_units_draw_world(int type, Vector3 pos, float heading_rad,
-                              float scale, int anim_kind, float anim_time) {
-    if (!g_loaded || type < 0 || type >= UNIT_TYPE_COUNT) return 0;
-    UnitModel *um = &g_um[type];
+static int draw_um_world(UnitModel *um, Vector3 pos, float heading_rad,
+                         float scale, int anim_kind, float anim_time,
+                         int update_anim) {
     if (!um->have) return 0;
 
     int aidx = (anim_kind == 2) ? um->a_attack
              : (anim_kind == 1) ? um->a_walk : um->a_idle;
-    if (um->anim_count > 0 && aidx >= 0) {
+    if (update_anim && um->anim_count > 0 && aidx >= 0) {
         int fc = um->anims[aidx].keyframeCount;
         int fr = (fc > 0) ? (int)fmodf(anim_time * U_ANIM_FPS, (float)fc) : 0;
         UpdateModelAnimation(um->model, um->anims[aidx], fr);
@@ -374,4 +324,20 @@ int render3d_units_draw_world(int type, Vector3 pos, float heading_rad,
     rlPopMatrix();
     rlEnableBackfaceCulling();
     return 1;
+}
+
+int render3d_units_draw_world(int type, Vector3 pos, float heading_rad,
+                              float scale, int anim_kind, float anim_time,
+                              int update_anim) {
+    if (!g_loaded || type < 0 || type >= UNIT_TYPE_COUNT) return 0;
+    return draw_um_world(&g_um[type], pos, heading_rad, scale,
+                         anim_kind, anim_time, update_anim);
+}
+
+int render3d_hero_draw_world(Vector3 pos, float heading_rad, float scale,
+                             int anim_kind, float anim_time,
+                             int update_anim) {
+    if (!g_loaded) return 0;
+    return draw_um_world(&g_hero_um, pos, heading_rad, scale,
+                         anim_kind, anim_time, update_anim);
 }
