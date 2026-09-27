@@ -73,6 +73,9 @@ static void load_enemy(int type, const char *path, Camera3D cam,
     EnemyModel *em = &g_em[type];
     em->model = LoadModel(path);
     if (em->model.meshCount == 0) { em->have = 0; return; }
+    if (!skin_model_indices_ok(&em->model, path)) {
+        UnloadModel(em->model); em->have = 0; return;
+    }
     skin_apply_vc(&em->model, g_shader_vc);
     em->gain = skin_model_gain(&em->model);
     em->anims = LoadModelAnimations(path, &em->anim_count);

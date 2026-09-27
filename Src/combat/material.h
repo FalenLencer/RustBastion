@@ -29,6 +29,11 @@ typedef enum {
     DMG_NANO,
     DMG_FIRE,         // flammes (lance-flammes)
 } DamageType;
+/* Nombre de types de dégâts — SOURCE UNIQUE, collée à l'enum : l'ancien
+   « #define 6 » d'enemy.h, découplé, a laissé des tableaux à 5 cases
+   (couleurs projectiles, libellés bestiaire) lors de l'ajout de DMG_FIRE.
+   À METTRE À JOUR si un type est ajouté après DMG_FIRE. */
+#define DAMAGE_TYPE_COUNT (DMG_FIRE + 1)
 
 // ── Dépôt de matériau sur la carte ──────────────────────────
 typedef struct {
@@ -52,4 +57,4 @@ typedef struct {
 extern const char  *MATERIAL_NAMES [MAT_COUNT];
 extern const char  *MATERIAL_DESC  [MAT_COUNT];   // courte (HUD)
 extern const char  *MATERIAL_LORE  [MAT_COUNT];   // longue (bestiaire)
-extern const char  *DAMAGE_NAMES   [6];
+extern const char  *DAMAGE_NAMES   [DAMAGE_TYPE_COUNT];

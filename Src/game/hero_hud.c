@@ -478,9 +478,10 @@ void hero_hud(AppContext *ctx) {
     char lines[6][64];
     int nl = hero_prompts(ctx, lines, 6);
     int py = g_canvas_virt_h - 30 - nl * (fh(10) + 4);
+    int hotbar_y = py - HB_CARD_H - 10;
 
     /* Hotbar de sélection au-dessus des invites */
-    hero_hotbar(ctx, py - HB_CARD_H - 10);
+    hero_hotbar(ctx, hotbar_y);
     for (int i = 0; i < nl; i++) {
         int lw = mtxt(lines[i], 10);
         DrawRectangle(cx - lw / 2 - 8, py - 2, lw + 16, fh(10) + 5,
@@ -491,9 +492,13 @@ void hero_hud(AppContext *ctx) {
 
     /* Toast */
     if (h->toast_t > 0.0f) {
+        /* AU-DESSUS de la hotbar (avant : calé sur les invites, il tombait
+           sur les cartes de recrutement insérées entre les deux). */
         int tw = mtxt(h->toast, 11);
-        dtxt(h->toast, cx - tw / 2, g_canvas_virt_h - 30 - (nl + 1) * (fh(10) + 4) - fh(11),
-             11, h->toast_col);
+        int ty = hotbar_y - fh(11) - 8;
+        DrawRectangle(cx - tw / 2 - 8, ty - 3, tw + 16, fh(11) + 6,
+                      (Color){8, 10, 16, 170});
+        dtxt(h->toast, cx - tw / 2, ty, 11, h->toast_col);
     }
 
     /* Aide (H) */

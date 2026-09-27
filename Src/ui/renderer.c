@@ -655,12 +655,15 @@ void render_towers(const TowerPool *tp) {
 }
 
 void render_projectiles(const TowerPool *tp) {
-    static const Color DMG_COLORS[5] = {
+    /* Dimensionné par DAMAGE_TYPE_COUNT : DMG_FIRE (= 5, ajouté après coup)
+       lisait hors tableau à chaque projectile de lance-flammes. */
+    static const Color DMG_COLORS[DAMAGE_TYPE_COUNT] = {
         [DMG_PHYSICAL] = {255, 200, 100, 255},
         [DMG_POISON]   = { 80, 220,  60, 255},
         [DMG_ELECTRIC] = {180, 100, 255, 255},
         [DMG_CRYO]     = {140, 220, 255, 255},
         [DMG_NANO]     = {220, 100, 220, 255},
+        [DMG_FIRE]     = {255, 107,  53, 255},   /* = PROJ_COLOR[TOWER_FLAME] */
     };
 
     for (int i = 0; i < MAX_PROJECTILES; i++) {
@@ -769,6 +772,31 @@ void render_tower_preview(const Map *map, const TowerPool *tp,
     // Fond du label pour lisibilité
     DrawRectangle(lx - 3, ly - 2, lw + 6, 14, (Color){0, 0, 0, 160});
     dtxt(cost_label, lx, ly, 10, label_col);
+
+    /* Qualité de l'emplacement : ce qu'un débutant ignore (une tour loin du
+       chemin ne tire jamais). Juste au-dessus du coût, ou dessous si le coût
+       a été rabattu sous la tuile (bord haut de la carte). */
+    int cover = tower_path_coverage(map, tile_x, tile_y, st->range);
+    const char *cover_label;
+    Color cover_col;
+    if (cover == 0) {
+        cover_label = "Trop loin du chemin : ne tirera pas";
+        cover_col   = (Color){231, 76, 60, 255};
+    } else if (cover < TOWER_COVER_GOOD) {
+        cover_label = TextFormat("Couvre %d cases de chemin", cover);
+        cover_col   = (Color){243, 156, 18, 255};
+    } else {
+        cover_label = TextFormat("Bon emplacement : %d cases de chemin", cover);
+        cover_col   = (Color){46, 204, 113, 255};
+    }
+    int cw  = mtxt(cover_label, 9);
+    int cx2 = px + TILE_SIZE/2 - cw/2;
+    if (cx2 < 2) cx2 = 2;
+    if (cx2 + cw > g_canvas_virt_w_base - 2) cx2 = g_canvas_virt_w_base - cw - 2;
+    int cy2 = (ly < py) ? ly - fh(9) - 3 : ly + fh(10) + 2;
+    if (cy2 < 2) cy2 = ly + fh(10) + 2;
+    DrawRectangle(cx2 - 3, cy2 - 2, cw + 6, fh(9) + 2, (Color){0, 0, 0, 160});
+    dtxt(cover_label, cx2, cy2, 9, cover_col);
 }
 
 // ════════════════════════════════════════════════════
@@ -909,7 +937,8 @@ void render_units(const UnitPool *up) {
 // ════════════════════════════════════════════════════
 // DÉPÔTS DE MATÉRIAUX
 // ════════════════════════════════════════════════════
-void render_deposits(const Map *map, const TowerPool *tp) {
+void render_deposits(const Map *map, const TowerPool *tp,
+                     int hover_tx, int hover_ty, int wave_num) {
     static const char *MAT_ICONS[MAT_COUNT] = {
         [MAT_IRON]  = "Fe",
         [MAT_ACID]  = "Ac",
@@ -951,6 +980,24 @@ void render_deposits(const Map *map, const TowerPool *tp) {
             snprintf(_wbuf, sizeof(_wbuf), "V%d", d->spawn_wave);
             int ww = mtxt(_wbuf, 9);
             dtxt(_wbuf, cx - ww/2, cy + 1, 9, (Color){150, 130, 70, 210});
+
+            /* Survol : « V5 » seul est cryptique → phrase explicite. */
+            if (d->tile_x == hover_tx && d->tile_y == hover_ty) {
+                /* Ouverture au LANCEMENT de la vague spawn_wave (game_state.c). */
+                int left = d->spawn_wave - wave_num;
+                const char *tip = (left > 1)
+                    ? TextFormat("Gisement %s : s'ouvre a la vague %d (dans %d vagues)",
+                                 MATERIAL_NAMES[d->type], d->spawn_wave, left)
+                    : TextFormat("Gisement %s : s'ouvre a la prochaine vague",
+                                 MATERIAL_NAMES[d->type]);
+                int tw2 = mtxt(tip, 10);
+                int lx = cx - tw2 / 2, ly = py - 16;
+                if (lx < 2) lx = 2;
+                if (lx + tw2 > map->w * TILE_SIZE - 2) lx = map->w * TILE_SIZE - tw2 - 2;
+                if (ly < 2) ly = py + TILE_SIZE + 2;
+                DrawRectangle(lx - 3, ly - 2, tw2 + 6, 14, (Color){0, 0, 0, 170});
+                dtxt(tip, lx, ly, 10, (Color){mc.r, mc.g, mc.b, 255});
+            }
         }
     }
 }

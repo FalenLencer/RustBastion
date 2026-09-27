@@ -135,8 +135,18 @@ TowerPlaceFail tower_place_fail(const TowerPool *tp, const Map *map,
 // 1 si une tour ACTIVE occupe la tuile (tp NULL → 0). Source unique pour
 // le « déblaiement » du décor sous une tour (rendu 2D et 3D).
 int  tower_at_tile     (const TowerPool *tp, int tile_x, int tile_y);
+// Nombre de tuiles de CHEMIN ennemi dans la portée `range_tiles` d'une tour
+// posée en (tile_x, tile_y). Mesure la qualité d'un emplacement (aperçu de
+// pose) : 0 = la tour ne tirera jamais.
+int  tower_path_coverage(const Map *map, int tile_x, int tile_y, float range_tiles);
+// Seuils d'affichage de cette couverture (tuiles de chemin).
+#define TOWER_COVER_GOOD  7    // ≥ : « bon emplacement »
 int  tower_cost_on_tile(TowerType type, const Map *map,
                         int tile_x, int tile_y);
+// Or rendu à la vente : fraction (TOWER_SELL_REFUND + perk Recyclage, ≤ 100 %)
+// de TOUT l'investissement — pose ET améliorations payées. SOURCE UNIQUE pour
+// l'affichage du bouton et l'action (avant : la pose seule → 9 or pour 40).
+int  tower_sell_refund (const Tower *t, const Map *map);
 int  tower_active_limit(const MetaBonuses *bonuses);
 
 // ── Améliorations individuelles ───────────────────────────────

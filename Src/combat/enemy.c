@@ -17,6 +17,15 @@
 #include <math.h>
 #include <float.h>
 
+/* ── Navigation des ennemis HORS CHEMIN (Raider, Chasseur, Briseur) ──
+   État de navigation tenu dans une TABLE LATÉRALE indexée par slot, et
+   non dans Enemy : Enemy est sérialisée en une seule section — y ajouter
+   un MoveNav changerait sa taille, et rsec remettrait à ZÉRO tout le
+   pool d'ennemis au chargement d'une sauvegarde. L'état de navigation
+   est transitoire : le perdre au chargement coûte au pire une
+   replanification. Remis à zéro à chaque apparition dans le slot. */
+static MoveNav g_enemy_nav[MAX_ENEMIES];
+
 /* ════════════════════════════════════════════════════
    STATS DE BASE PAR TYPE
    ════════════════════════════════════════════════════ */
@@ -28,7 +37,7 @@ const EnemyStats ENEMY_BASE_STATS[ENEMY_TYPE_COUNT] = {
     [ENEMY_MUTANT]      = {.hp=120, .speed=1.2f, .size=8,  .reward=10, .damage=2, .melee_range=22.0f, .name="Mutant"},
     [ENEMY_GHOST]       = {.hp=35,  .speed=2.2f, .size=6,  .reward=15, .damage=1, .melee_range=16.0f, .name="Spectre"},
     [ENEMY_PATHBREAKER] = {.hp=150, .speed=2.0f, .size=7,  .reward=18, .damage=2, .melee_range=20.0f, .name="Briseur"},
-    [ENEMY_HEALER]      = {.hp=80,  .speed=1.2f, .size=7,  .reward=20, .damage=1, .melee_range=16.0f, .name="Medic"},
+    [ENEMY_HEALER]      = {.hp=80,  .speed=1.2f, .size=7,  .reward=20, .damage=1, .melee_range=16.0f, .name="Soigneur"},
     [ENEMY_HUNTER]      = {.hp=90,  .speed=3.0f, .size=6,  .reward=22, .damage=4, .melee_range=20.0f, .name="Chasseur"},
     [ENEMY_ARTILLERY]   = {.hp=300, .speed=0.5f, .size=10, .reward=35, .damage=3, .melee_range=12.0f, .name="Artillerie"},
 };
@@ -117,6 +126,8 @@ void enemy_spawn(EnemyPool *pool, EnemyType type,
     e->x           = path->steps[0].x * TILE_SIZE + TILE_SIZE / 2.0f;
     e->y           = path->steps[0].y * TILE_SIZE + TILE_SIZE / 2.0f;
     e->type        = type;
+    /* Slot réutilisé : jamais d'itinéraire hérité de l'occupant précédent */
+    memset(&g_enemy_nav[e - pool->enemies], 0, sizeof(MoveNav));
     e->max_hp      = base->hp * wave_scale;
     e->hp          = e->max_hp;
     e->speed       = base->speed * speed_mult;
@@ -196,6 +207,7 @@ void enemy_spawn_boss(EnemyPool *pool, int path_id, const PathSet *paths,
     memset(e, 0, sizeof(Enemy));
     e->x           = path->steps[0].x * TILE_SIZE + TILE_SIZE / 2.0f;
     e->y           = path->steps[0].y * TILE_SIZE + TILE_SIZE / 2.0f;
+    memset(&g_enemy_nav[e - pool->enemies], 0, sizeof(MoveNav));
     e->type        = ENEMY_BRUTE;                 // base résistances + mêlée
     e->is_boss     = 1;
     e->max_hp      = 1200.0f * (hp_scale > 0.0f ? hp_scale : 1.0f);
@@ -253,6 +265,11 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                        Map *map,
                        float dt, int *lives, int *gold, int *kills)
 {
+    /* Invalide la grille de navigation partagée : elle sera reconstruite
+       avec le gabarit ENNEMI au premier déplacement hors chemin de la
+       frame (unit_pool_update fait de même pour le gabarit ALLIÉ). */
+    move_nav_begin_frame();
+
     // ── Comptage raiders actifs + limite ──────────────────────────
     int raider_count_now = 0;
     int active_count     = 0;
@@ -442,9 +459,10 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                         } else {
                             // Fonce sur l'ouvrier — en contournant les obstacles
                             float step = e->speed * TILE_SIZE * dt;
-                            move_toward(map, towers, &e->x, &e->y,
-                                        wu->x, wu->y, step, e->size,
-                                        MOVE_F_ENEMY);
+                            move_nav_toward(map, towers, &g_enemy_nav[i],
+                                            &e->x, &e->y,
+                                            wu->x, wu->y, step, e->size,
+                                            MOVE_F_ENEMY);
                         }
                         continue; // ne suit pas le chemin normal
                     }
@@ -516,8 +534,9 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                     /* Hors portée : se rapproche — sans traverser d'obstacle */
                     float step = e->speed * TILE_SIZE * dt;
                     (void)dx; (void)dy;
-                    move_toward(map, towers, &e->x, &e->y,
-                                u->x, u->y, step, e->size, MOVE_F_ENEMY);
+                    move_nav_toward(map, towers, &g_enemy_nav[i],
+                                    &e->x, &e->y,
+                                    u->x, u->y, step, e->size, MOVE_F_ENEMY);
                     continue;
                 }
             }
@@ -635,9 +654,10 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                 e->reached_base = 1;
             } else {
                 /* Fonce vers la base — en contournant les obstacles */
-                move_toward(map, towers, &e->x, &e->y,
-                            e->target_x, e->target_y, step, e->size,
-                            MOVE_F_ENEMY);
+                move_nav_toward(map, towers, &g_enemy_nav[i],
+                                &e->x, &e->y,
+                                e->target_x, e->target_y, step, e->size,
+                                MOVE_F_ENEMY);
             }
         } else {
             if (e->path_id < 0 || e->path_id >= paths->count) {

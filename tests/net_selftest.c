@@ -1,9 +1,6 @@
 /*
  * RUST BASTION — auto-test headless du transport réseau.
- * Compilation autonome (hors jeu) :
- *   gcc -Wall -Wextra Src/net/net_transport.c Src/net/net_session.c \
- *       Src/net/net_selftest.c -o /tmp/net_test
- *   /tmp/net_test
+ * Compilation + exécution (depuis la racine) : make selftest
  * Vérifie loopback + TCP localhost SANS rendu (respecte « pas d'affichage »).
  */
 #include "net_transport.h"

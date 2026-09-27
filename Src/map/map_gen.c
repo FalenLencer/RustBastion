@@ -100,6 +100,14 @@ static void gen_terrain(Map *map, const Theme *th) {
 // trop d'eau → la carte devient injouable. On assèche l'eau LA MOINS PROFONDE
 // (plus haut noise_val) jusqu'à atteindre le seuil → on garde des mares isolées.
 #define MIN_BUILDABLE_FRACTION 0.55f
+
+/* Gisements : ouverture différée selon la distance (manhattan, tuiles) à la
+   base la plus proche — un filon lointain rapporte plus de risque. */
+#define DEPOSIT_DIST_MID   7   /* ≥ : filon « moyen »                        */
+#define DEPOSIT_DIST_FAR  12   /* ≥ : filon « lointain »                     */
+#define DEPOSIT_WAVE_MID   3   /* vague d'ouverture d'un filon moyen          */
+#define DEPOSIT_WAVE_FAR   5   /* vague d'ouverture d'un filon lointain       */
+
 static void cap_relief(Map *map) {
     int total = map->w * map->h;
     int target = (int)((float)total * MIN_BUILDABLE_FRACTION);
@@ -190,6 +198,18 @@ static void force_passable(Map *map, Point p) {
 // ════════════════════════════════════════════════════
 // CHEMIN ORGANIQUE — spawn → base cible
 // ════════════════════════════════════════════════════
+/* Tirage pondéré de la direction du pas suivant : chaque poids = nombre
+   d'entrées de la direction dans le pool. */
+#define WALK_W_LAST      5   /* inertie : direction du pas précédent        */
+#define WALK_W_TOWARD    4   /* attraction vers la cible, par axe           */
+#define WALK_W_CARDINAL  1   /* bruit : chacune des 4 directions            */
+#define WALK_W_NEAR      8   /* attraction renforcée près de la cible, /axe */
+#define WALK_NEAR_DIST   4   /* distance (tuiles, manhattan) « près »       */
+/* Taille MAX du pool : tous les poids cumulés (ex-tableau de 30 pour 33
+   entrées possibles → débordement de pile près de la cible en diagonale). */
+#define WALK_POOL_MAX   (WALK_W_LAST + 2*WALK_W_TOWARD + 4*WALK_W_CARDINAL \
+                         + 2*WALK_W_NEAR)
+
 static void walk_to(Map *map, int *cx, int *cy,
                     int tx, int ty, int *ldx, int *ldy,
                     uint8_t visited[MAX_MAP_H][MAX_MAP_W], int path_id)
@@ -213,16 +233,18 @@ static void walk_to(Map *map, int *cx, int *cy,
         int wdx = (*cx < tx) ? 1 : (*cx > tx) ? -1 : 0;
         int wdy = (*cy < ty) ? 1 : (*cy > ty) ? -1 : 0;
 
-        Dir pool[30]; int pn = 0;
-        if (*ldx || *ldy) for (int i=0;i<5;i++) pool[pn++]=(Dir){*ldx,*ldy};
-        if (wdx) for (int i=0;i<4;i++) pool[pn++]=(Dir){wdx,0};
-        if (wdy) for (int i=0;i<4;i++) pool[pn++]=(Dir){0,wdy};
-        pool[pn++]=(Dir){0,1}; pool[pn++]=(Dir){0,-1};
-        pool[pn++]=(Dir){1,0}; pool[pn++]=(Dir){-1,0};
+        Dir pool[WALK_POOL_MAX]; int pn = 0;
+        if (*ldx || *ldy) for (int i=0;i<WALK_W_LAST;i++) pool[pn++]=(Dir){*ldx,*ldy};
+        if (wdx) for (int i=0;i<WALK_W_TOWARD;i++) pool[pn++]=(Dir){wdx,0};
+        if (wdy) for (int i=0;i<WALK_W_TOWARD;i++) pool[pn++]=(Dir){0,wdy};
+        for (int i=0;i<WALK_W_CARDINAL;i++) {
+            pool[pn++]=(Dir){0,1}; pool[pn++]=(Dir){0,-1};
+            pool[pn++]=(Dir){1,0}; pool[pn++]=(Dir){-1,0};
+        }
 
-        if (abs(*cx-tx)+abs(*cy-ty) <= 4) {
-            if (wdx) for (int i=0;i<8;i++) pool[pn++]=(Dir){wdx,0};
-            if (wdy) for (int i=0;i<8;i++) pool[pn++]=(Dir){0,wdy};
+        if (abs(*cx-tx)+abs(*cy-ty) <= WALK_NEAR_DIST) {
+            if (wdx) for (int i=0;i<WALK_W_NEAR;i++) pool[pn++]=(Dir){wdx,0};
+            if (wdy) for (int i=0;i<WALK_W_NEAR;i++) pool[pn++]=(Dir){0,wdy};
         }
 
         int moved = 0;
@@ -661,10 +683,12 @@ void generate_map(Map *map, int seed, int min_dist, ThemeID theme_id,
                 int md = manhattan((Point){dx,dy}, map->bases[b2].pos);
                 if (md < min_dist) min_dist = md;
             }
-            // spawn_wave : 0 = immédiat, 4 = vague 4, 8 = vague 8
+            // spawn_wave : 0 = immédiat, sinon s'ouvre à cette vague.
+            // (Anciens paliers 4/8 : sur une carte 28×16, la plupart des filons
+            //  tombaient en « vague 8 » → inutilisables dans un acte de 8 vagues.)
             int sw = 0;
-            if (min_dist >= 12) sw = 8;
-            else if (min_dist >= 7) sw = 4;
+            if      (min_dist >= DEPOSIT_DIST_FAR) sw = DEPOSIT_WAVE_FAR;
+            else if (min_dist >= DEPOSIT_DIST_MID) sw = DEPOSIT_WAVE_MID;
 
             map->deposits[placed].tile_x    = dx;
             map->deposits[placed].tile_y    = dy;

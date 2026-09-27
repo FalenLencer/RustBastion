@@ -177,6 +177,10 @@ int save_read(GameState *gs, int slot) {
         fclose(f); return 0;
     }
 
+    /* État propre AVANT lecture : les champs non sérialisés (drapeaux de
+       campagne, build de run, boss, matériaux au sol…) ne doivent pas
+       hériter de la partie jouée juste avant dans la même session. */
+    game_state_init(gs);
     if (!meta_load(&gs->meta)) meta_init(&gs->meta);
 
     /* Sections (robustes) + scalaires (tolérants) */
@@ -393,6 +397,9 @@ int campaign_save_read(GameState *gs, int slot,
     if (hdr.magic   != SAVE_CAMPAIGN_MAGIC ||
         hdr.version != SAVE_CAMPAIGN_VERSION) { fclose(f); return 0; }
 
+    /* État propre AVANT lecture (cf. save_read) : sans cela une campagne
+       rechargée après une arcade gardait is_endless=1. */
+    game_state_init(gs);
     /* Méta rechargée depuis le fichier séparé ; bonus recalculés à la fin
        (jamais écrasés par des valeurs en cache). */
     if (!meta_load(&gs->meta)) meta_init(&gs->meta);

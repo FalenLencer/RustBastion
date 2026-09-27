@@ -26,7 +26,7 @@ const TowerStats TOWER_BASE_STATS[TOWER_TYPE_COUNT] = {
         .name="Tourelle", .cost=15, .damage=20.0f, .range=3.5f,
         .fire_rate=1.5f, .proj_speed=10.0f, .splash=0,
         .slow_factor=0.0f, .slow_duration=0.0f, .chain_count=0,
-        .description="Polyvalente. Cible le premier ennemi en portee.",
+        .description="Polyvalente. Vise l'ennemi le plus proche.",
     },
     [TOWER_SNIPER] = {
         .name="Sniper", .cost=25, .damage=115.0f, .range=6.5f,
@@ -52,7 +52,7 @@ const char *TOWER_LORE[TOWER_TYPE_COUNT] = {
     [TOWER_GUN] =
         "La tourelle automatique est l'epine dorsale de toute defense.\n"
         "Peu couteuse, robuste, facile a upgrader. Son canon rotatif\n"
-        "cible le premier ennemi entrant dans sa zone sans jamais faillir.\n"
+        "vise sans relache l'ennemi le plus proche de sa zone.\n"
         "Ideale en masse sur les couloirs droits.",
 
     [TOWER_SNIPER] =
@@ -142,6 +142,33 @@ int tower_at_tile(const TowerPool *tp, int tx, int ty) {
         if (tw->active && tw->tile_x == tx && tw->tile_y == ty) return 1;
     }
     return 0;
+}
+
+int tower_sell_refund(const Tower *t, const Map *map) {
+    if (!t || !map) return 0;
+    int spent = tower_cost_on_tile(t->type, map, t->tile_x, t->tile_y);
+    for (int i = 0; i < t->upg_dmg   && i < TOWER_UPG_MAX; i++) spent += TOWER_UPG_COST_DMG[i];
+    for (int i = 0; i < t->upg_range && i < TOWER_UPG_MAX; i++) spent += TOWER_UPG_COST_RANGE[i];
+    for (int i = 0; i < t->upg_rate  && i < TOWER_UPG_MAX; i++) spent += TOWER_UPG_COST_RATE[i];
+    float frac = TOWER_SELL_REFUND + g_run_mods.sell_refund_add;
+    if (frac > 1.0f) frac = 1.0f;          // perk Recyclage : plafond 100 %
+    return (int)((float)spent * frac);
+}
+
+int tower_path_coverage(const Map *map, int tx, int ty, float range_tiles) {
+    if (!map || range_tiles <= 0.0f) return 0;
+    int   r  = (int)ceilf(range_tiles);
+    float r2 = range_tiles * range_tiles;
+    int   n  = 0;
+    for (int dy = -r; dy <= r; dy++) {
+        for (int dx = -r; dx <= r; dx++) {
+            int nx = tx + dx, ny = ty + dy;
+            if (nx < 0 || ny < 0 || nx >= map->w || ny >= map->h) continue;
+            if ((float)(dx * dx + dy * dy) > r2) continue;
+            if (map->tiles[ny][nx].type == TILE_PATH) n++;
+        }
+    }
+    return n;
 }
 
 /* ════════════════════════════════════════════════════
@@ -350,7 +377,9 @@ void tower_pool_update(TowerPool *tp, EnemyPool *ep, float dt) {
         if (tw->fire_timer > 0.0f) continue;
         if (target == -1) continue;
 
-        projectile_spawn(tp, tw, target, ep);
+        /* Réserve pleine : on retente à la frame suivante au lieu de
+           perdre le tir ET de repartir sur un cycle complet. */
+        if (!projectile_spawn(tp, tw, target, ep)) continue;
         switch (tw->type) {
             case TOWER_GUN:    audio_play_sfx(AUDIO_SFX_TOWER_FIRE_GUN);    break;
             case TOWER_SNIPER: audio_play_sfx(AUDIO_SFX_TOWER_FIRE_SNIPER); break;

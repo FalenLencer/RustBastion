@@ -102,6 +102,24 @@ static inline float skin_model_gain(const Model *m) {
     return (float)gain;
 }
 
+/* 0 si un maillage INDEXÉ dépasse 65 535 sommets : raylib stocke les indices
+   en 16 bits et TRONQUE ceux du GLB (avertissement « u32 to u16 ») → maillage
+   corrompu à l'écran (cas : PathBreaker.glb, 66 888 sommets par primitive).
+   Mieux vaut le repli 2D. Correctif réel : réexporter le modèle allégé. */
+#define SKIN_MAX_INDEXED_VERTS 65535
+static inline int skin_model_indices_ok(const Model *m, const char *path) {
+    for (int j = 0; j < m->meshCount; j++) {
+        if (m->meshes[j].indices && m->meshes[j].vertexCount > SKIN_MAX_INDEXED_VERTS) {
+            TraceLog(LOG_WARNING,
+                     "3D: %s maillage %d = %d sommets (> %d, indices 16 bits tronques)"
+                     " -> modele ignore, repli 2D. Reexporter le modele allege.",
+                     path, j, m->meshes[j].vertexCount, SKIN_MAX_INDEXED_VERTS);
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Applique le shader vertex-color à tous les matériaux du modèle. */
 static inline void skin_apply_vc(Model *m, Shader sh) {
     for (int i = 0; i < m->materialCount; i++) {

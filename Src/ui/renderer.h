@@ -71,5 +71,8 @@ void render_tower_preview(const Map *map, const TowerPool *tp,
                           TowerType type, int tile_x, int tile_y);
 void render_hud          (const GameState *gs);
 // tp (peut être NULL) : une tour sur une roche minée déblaie le cratère.
-void render_deposits     (const Map *map, const TowerPool *tp);
+/* hover_tx/ty : tuile survolée (-1 = aucune) → info-bulle des filons verrouillés ;
+   wave_num : vague courante (compte à rebours d'ouverture). */
+void render_deposits     (const Map *map, const TowerPool *tp,
+                          int hover_tx, int hover_ty, int wave_num);
 void render_dropped_mats (const DroppedMat *mats, int count);

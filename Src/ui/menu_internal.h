@@ -60,6 +60,9 @@ extern const Color CHAPTER_COLORS[CAMPAIGN_CHAPTERS];
 #define M_SECT    18    // espacement entre sections
 #define BTN_H     36    // hauteur standard des boutons
 #define BTN_R      5    // rayon coins arrondis boutons
+#define BTN_FS    14    // taille de police des libellés de draw_btn
+#define BTN_TXT_PAD 12  // marge mini libellé ↔ bord (boutons dimensionnés au texte)
+#define SLOT_BTN_GAP 8  // écart REPRENDRE ↔ EFFACER (évite le clic voisin)
 #define PANEL_R    6    // rayon coins arrondis panneaux
 
 // ════════════════════════════════════════════════════

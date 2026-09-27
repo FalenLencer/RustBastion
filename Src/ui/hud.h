@@ -123,6 +123,13 @@ typedef struct {
     int           wave_banner_gold;  /* or gagne pendant cette vague          */
     int           wave_kills_start;  /* interne : gs->kills au debut de vague */
     int           wave_gold_acc;     /* interne : or accumule pendant la vague*/
+    int           wave_prep_seen;    /* interne : 1 = une preparation a ete
+                                        observee → le prochain etat « en vague »
+                                        est un VRAI debut (cf. game_state.c)   */
+    /* Y (canvas) sous lequel les bandeaux du haut doivent se placer : une
+       surcouche (bulle du tutoriel) occupe le haut de l'écran. 0 = libre.
+       Recalculé chaque frame par app.c (non sauvegardé). */
+    int           top_reserved_y;
 } UIState;
 
 /* Duree totale d'affichage du bandeau de fin de vague (s) */

@@ -250,12 +250,21 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                     if (bar_w < 80) bar_w = 80;
                     dtxt("PV de base :", px, py, 10, C_DIM);
                     py += fh(10) + 2;
-                    DrawRectangle(px, py, bar_w, 10, (Color){20,14,5,200});
-                    DrawRectangle(px, py, bar_w, 10, (Color){60, 180, 80, 200});
+                    /* Barre RELATIVE à l'ennemi le plus robuste (avant : toujours
+                       pleine) ; hauteur = texte (10 px pour un texte de fh(10)
+                       débordait sur la ligne suivante). */
+                    float hp_max = 1.0f;
+                    for (int e = 0; e < ENEMY_TYPE_COUNT; e++)
+                        if (ENEMY_BASE_STATS[e].hp > hp_max) hp_max = ENEMY_BASE_STATS[e].hp;
+                    int bar_h = fh(10) + 2;
+                    int fill  = (int)((float)bar_w * ENEMY_BASE_STATS[si].hp / hp_max);
+                    if (fill < 2) fill = 2;
+                    DrawRectangle(px, py, bar_w, bar_h, (Color){20,14,5,200});
+                    DrawRectangle(px, py, fill,  bar_h, (Color){60, 180, 80, 200});
                     char hps[24];
                     snprintf(hps, sizeof(hps), "%.0f", ENEMY_BASE_STATS[si].hp);
-                    dtxt(hps, px + 3, py - 1, 10, WHITE);
-                    py += 14;
+                    dtxt(hps, px + 4, py + bar_h/2 - fh(10)/2, 10, WHITE);
+                    py += bar_h + M_IN;
                 }
 
                 draw_sep(px, py, sep_w, C_BORDER); py += M_IN + 2;
@@ -275,19 +284,27 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                 draw_sep(px, py, sep_w, C_BORDER); py += M_IN + 2;
                 dtxt("Resistances :", px, py, 10, C_GOLD); py += fh(10) + 4;
 
-                static const char *DMG_LABELS[DAMAGE_TYPE_COUNT] = {
-                    "Balles (Pistolet/Sniper)",
-                    "Flammes (Lance-flammes)",
-                    "Electricite (Tesla)",
-                    "Cryogenique",
-                    "Nano",
+                /* Nom = source unique DAMAGE_NAMES ; seule la provenance
+                   (où le joueur obtient ce type) est locale. Initialiseurs
+                   désignés : l'ancien tableau positionnel affichait le
+                   multiplicateur POISON sous « Flammes » et laissait le
+                   vrai Feu sans libellé. */
+                static const char *DMG_SOURCE[DAMAGE_TYPE_COUNT] = {
+                    [DMG_PHYSICAL] = "Tourelle/Sniper",
+                    [DMG_POISON]   = "minerai Acide",
+                    [DMG_ELECTRIC] = "Tesla/Plasma",
+                    [DMG_CRYO]     = "minerai Cryo",
+                    [DMG_NANO]     = "minerai Nano",
+                    [DMG_FIRE]     = "Lance-flammes",
                 };
                 int bar_w2 = pw - 4;
                 if (bar_w2 > 300) bar_w2 = 300;
                 int bar_h2 = 18, bar_gap = 5;
                 for (int d = 0; d < DAMAGE_TYPE_COUNT; d++) {
                     if (py + bar_h2 > detail_y + detail_h - M_IN) break;
-                    draw_res_bar(DMG_LABELS[d], ENEMY_DMG_MULT[si][d],
+                    draw_res_bar(TextFormat("%s (%s)", DAMAGE_NAMES[d],
+                                            DMG_SOURCE[d]),
+                                 ENEMY_DMG_MULT[si][d],
                                  px, py, bar_w2, bar_h2);
                     py += bar_h2 + bar_gap;
                 }

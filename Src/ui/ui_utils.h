@@ -8,6 +8,7 @@
 #include "raylib.h"
 #include "../engine/assets.h"
 #include <string.h>
+#include <math.h>
 
 // ── Helpers texte avec police étendue g_font ─────────────────────────────
 // Utiliser dtxt() / mtxt() à la place de DrawText() / MeasureText()
@@ -61,6 +62,21 @@ static inline void draw_icon(Texture2D tex, int x, int y, int size, Color tint) 
         (Rectangle){0, 0, (float)tex.width, (float)tex.height},
         (Rectangle){(float)x, (float)y, (float)size, (float)size},
         (Vector2){0, 0}, 0.0f, tint);
+}
+// Étoile pleine à 5 branches centrée en (cx, cy), rayon extérieur r.
+// La police Rajdhani n'a pas le glyphe ★ : les notes s'affichaient en « * ».
+#define UI_STAR_INNER 0.45f   // rayon intérieur / rayon extérieur
+static inline void ui_draw_star(float cx, float cy, float r, Color c) {
+    Vector2 pts[12];
+    pts[0] = (Vector2){cx, cy};
+    for (int i = 0; i <= 10; i++) {
+        /* Angle décroissant = sens anti-horaire À L'ÉCRAN (y vers le bas),
+           l'ordre attendu par DrawTriangleFan. */
+        float a  = -PI / 2.0f - (float)i * (PI / 5.0f);
+        float rr = (i % 2 == 0) ? r : r * UI_STAR_INNER;
+        pts[i + 1] = (Vector2){cx + cosf(a) * rr, cy + sinf(a) * rr};
+    }
+    DrawTriangleFan(pts, 12, c);
 }
 // ─────────────────────────────────────────────────────────────────────────
 

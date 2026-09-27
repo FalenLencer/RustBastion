@@ -9,7 +9,9 @@
 #include "tower.h"
 #include "enemy.h"
 
-void projectile_spawn(TowerPool *tp, const Tower *tw,
+/* 1 = projectile créé ; 0 = cible invalide OU réserve pleine
+   (MAX_PROJECTILES) : l'appelant ne consomme alors pas son tir. */
+int  projectile_spawn(TowerPool *tp, const Tower *tw,
                       int target_idx, const EnemyPool *ep);
 
 void projectile_update(TowerPool *tp, EnemyPool *ep, float dt);

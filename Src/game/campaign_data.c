@@ -393,9 +393,9 @@ static const ActData ACT_DATA[CAMPAIGN_NODES] = {
         .theme    = THEME_FACTORY,
         .objective = {
             .type        = OBJ_SURVIVE_WAVES,
-            .target      = 20,
+            .target      = 14,
             .before_wave = 0,
-            .description = "Survivre 20 vagues et resister a NEXUS",
+            .description = "Survivre 14 vagues et resister a NEXUS",
         },
         .dialog_before =
             "NEXUS — IA CENTRALE :\n"
@@ -408,7 +408,10 @@ static const ActData ACT_DATA[CAMPAIGN_NODES] = {
             "D'un coup. Partout en meme temps. Pour la premiere fois\n"
             "depuis des annees — le silence. Un vrai silence.\n"
             "On a gagne. Maintenant, on reconstruit.\"\n",
-        .min_waves  = 20,
+        .min_waves  = 14,   /* était 20 : 2× la norme, au pire moment (le climax).
+                               14 reste l'acte le plus long (finales 10→10→11→12)
+                               et les doctrines méthodiques y ajoutent jusqu'à
+                               +18 % d'ennemis via l'indice NEXUS. */
         .unlock_msg = "FIN DE CAMPAGNE — Le monde peut recommencer.",
     },
 

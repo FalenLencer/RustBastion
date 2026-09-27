@@ -9,9 +9,7 @@
  *   - on peut acheter PLUSIEURS fois tant que le Renfort suffit ;
  *   - le Renfort décroît et le build (count) s'incrémente.
  *
- * Compile : gcc -Wall -Wextra -Isrc Src/game/runperks.c Src/game/shop_selftest.c \
- *           -o /tmp/shop_test -lraylib -lGL -lm -lpthread -ldl -lrt \
- *           -lX11 -lXi -lXcursor -lXrandr -lXinerama && /tmp/shop_test
+ * Compilation + exécution (depuis la racine) : make selftest
  */
 #include "runperks.h"
 #include <stdio.h>

@@ -70,12 +70,8 @@ void hero_start(AppContext *ctx) {
     /* SPAWN SÛR près de la base primaire (helper partagé avec le respawn). */
     hero_find_spawn(ctx, &h->px, &h->py);
     h->hz = 0.0f; h->vz = 0.0f; h->on_ground = 1;
-    /* Regard initial : vers le centre de la carte (on voit le terrain). */
-    {
-        float mcx = gs->map.w * (float)TILE_SIZE * 0.5f;
-        float mcy = gs->map.h * (float)TILE_SIZE * 0.5f;
-        h->yaw = atan2f(mcx - h->px, mcy - h->py);
-    }
+    /* Regard initial : direction dégagée vers le centre (hero_survival.c). */
+    h->yaw = hero_spawn_yaw(ctx, h->px, h->py);
     h->pitch = -0.10f;
     h->first_person = 1;                       /* 1re personne par défaut  */
     h->moving = 0; h->anim_t = 0.0f;
@@ -121,6 +117,7 @@ void hero_start(AppContext *ctx) {
 
     gs->ui.speed_mult = 1;                     /* temps réel uniquement    */
     ctx->hero_mode = 1;
+    g_worker_auto_mine = 0;                    /* l'ouvrier = repère de construction */
 
     /* PLEIN ÉCRAN IMPOSÉ (comme les vrais FPS) : en fenêtré, certains
        compositeurs (WSLg…) laissent le curseur fuir malgré la capture.
@@ -148,6 +145,7 @@ static void hero_exit_to_menu(AppContext *ctx) {
     }
     ctx->hero.fs_forced = 0;
     ctx->hero_mode   = 0;
+    g_worker_auto_mine = 1;
     ctx->screen      = SCREEN_MENU;
     ctx->menu.screen = MENU_TITLE;
     ctx->menu.paused = 0;

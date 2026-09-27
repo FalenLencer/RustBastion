@@ -19,26 +19,26 @@ RunMods g_run_mods;
 //   Survie           : GARNISON + REVENTE + éco
 // ════════════════════════════════════════════════════
 const PerkDef RUN_PERKS[PERK_COUNT] = {
-    [PERK_GUN]      = {"Canons renforces",   "GUN",  "Tourelles : +25% degats / niv.",      RAR_COMMON, 3, 40},
+    [PERK_GUN]      = {"Canons renforces",   "TOUR",  "Tourelles : +25% degats / niv.",      RAR_COMMON, 3, 40},
     [PERK_SNIPER]   = {"Optique de precision","SNIP", "Snipers : +25% degats / niv.",        RAR_COMMON, 3, 40},
     [PERK_FLAME]    = {"Carburant ameliore", "FLAM", "Lance-flammes : +25% degats / niv.",   RAR_COMMON, 3, 40},
     [PERK_TESLA]    = {"Bobines surchargees","TESL", "Tesla : +25% degats / niv.",           RAR_COMMON, 3, 40},
 
-    [PERK_PUISSANCE]= {"Surcharge",          "PWR",  "Toutes les tours : +20% degats / niv.",RAR_RARE,   3, 75},
-    [PERK_PORTEE]   = {"Optiques longues",   "RNG",  "Toutes les tours : +12% portee / niv.",RAR_COMMON, 3, 45},
-    [PERK_CADENCE]  = {"Servomoteurs",       "RATE", "Toutes les tours : +20% cadence / niv.",RAR_RARE,  3, 75},
-    [PERK_GLASS]    = {"Canon de verre",     "GLAS", "+60% degats mais -25% portee.",         RAR_RARE,   2, 70},
+    [PERK_PUISSANCE]= {"Surcharge",          "PUIS",  "Toutes les tours : +20% degats / niv.",RAR_RARE,   3, 75},
+    [PERK_PORTEE]   = {"Optiques longues",   "PORT",  "Toutes les tours : +12% portee / niv.",RAR_COMMON, 3, 45},
+    [PERK_CADENCE]  = {"Servomoteurs",       "CAD", "Toutes les tours : +20% cadence / niv.",RAR_RARE,  3, 75},
+    [PERK_GLASS]    = {"Canon de verre",     "VERR", "+60% degats mais -25% portee.",         RAR_RARE,   2, 70},
 
-    [PERK_BUTIN]    = {"Pillage",            "LOOT", "+3 or par ennemi tue / niv.",           RAR_COMMON, 3, 45},
+    [PERK_BUTIN]    = {"Pillage",            "PILL", "+3 or par ennemi tue / niv.",           RAR_COMMON, 3, 45},
     [PERK_SUBV]     = {"Subvention",         "SUBV", "+60 or au debut de chaque acte / niv.", RAR_COMMON, 3, 45},
-    [PERK_REVENTE]  = {"Recyclage total",    "SELL", "Revente des tours : remboursement +40%.",RAR_COMMON,1, 50},
-    [PERK_CAPITAL]  = {"Capitaliste",        "CAP$", "Tours : +5% degats par 100 or possede.",RAR_RARE,   2, 80},
+    [PERK_REVENTE]  = {"Recyclage total",    "RECY", "Revente des tours : remboursement +40%.",RAR_COMMON,1, 50},
+    [PERK_CAPITAL]  = {"Capitaliste",        "CAPI", "Tours : +5% degats par 100 or possede.",RAR_RARE,   2, 80},
 
-    [PERK_BLINDAGE] = {"Blindage",           "ARMR", "Unites : +25% PV / niv.",               RAR_COMMON, 3, 45},
-    [PERK_FUSIL]    = {"Armement lourd",     "ATK",  "Unites : +25% degats / niv.",           RAR_COMMON, 3, 45},
-    [PERK_MEDIC]    = {"Trousse avancee",    "HEAL", "Soin des medics x2 / niv.",             RAR_RARE,   2, 70},
+    [PERK_BLINDAGE] = {"Blindage",           "BLIN", "Unites : +25% PV / niv.",               RAR_COMMON, 3, 45},
+    [PERK_FUSIL]    = {"Armement lourd",     "ARME",  "Unites : +25% degats / niv.",           RAR_COMMON, 3, 45},
+    [PERK_MEDIC]    = {"Trousse avancee",    "SOIN", "Soin des medics x2 / niv.",             RAR_RARE,   2, 70},
 
-    [PERK_GARNISON] = {"Garnison",           "LIFE", "+15 vies au debut de chaque acte / niv.",RAR_COMMON,3, 50},
+    [PERK_GARNISON] = {"Garnison",           "GARN", "+15 vies au debut de chaque acte / niv.",RAR_COMMON,3, 50},
 
     [PERK_ARSENAL]  = {"Arsenal complet",    "ARSE", "Tours : +30% degats, +15% portee & cadence.",RAR_EPIC,1,120},
     [PERK_FORTUNE]  = {"Fortune de guerre",  "FORT", "+8 or/kill ET +120 or au debut d'acte.",RAR_EPIC,  1,120},

@@ -14,3 +14,11 @@ ruvector.db
 # graphify generated graph (regenerable via: graphify update .)
 graphify-out/
 docs/
+# Donnees JOUEUR dans les dossiers de release : ne JAMAIS distribuer les
+# sauvegardes/reglages de la machine de dev. Les livrer cassait l'accueil
+# « premiere fois » (detecte par l'absence du fichier meta), pre-debloquait
+# succes et meta-progression, et proposait « continuer la campagne ».
+release/*/rustbastion/saves/
+release/*/rustbastion/config/
+# Metadonnees Windows « Mark of the Web » materialisees en fichiers par WSL
+*Zone.Identifier

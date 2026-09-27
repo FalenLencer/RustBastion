@@ -53,6 +53,37 @@ void hero_find_spawn(AppContext *ctx, float *out_px, float *out_py) {
     *out_px = px; *out_py = py;   /* pire cas : l'anti-blocage fera le reste */
 }
 
+/* Regard au (re)spawn : la direction la plus DÉGAGÉE, départagée par la
+   proximité avec le centre de la carte. Viser le centre seul collait
+   souvent la caméra contre une ruine (écran à moitié gris). */
+#define HERO_VIEW_DIRS         16     /* directions testées                  */
+#define HERO_VIEW_MAX_TILES    10.0f  /* portée du test de vue (tuiles)      */
+#define HERO_VIEW_STEP_TILES   0.5f   /* pas de la marche de vue (tuiles)    */
+#define HERO_VIEW_CENTER_BIAS  1.5f   /* tuiles de vue « coûtées » par radian
+                                         d'écart à la direction du centre   */
+float hero_spawn_yaw(AppContext *ctx, float px, float py) {
+    const Map *m = &ctx->gs.map;
+    float center = atan2f(m->w * (float)TILE_SIZE * 0.5f - px,
+                          m->h * (float)TILE_SIZE * 0.5f - py);
+    float best_yaw = center, best = -1e9f;
+    for (int d = 0; d < HERO_VIEW_DIRS; d++) {
+        float yaw = center + (float)d * (2.0f * PI / HERO_VIEW_DIRS);
+        float sx = sinf(yaw), sy = cosf(yaw);             /* convention hero.yaw */
+        float t = HERO_VIEW_STEP_TILES;
+        for (; t <= HERO_VIEW_MAX_TILES; t += HERO_VIEW_STEP_TILES) {
+            int tx = (int)((px + sx * t * TILE_SIZE) / TILE_SIZE);
+            int ty = (int)((py + sy * t * TILE_SIZE) / TILE_SIZE);
+            if (tx < 0 || ty < 0 || tx >= m->w || ty >= m->h) break;
+            if (m->tiles[ty][tx].type == TILE_RUIN) break;  /* mur devant */
+        }
+        int   k   = (d <= HERO_VIEW_DIRS / 2) ? d : HERO_VIEW_DIRS - d;
+        float off = (float)k * (2.0f * PI / HERO_VIEW_DIRS);
+        float score = t - off * HERO_VIEW_CENTER_BIAS;
+        if (score > best) { best = score; best_yaw = yaw; }
+    }
+    return best_yaw;
+}
+
 /* Le héros est-il dans la zone de régénération d'une base active ? */
 static int hero_in_regen_zone(const AppContext *ctx) {
     const GameState *gs = &ctx->gs;
@@ -132,6 +163,7 @@ void hero_down_frame(AppContext *ctx, float dt) {
 
     if (h->ko_t <= 0.0f) {                  /* respawn à la base */
         hero_find_spawn(ctx, &h->px, &h->py);
+        h->yaw = hero_spawn_yaw(ctx, h->px, h->py);
         h->hz = 0.0f; h->vz = 0.0f; h->on_ground = 1;
         h->hp   = h->hp_max * HERO_RESPAWN_HP_FRAC;
         h->down = 0;

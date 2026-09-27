@@ -176,6 +176,11 @@ void unit_pool_update  (UnitPool *up, EnemyPool *ep, Map *map, float dt,
                         const TowerPool *towers);
 void unit_damage       (Unit *u, float dmg);
 void unit_assign_deposit(UnitPool *up, int unit_idx, int deposit_idx);
+/* 1 (défaut) = un ouvrier inactif part seul vers le gisement actif le plus
+   proche. 0 en MODE HÉROS : l'ouvrier y est le repère de construction du
+   joueur, il doit rester près de la base. Global (pas un champ de UnitPool :
+   la section sauvegardée changerait de taille → armée effacée). */
+extern int g_worker_auto_mine;
 /* Envoie un ouvrier déblayer l'obstacle de la tuile (tx,ty). L'appelant a
    déjà validé la tuile et débité UNIT_WORKER_CLEAR_COST. */
 void unit_assign_clear  (UnitPool *up, int unit_idx, int tx, int ty);

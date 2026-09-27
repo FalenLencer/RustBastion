@@ -257,7 +257,7 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
     MenuAction act = {0};
     int is_mp = (m->screen == MENU_MP_CONFIG_ADV);   // config avancée d'hébergement multijoueur
     draw_bg(m, vw, vh);
-    draw_header(is_mp ? "CONFIG DE LA PARTIE (HOTE)" : "CUSTOM GAME", vw);
+    draw_header(is_mp ? "CONFIG DE LA PARTIE (HOTE)" : "PARTIE PERSO", vw);
 
     CustomConfig *cfg = is_mp ? &m->mp_cfg : &m->custom_cfg;
     ensure_defaults(cfg);
@@ -379,6 +379,13 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
 
         // ── Taille de la carte ────────────────────────────────
         dtxt("Taille de la carte :", COL_PARAM_X, y, 11, C_GOLD);
+        {   /* valeur sur la ligne du libellé (dans le bouton, elle le chevauchait) */
+            int eff_w = (cfg->map_w > 0) ? cfg->map_w : MAP_W;
+            int eff_h = (cfg->map_h > 0) ? cfg->map_h : MAP_H;
+            const char *dim = TextFormat("%dx%d tuiles", eff_w, eff_h);
+            dtxt(dim, COL_PARAM_X + COL_PARAM_W - mtxt(dim, 9),
+                 y + fh(11) - fh(9), 9, C_DIM);
+        }
         y += LBL_H;
         {
             int sel = find_map_preset(cfg->map_w);
@@ -387,12 +394,6 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
                 cfg->map_w = MAPSIZE_W[sel];
                 cfg->map_h = MAPSIZE_H[sel];
             }
-            /* Affiche les dimensions exactes à droite */
-            int eff_w = (cfg->map_w > 0) ? cfg->map_w : MAP_W;
-            int eff_h = (cfg->map_h > 0) ? cfg->map_h : MAP_H;
-            dtxt(TextFormat("%dx%d tuiles", eff_w, eff_h),
-                 COL_PARAM_X + COL_PARAM_W - 70, y + ROW_H/2 - fh(9)/2,
-                 9, C_DIM);
         }
         y += ROW_H + ROW_GAP;
 
@@ -421,6 +422,10 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
 
         // Puissance max
         dtxt("Puissance max (plafond HP/degats) :", COL_PARAM_X, y, 11, C_TEXT);
+        {
+            const char *v = TextFormat("x%.0f max", cfg->scale_cap);   // ligne du libellé
+            dtxt(v, COL_PARAM_X + COL_PARAM_W - mtxt(v, 9), y + fh(11) - fh(9), 9, C_DIM);
+        }
         y += LBL_H;
         {
             int n = 5;
@@ -429,15 +434,15 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
             if (radio_row(SCALECAP_LABELS, n, COL_PARAM_X, y,
                           btn_w, ROW_H, C_ORANGE, &sel))
                 cfg->scale_cap = SCALECAP_VALUES[sel];
-            // Valeur numérique en dessous
-            dtxt(TextFormat("x%.0f max", cfg->scale_cap),
-                 COL_PARAM_X + COL_PARAM_W - 54, y + ROW_H/2 - fh(9)/2,
-                 9, C_DIM);
         }
         y += ROW_H + ROW_GAP;
 
         // Croissance
         dtxt("Croissance (nombre d'ennemis par vague) :", COL_PARAM_X, y, 11, C_TEXT);
+        {
+            const char *v = TextFormat("x%.1f", cfg->count_mult);      // ligne du libellé
+            dtxt(v, COL_PARAM_X + COL_PARAM_W - mtxt(v, 9), y + fh(11) - fh(9), 9, C_DIM);
+        }
         y += LBL_H;
         {
             int n = 5;
@@ -446,9 +451,6 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
             if (radio_row(COUNTMULT_LABELS, n, COL_PARAM_X, y,
                           btn_w, ROW_H, C_RED, &sel))
                 cfg->count_mult = COUNTMULT_VALUES[sel];
-            dtxt(TextFormat("x%.1f", cfg->count_mult),
-                 COL_PARAM_X + COL_PARAM_W - 34, y + ROW_H/2 - fh(9)/2,
-                 9, C_DIM);
         }
         y += ROW_H + ROW_GAP + 4;
 

@@ -212,45 +212,6 @@ static void draw_overlay_frame(int ox, int oy, int ow, int oh,
                       (Color){accent.r, accent.g, accent.b, 165});
 }
 
-// ── Texte replié sur la largeur (word-wrap) ───────────────────
-// Découpe `txt` en mots (les '\n' sont traités comme des espaces) et
-// rend des lignes qui tiennent dans `maxw`. Avance *py ; s'arrête à y_limit.
-// Évite la troncature mot-au-milieu de l'ancien clip ligne-par-ligne.
-static void draw_wrapped(const char *txt, int x, int *py, int maxw,
-                         int fs, Color col, int y_limit) {
-    if (!txt) return;
-    char line[256]; line[0] = '\0'; int ll = 0;
-    char word[96];
-    int  space_w = mtxt(" ", fs);
-    const char *p = txt;
-    while (1) {
-        while (*p == ' ' || *p == '\n' || *p == '\t') p++;   // saute séparateurs
-        int wl = 0;
-        while (*p && *p != ' ' && *p != '\n' && *p != '\t' && wl < 95)
-            word[wl++] = *p++;
-        word[wl] = '\0';
-        if (wl == 0) break;   // fin de texte
-
-        /* Le mot dépasse-t-il la largeur si on l'ajoute à la ligne courante ?
-           (mesuré sans construire de chaîne combinée → pas de troncature.) */
-        if (ll > 0 && mtxt(line, fs) + space_w + mtxt(word, fs) > maxw) {
-            if (*py > y_limit) return;
-            dtxt(line, x, *py, fs, col);
-            *py += fh(fs) + 3;
-            ll = 0; line[0] = '\0';
-        }
-        /* Ajoute le mot à la ligne courante (concaténation bornée). */
-        if (ll > 0 && ll < (int)sizeof(line) - 1) line[ll++] = ' ';
-        for (int k = 0; word[k] && ll < (int)sizeof(line) - 1; k++)
-            line[ll++] = word[k];
-        line[ll] = '\0';
-    }
-    if (ll > 0 && *py <= y_limit) {
-        dtxt(line, x, *py, fs, col);
-        *py += fh(fs) + 3;
-    }
-}
-
 // ── Animation d'entrée du panneau droit (crossfade de sélection) ──
 // Quand le sujet affiché change (tour / unité / outil), le contenu
 // glisse de +10px et fond en 0.18 s. Les TEXTES passent par ptxt()
@@ -267,36 +228,15 @@ static void draw_wrapped(const char *txt, int x, int *py, int maxw,
 #define WAVE_URGENT_RATIO  0.2f   // seuil d'urgence sur le timer bonus
 #define WAVE_PV_IN_DUR     0.25f  // apparition du panneau d'aperçu (s)
 #define WAVE_PV_RISE       8.0f   // glissement du panneau depuis le bouton (px)
+/* Base des notifications flottantes, au-dessus de HUD_Y : le panneau
+   d'aperçu monte jusqu'à ~HUD_Y-34 (45 px + 6 px d'écart sur LANCER). */
+#define NOTIF_ABOVE_PREVIEW 58
 #define WAVE_PV_ICON_STEP  0.05f  // délai entre icônes d'ennemis (s)
 #define WAVE_PV_ICON_DUR   0.20f  // pop d'une icône (s)
 #define WAVE_RING_DUR      0.30f  // anneau expansif au lancement (s)
 #define WAVE_RING_RADIUS   40.0f  // rayon final de l'anneau (px)
 
 // ── Fiche de découverte (PROMPT K) — séquence d'ouverture ─────
-#define SLOT_DISC        4        // slot ui_timer (0-3 : menus)
-#define DISC_BG_DUR      0.15f    // montée du fond + pop du panneau (s)
-#define DISC_HDR_T0      0.10f    // début du remplissage du bandeau (s)
-#define DISC_HDR_DUR     0.25f    // durée du remplissage (s)
-#define DISC_SPL_T0      0.20f    // début du slide du splash (s)
-#define DISC_SPL_DUR     0.25f    // durée du slide (s)
-#define DISC_FLASH_T0    0.45f    // flash blanc de révélation (s)
-#define DISC_FLASH_DUR   0.12f
-#define DISC_BADGE_T0    0.30f    // tampon du badge catégorie (s)
-#define DISC_BADGE_DUR   0.15f
-#define DISC_TXT_T0      0.35f    // 1re ligne de texte (s)
-#define DISC_TXT_STEP    0.05f    // délai entre lignes (s)
-#define DISC_LINE_DUR    0.15f    // fondu d'une ligne (s)
-#define DISC_BTN_T0      0.55f    // apparition du bouton CONTINUER (s)
-
-// Ligne de texte de la fiche : fondu + petite montée de 6 px.
-static void disc_txt(const char *s, int x, int y, int fs, Color c,
-                     float t, float delay) {
-    float k = (t - delay) / DISC_LINE_DUR;
-    if (k <= 0.0f) return;
-    if (k > 1.0f) k = 1.0f;
-    c.a = (unsigned char)((float)c.a * k);
-    dtxt(s, x, y + (int)(6.0f * (1.0f - ea_out_cubic(k))), fs, c);
-}
 
 static int   g_sel_dx = 0;       // offset x courant des textes du panneau
 static float g_sel_al = 1.0f;    // facteur alpha courant du contenu
@@ -604,7 +544,11 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 int dy = (int)(WAVE_PV_RISE * (1.0f - pk));
 
                 const int ic = 22, ig = 4, ip = 7;
-                const char *hdr = "PROCHAINE VAGUE";
+                /* Préavis de BOSS (campagne ET arcade) : le panneau s'élargit
+                   déjà à la largeur de l'en-tête (pw dérive de mtxt(hdr)). */
+                int boss_next = game_next_wave_is_boss(gs);
+                const char *hdr = boss_next ? "PROCHAINE VAGUE : BOSS !"
+                                            : "PROCHAINE VAGUE";
                 int hw     = mtxt(hdr, 10);
                 int stripw = npv*ic + (npv-1)*ig;
                 int pw     = (stripw > hw ? stripw : hw) + ip*2;
@@ -617,8 +561,10 @@ void ui_render(const UIState *ui, const GameState *gs) {
                 DrawRectangleRoundedLinesEx((Rectangle){(float)ppx,(float)ppy,(float)pw,(float)ph},
                                             0.16f, 5, 1.2f,
                                             (Color){70, 48, 16, (unsigned char)(210.0f * pk)});
-                dtxt(hdr, ppx + pw/2 - hw/2, ppy + 4, 10,
-                     (Color){150, 120, 70, (unsigned char)(255.0f * pk)});
+                /* En-tête rouge si un boss arrive : le préavis doit sauter aux yeux */
+                Color hdr_c = boss_next ? UI_DANGER : (Color){150, 120, 70, 255};
+                hdr_c.a = (unsigned char)(255.0f * pk);
+                dtxt(hdr, ppx + pw/2 - hw/2, ppy + 4, 10, hdr_c);
                 int ix = ppx + (pw - stripw)/2, iy = ppy + 15;
                 for (int k = 0; k < npv; k++) {
                     /* Cascade : icône k pope avec k×0.05 s de délai */
@@ -742,41 +688,42 @@ void ui_render(const UIState *ui, const GameState *gs) {
 
             // Stats — 2 colonnes (fs=13)
             Color sc   = UI_TEXT_DIM;
-            Color nlc  = UI_ACCENT_DIM;
             Color typc = (Color){82,155,200,255};
             Color matc = (Color){62,172,192,255};
-            int   cx2  = rx + max_w / 2;
 
-            ptxt(TextFormat("Dmg   %.0f",   tw->damage),
-                     rx,  py, 13, sc);
-            ptxt(TextFormat("Port  %.1ft",  tw->range),
-                     cx2, py, 13, sc);   py += 17;
+            /* Budget vertical : tout doit tenir AU-DESSUS des boutons
+               d'amélioration (HUD_Y + M + PORTRAIT_SZ). L'ancienne pile
+               (stats + « Niv » + Type + Mat + astuce) débordait dessous.
+               « Niv » affichait Tower.level, jamais incrémenté (toujours 0). */
+            char s_dmg[24], s_rng[24], s_rate[24], s_typ[24];
+            snprintf(s_dmg,  sizeof(s_dmg),  "Degats %.0f",    tw->damage);
+            snprintf(s_rng,  sizeof(s_rng),  "Portee %.1f",    tw->range);
+            snprintf(s_rate, sizeof(s_rate), "Cadence %.1f/s", tw->fire_rate);
+            snprintf(s_typ,  sizeof(s_typ),  "%s", DAMAGE_NAMES[tw->dmg_type]);
+            /* 2e colonne calée à droite de la zone de texte (avant le portrait) */
+            int w_c2 = mtxt(s_rng, 13);
+            if (mtxt(s_typ, 13) > w_c2) w_c2 = mtxt(s_typ, 13);
+            int col2 = rx + text_w - w_c2;
 
-            ptxt(TextFormat("Cad   %.1f/s", tw->fire_rate),
-                     rx,  py, 13, sc);
-            ptxt(TextFormat("Niv   %d",     tw->level),
-                     cx2, py, 13, nlc);  py += 17;
+            ptxt(s_dmg,  rx,   py, 13, sc);
+            ptxt(s_rng,  col2, py, 13, sc);   py += 17;
+            ptxt(s_rate, rx,   py, 13, sc);
+            ptxt(s_typ,  col2, py, 13, typc); py += 17;
 
-            ptxt(TextFormat("Type  %s", DAMAGE_NAMES[tw->dmg_type]),
-                     rx, py, 13, typc); py += 17;
-
-            if (tw->material != MAT_NONE) {
-                clip_text(TextFormat("Mat: %s", MATERIAL_NAMES[tw->material]),
-                          max_w, 13, buf, sizeof(buf));
-                ptxt(buf, rx, py, 13, matc);
-                py += 16;
-            }
-
-            /* ── Infobulle de synergie élémentaire ───────── */
+            /* ── Ligne d'astuce : synergie > minerai > rappel général ── */
             {
-                const char *syn = (tw->dmg_type == DMG_CRYO)
-                    ? "Synergie: gele -> +30% degats subis"
+                const char *hint = (tw->dmg_type == DMG_CRYO)
+                    ? "Synergie : gele -> +30% degats subis"
                     : (tw->dmg_type == DMG_POISON)
-                    ? "Synergie: corrode -> +25% phys/feu"
-                    : "Frappe + fort gele / corrode";
-                clip_text(syn, max_w, 10, buf, sizeof(buf));
-                ptxt(buf, rx, py, 9, (Color){120, 200, 140, 230});
-                py += 14;
+                    ? "Synergie : corrode -> +25% phys/feu"
+                    : (tw->material != MAT_NONE)
+                    ? TextFormat("Minerai : %s", MATERIAL_NAMES[tw->material])
+                    : "Frappe + fort les ennemis geles / corrodes";
+                Color hc = (tw->material != MAT_NONE) ? matc
+                                                      : (Color){120, 200, 140, 230};
+                clip_text(hint, text_w, 9, buf, sizeof(buf));
+                ptxt(buf, rx, py, 9, hc);
+                py += fh(9);
             }
 
             /* ── Boutons d'amélioration (sous le portrait) ─ */
@@ -868,22 +815,20 @@ void ui_render(const UIState *ui, const GameState *gs) {
                                        : (Color){45, 35, 12, 120};
                 DrawRectangleRounded(rb, rrnd, 4, _rbg);
                 DrawRectangleRoundedLinesEx(rb, rrnd, 4, 1.2f, pal_c(_rbd));
+                /* Tour intacte : un seul libellé (l'ancien « OK » en 2e ligne
+                   chevauchait « Rep. N or » : le bouton fait 1 ligne de haut). */
                 char _rptxt[24];
-                snprintf(_rptxt, sizeof(_rptxt), "Rep. %d or", TOWER_REPAIR_COST);
+                if (_needs_rep)
+                    snprintf(_rptxt, sizeof(_rptxt), "Reparer %d or", TOWER_REPAIR_COST);
+                else
+                    snprintf(_rptxt, sizeof(_rptxt), "Tour intacte");
                 int _rpw = mtxt(_rptxt, 10);
                 Color _rpc = _can_rep   ? (Color){42, 185, 90, 255}
                            : _needs_rep ? (Color){55, 42, 22, 200}
-                                        : (Color){40, 32, 12, 160};
+                                        : (Color){42, 120, 70, 170};
                 dtxt(_rptxt,
                      (int)(rb.x + rb.width/2 - _rpw/2),
-                     (int)(rb.y + rb.height/2 - 6), 10, _rpc);
-                if (!_needs_rep) {
-                    int _okw = mtxt("OK", 7);
-                    dtxt("OK",
-                         (int)(rb.x + rb.width/2 - _okw/2),
-                         (int)(rb.y + rb.height - 9), 7,
-                         (Color){42, 185, 90, 170});
-                }
+                     (int)(rb.y + rb.height/2 - fh(10)/2), 10, _rpc);
             }
 
             // Bouton VENDRE
@@ -896,10 +841,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     hov ? (Color){48,8,8,255} : (Color){20,4,4,255});
                 DrawRectangleRoundedLinesEx(sb, srnd, 6, 1.5f,
                     pal_c(hov ? (Color){192,48,48,255} : (Color){90,18,18,255}));
-                float _rfrac = TOWER_SELL_REFUND + g_run_mods.sell_refund_add;
-                if (_rfrac > 1.0f) _rfrac = 1.0f;
-                int refund = (int)(tower_cost_on_tile(tw->type, &gs->map,
-                                       tw->tile_x, tw->tile_y) * _rfrac);
+                int refund = tower_sell_refund(tw, &gs->map);
                 snprintf(buf, sizeof(buf), "Vendre  +%d or", refund);
                 int bw = mtxt(buf, 13);
                 dtxt(buf, (int)(sb.x + sb.width/2 - bw/2),
@@ -988,7 +930,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
             static float disp_hr = 0.0f;
             if (hp_snap) { disp_hr = hr; hp_snap = 0; }
             disp_hr += (hr - disp_hr) * fminf(1.0f, ui_dt() * 2.5f);
-            snprintf(buf, sizeof(buf), "HP   %.0f / %.0f", u->hp, u->max_hp);
+            snprintf(buf, sizeof(buf), "PV   %.0f / %.0f", u->hp, u->max_hp);
             ptxt(buf, rx, py, 13, hc); py += 14;
             draw_bar(rx, py, max_w, 6, fmaxf(disp_hr, 0.0f), hc, (Color){16,16,16,200});
             py += 13;
@@ -1005,10 +947,13 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     default:                  ss = "En attente";   break;
                 }
                 ptxt(ss, rx, py, 13, UI_TEXT_DIM); py += 17;
-                if (!gs->units.mining_enabled)
-                    ptxt("Minage : pause vague", rx, py, 11,
+                /* Ligne de statut : avance py (sinon la ligne d'aide suivante
+                   se dessinait par-dessus). Pas vertical = fh(11). */
+                if (!gs->units.mining_enabled) {
+                    ptxt("Minage : reprend pendant la vague", rx, py, 11,
                          (Color){200,180,50,200});
-                else if (u->state == USTATE_COLLECT) {
+                    py += fh(11);
+                } else if (u->state == USTATE_COLLECT) {
                     // Indicateur de ralentissement par ennemis
                     for (int _ej = 0; _ej < MAX_ENEMIES; _ej++) {
                         const Enemy *_e = &gs->enemies.enemies[_ej];
@@ -1016,8 +961,9 @@ void ui_render(const UIState *ui, const GameState *gs) {
                         float _dx = _e->x - u->x, _dy = _e->y - u->y;
                         float _d2 = UNIT_WORKER_ENEMY_SLOW_RANGE * TILE_SIZE;
                         if (_dx*_dx + _dy*_dy <= _d2*_d2) {
-                            ptxt("! Ennemi proche: lent", rx, py, 11,
+                            ptxt("! Ennemi proche : collecte ralentie", rx, py, 11,
                                  (Color){231,76,60,220});
+                            py += fh(11);
                             break;
                         }
                     }
@@ -1042,12 +988,12 @@ void ui_render(const UIState *ui, const GameState *gs) {
             }
 
             if (u->type == UNIT_WORKER) {
-                ptxt("Clic depot = mission", rx, py, 11, (Color){92,92,35,175});
-                py += 15;
-                char _cb[48];
-                snprintf(_cb, sizeof(_cb), "Clic ruine = deblayer (%d or)",
+                /* Une seule ligne d'aide (le minage est automatique ; cliquer
+                   un gisement ne sert qu'à en CHOISIR un autre). */
+                char _cb[64];
+                snprintf(_cb, sizeof(_cb), "Clic : autre gisement / ruine (%d or)",
                          UNIT_WORKER_CLEAR_COST);
-                ptxt(_cb, rx, py, 11, (Color){92,92,35,175});
+                ptxt(_cb, rx, py, 11, (Color){150,150,70,200});
             }
 
             // ── Boutons de comportement (unités de combat seulement) ──
@@ -1136,16 +1082,21 @@ void ui_render(const UIState *ui, const GameState *gs) {
             DrawLine(rx, py, rx+max_w, py, pal_c((Color){44,28,8,140}));
             py += 7;
 
-            // Stats 2 colonnes (fs=13)
+            // Stats 2 colonnes (fs=13) — mêmes libellés que le panneau de tour
             Color sc2 = UI_TEXT_DIM;
-            int   cx2 = rx + max_w / 2;
+            char s_rng2[24];
+            snprintf(s_rng2, sizeof(s_rng2), "Portee %.1f", info->range);
+            int cx2 = rx + text_w - mtxt(s_rng2, 13);   /* calée avant le portrait */
 
-            ptxt(TextFormat("Dmg   %.0f",  info->dmg),
-                     rx,  py, 13, sc2);
-            ptxt(TextFormat("Port  %.1ft", info->range),
-                     cx2, py, 13, sc2);  py += 17;
-            ptxt(TextFormat("Cad   %.1f/s",info->rate),
-                     rx,  py, 13, sc2);  py += 17;
+            if (info->dmg > 0.0f) {
+                ptxt(TextFormat("Degats %.0f",  info->dmg),
+                         rx,  py, 13, sc2);
+                ptxt(s_rng2, cx2, py, 13, sc2);   py += 17;
+                ptxt(TextFormat("Cadence %.1f/s",info->rate),
+                         rx,  py, 13, sc2);  py += 17;
+            } else {                                   /* ouvrier : ne combat pas */
+                ptxt("Non combatif", rx, py, 13, sc2);  py += 34;
+            }
 
             if (ui_tool_is_tower(ui->selected_tool) &&
                 ui->hovered_tile_x >= 0 && ui->hovered_tile_y >= 0) {
@@ -1548,7 +1499,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
                     DrawRectangleRounded(rb2, 0.25f, 4, rbc2);
                     DrawRectangleRoundedLinesEx(rb2, 0.25f, 4, 1.0f, rbrd2);
                     char rbuf2[32];
-                    snprintf(rbuf2, sizeof(rbuf2), "Rep. +%dHP  %d or",
+                    snprintf(rbuf2, sizeof(rbuf2), "Rep. +%d PV  %d or",
                              BASE_REPAIR_RESTORE, rc);
                     int rtw2 = mtxt(rbuf2, 8);
                     dtxt(rbuf2,
@@ -1739,7 +1690,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
         if (nt > 0 || rb->renfort > 0) {
             const int FS = 9, PAD = 7, GAP = 9, CHIP = 4;
             char rbuf[24];
-            snprintf(rbuf, sizeof(rbuf), "RNF %d", rb->renfort);
+            snprintf(rbuf, sizeof(rbuf), "Renfort %d", rb->renfort);
 
             // Mesure de la largeur totale
             char tags[PERK_COUNT][16];
@@ -1817,6 +1768,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
         int   cx  = g_map_x_off + g_canvas_virt_w_base / 2;
         int   by  = 46 - (int)(el * 3.0f);                     /* derive douce */
         if (by < 38) by = 38;
+        if (ui->top_reserved_y > 38) by += ui->top_reserved_y - 38;  /* sous la bulle tuto */
 
         char l1[48], l2[64], l3[80];
         snprintf(l1, sizeof(l1), "VAGUE %d REPOUSSEE !", ui->wave_banner_wave);
@@ -1863,12 +1815,14 @@ void ui_render(const UIState *ui, const GameState *gs) {
     // ════════════════════════════════════════════════
     {
         int nx = g_map_x_off + g_canvas_virt_w_base / 2;
-        int base_y = HUD_Y - 12;
+        /* Démarre AU-DESSUS du panneau « Prochaine vague » (ancré sur le
+           bouton LANCER, ~45 px de haut) : partir de HUD_Y-12 le recouvrait. */
+        int base_y = HUD_Y - NOTIF_ABOVE_PREVIEW;
         for (int i = 0; i < ui->notif_count; i++) {
             const FloatNotif *n = &ui->notifs[i];
             float alpha_f = n->timer > 0.5f ? 1.0f : n->timer / 0.5f;
             unsigned char alpha = (unsigned char)(alpha_f * 235.0f);
-            int ny = base_y - (int)n->y_off - i * 22;
+            int ny = base_y - (int)n->y_off - i * (fh(12) + 4);
             if (ny < 4) continue;
             int tw2 = mtxt(n->text, 12);
             DrawRectangleRounded(
@@ -1889,7 +1843,16 @@ void ui_render(const UIState *ui, const GameState *gs) {
         int              locked = !tool_is_unlocked((ToolID)ui->hovered_tool, gs);
 
         const int TW = 170;
-        const int TH = locked ? 52 : 62;
+        int at_limit = !locked &&
+            ((ui_tool_is_tower((ToolID)ui->hovered_tool) &&
+              gs->towers.tower_count >= gs->towers.tower_limit) ||
+             (ui_tool_is_unit((ToolID)ui->hovered_tool) &&
+              gs->units.count >= gs->units.unit_limit));
+        /* Hauteur au contenu, pas vertical fh() (l'ancien pas de 12-14 px
+           pour du texte de fh(10)=16 px superposait les lignes). */
+        const int TL = fh(10) + 1;                        /* pas d'une ligne */
+        const int TH = locked ? M * 2 + fh(11) + 2 + TL
+                              : M * 2 + fh(11) + 2 + TL * 3 + (at_limit ? TL : 0);
 
         int tx = (int)rb->x;
         int ty = (int)rb->y - TH - GAP;
@@ -1913,31 +1876,30 @@ void ui_render(const UIState *ui, const GameState *gs) {
         dtxt(dbuf, tx+M, ty+M, 11,
              locked ? (Color){80, 62, 35, 255} : TOOL_COLORS[ui->hovered_tool]);
 
+        int ly = ty + M + fh(11) + 2;
         if (locked) {
             TowerType tt = ui_tool_to_tower((ToolID)ui->hovered_tool);
             const char *when = TOWER_UNLOCK_ACT_NAME[tt];
             clip_text(TextFormat("Deblocage : %s", when ? when : "?"),
-                      TW-M*2, 9, dbuf, sizeof(dbuf));
-            dtxt(dbuf, tx+M, ty+30, 10, (Color){130, 95, 40, 255});
+                      TW-M*2, 10, dbuf, sizeof(dbuf));
+            dtxt(dbuf, tx+M, ly, 10, (Color){130, 95, 40, 255});
         } else {
-            clip_text(TextFormat("Dmg:%.0f  Port:%.1ft", info->dmg, info->range),
+            clip_text(info->dmg > 0.0f
+                          ? TextFormat("Degats %.0f  Portee %.1f", info->dmg, info->range)
+                          : "Non combatif",
                       TW-M*2, 10, dbuf, sizeof(dbuf));
-            dtxt(dbuf, tx+M, ty+23, 10, (Color){145,125,92,255});
-            clip_text(TextFormat("Cad:%.1f/s  Cout:%d or", info->rate, info->cost),
+            dtxt(dbuf, tx+M, ly, 10, (Color){145,125,92,255});           ly += TL;
+            clip_text(info->dmg > 0.0f
+                          ? TextFormat("Cadence %.1f/s  %d or", info->rate, info->cost)
+                          : TextFormat("%d or", info->cost),
                       TW-M*2, 10, dbuf, sizeof(dbuf));
-            dtxt(dbuf, tx+M, ty+35, 10, (Color){145,125,92,255});
+            dtxt(dbuf, tx+M, ly, 10, (Color){145,125,92,255});           ly += TL;
             clip_text(info->desc, TW-M*2, 10, dbuf, sizeof(dbuf));
-            dtxt(dbuf, tx+M, ty+49, 10, UI_BORDER);
+            dtxt(dbuf, tx+M, ly, 10, UI_BORDER);                         ly += TL;
 
-            int at_tower_limit = ui_tool_is_tower((ToolID)ui->hovered_tool) &&
-                                 gs->towers.tower_count >= gs->towers.tower_limit;
-            int at_unit_limit  = ui_tool_is_unit((ToolID)ui->hovered_tool) &&
-                                 gs->units.count >= gs->units.unit_limit;
-            if (at_tower_limit || at_unit_limit) {
+            if (at_limit)
                 dtxt(TextFormat("LIMITE (%d bases)", gs->map.base_count),
-                         tx + M, ty + TH - 17, 10,
-                         UI_DANGER);
-            }
+                     tx + M, ly, 10, UI_DANGER);
 
             /* P0.3 — Conseil de contre sous le tooltip (tours only) :
                « quelle tour pour la vague qui vient ? » */
@@ -1969,362 +1931,7 @@ void ui_render(const UIState *ui, const GameState *gs) {
     }
 
     // ════════════════════════════════════════════════
-    // FICHE DE DÉCOUVERTE
+    // FICHE DE DÉCOUVERTE (hud_render_disc.c)
     // ════════════════════════════════════════════════
-    if (ui->disc_count > 0) {
-        const DiscEntry *de = &ui->disc_queue[0];
-        int cx = g_canvas_virt_w / 2, cy = g_canvas_virt_h / 2;
-        int cw = 540, ch = 400;
-        int card_x = cx - cw/2, card_y = cy - ch/2;
-
-        // Couleur thématique par catégorie
-        Color cat_col =
-            de->type == DISC_ENEMY    ? (Color){210,  70,  50, 255} :
-            de->type == DISC_TOWER    ? (Color){215, 155,  40, 255} :
-            de->type == DISC_MATERIAL ? MATERIAL_COLORS[de->idx]     :
-                                        (Color){ 70, 170,  80, 255};
-        Color cat_dim = (Color){cat_col.r/4, cat_col.g/4, cat_col.b/4, 255};
-
-        /* ── Timer d'ouverture : réouverture (gap de rendu) ou fiche
-           suivante (le contenu de disc_queue[0] change). ── */
-        static int prev_dtype = -1, prev_didx = -1;
-        if (ui_timer_gap(SLOT_DISC) > 2 ||
-            (int)de->type != prev_dtype || de->idx != prev_didx) {
-            ui_timer(SLOT_DISC, 1);
-            prev_dtype = (int)de->type;
-            prev_didx  = de->idx;
-        }
-        float dt_open = ui_timer(SLOT_DISC, 0);
-
-        /* Phases de la séquence */
-        float k1 = dt_open / DISC_BG_DUR;                      // fond + panneau
-        if (k1 > 1.0f) k1 = 1.0f;
-        float k2 = (dt_open - DISC_HDR_T0) / DISC_HDR_DUR;     // bandeau + titre
-        k2 = k2 < 0.0f ? 0.0f : k2 > 1.0f ? 1.0f : k2;
-
-        // Fond noir semi-transparent plein écran (montée en 0.15 s)
-        DrawRectangle(0, 0, g_canvas_virt_w, g_canvas_virt_h,
-                      (Color){0,0,0,(unsigned char)(180.0f * k1)});
-
-        // Panneau principal : scale 0.92 → 1.0 autour du centre + fondu.
-        // Seul le DESSIN du cadre est mis à l'échelle ; le contenu et les
-        // hitbox (X, CONTINUER — gérées par hud_input) restent finaux.
-        {
-            float sc  = 0.92f + 0.08f * ea_out_cubic(k1);
-            float scw = (float)cw * sc, sch = (float)ch * sc;
-            Rectangle pr2 = {(float)cx - scw/2.0f, (float)cy - sch/2.0f, scw, sch};
-            DrawRectangleRounded(pr2, 0.05f, 6,
-                                 (Color){8,5,2,(unsigned char)(252.0f * k1)});
-            DrawRectangleRoundedLinesEx(pr2, 0.05f, 6, 2.0f,
-                (Color){cat_col.r, cat_col.g, cat_col.b,
-                        (unsigned char)(255.0f * k1)});
-        }
-
-        // Bandeau d'en-tête : se remplit de gauche à droite (clip manuel —
-        // BeginScissorMode opère en coordonnées écran, pas canvas)
-        int hdr_h = 46;
-        if (k2 > 0.0f) {
-            DrawRectangleRounded(
-                (Rectangle){(float)card_x,(float)card_y,(float)cw * k2,(float)hdr_h},
-                0.1f, 4, cat_dim);
-            DrawRectangleRoundedLinesEx(
-                (Rectangle){(float)card_x,(float)card_y,(float)cw,(float)hdr_h},
-                0.1f, 4, 1.5f,
-                (Color){cat_col.r, cat_col.g, cat_col.b,
-                        (unsigned char)(255.0f * k2)});
-        }
-
-        // Badge catégorie
-        const char *cat_lbl =
-            de->type == DISC_ENEMY    ? "ENNEMI"  :
-            de->type == DISC_TOWER    ? "TOUR"    :
-            de->type == DISC_MATERIAL ? "MINERAI" : "UNITE";
-        int cl = mtxt(cat_lbl, 10);
-        int badge_w = cl + 12, badge_h = 18;
-        int bx = card_x + 12, by = card_y + hdr_h/2 - badge_h/2;
-        /* Badge : « tamponne » à 0.30 s (scale 1.6 → 1.0, ea_out_back) */
-        {
-            float kb = (dt_open - DISC_BADGE_T0) / DISC_BADGE_DUR;
-            if (kb > 0.0f) {
-                float bs = (kb >= 1.0f) ? 1.0f
-                         : 1.6f - 0.6f * ea_out_back(kb);
-                float bw2 = (float)badge_w * bs, bh2 = (float)badge_h * bs;
-                float bcx = (float)bx + badge_w/2.0f, bcy = (float)by + badge_h/2.0f;
-                unsigned char ba = (unsigned char)(255.0f * (kb > 1.0f ? 1.0f : kb));
-                DrawRectangleRounded(
-                    (Rectangle){bcx - bw2/2.0f, bcy - bh2/2.0f, bw2, bh2},
-                    0.4f, 4, (Color){cat_col.r, cat_col.g, cat_col.b, ba});
-                dtxt(cat_lbl, bx + 6, by + badge_h/2 - fh(10)/2, 10,
-                     (Color){8,5,2,ba});
-            }
-        }
-
-        // Titre "DÉCOUVERTE !" — tracking qui se resserre (8 → 2 px)
-        {
-            const char *disc_title = "DECOUVERTE !";
-            int   fs      = 16;
-            float spacing = 2.0f + (1.0f - k2) * 6.0f;
-            float total   = 0.0f;
-            for (int i = 0; disc_title[i]; i++) {
-                char one[2] = {disc_title[i], '\0'};
-                total += (float)mtxt(one, fs);
-                if (disc_title[i+1]) total += spacing;
-            }
-            float lx = (float)cx - total * 0.5f;
-            int   ly = card_y + hdr_h/2 - fh(fs)/2;
-            unsigned char ta = (unsigned char)(255.0f * k2);
-            for (int i = 0; disc_title[i]; i++) {
-                char one[2] = {disc_title[i], '\0'};
-                dtxt(one, (int)lx, ly, fs,
-                     (Color){cat_col.r, cat_col.g, cat_col.b, ta});
-                lx += (float)mtxt(one, fs) + spacing;
-            }
-        }
-
-        // Bouton [✕]
-        int xbw = 28, xbh = 22;
-        int xbx = card_x + cw - 10 - xbw, xby = card_y + 10;
-        Rectangle xbtn = {(float)xbx,(float)xby,(float)xbw,(float)xbh};
-        int xhov = CheckCollisionPointRec(virt_mouse(), xbtn);
-        if (k2 > 0.0f) {   // apparaît avec le bandeau (hitbox : hud_input)
-            Color xbg = xhov ? (Color){180,50,40,240} : (Color){60,30,20,200};
-            Color xbd = xhov ? (Color){255,100,80,255} : cat_col;
-            Color xtc = xhov ? WHITE : (Color){200,170,130,255};
-            xbg.a = (unsigned char)((float)xbg.a * k2);
-            xbd.a = (unsigned char)((float)xbd.a * k2);
-            xtc.a = (unsigned char)((float)xtc.a * k2);
-            DrawRectangleRounded(xbtn, 0.3f, 4, xbg);
-            DrawRectangleRoundedLinesEx(xbtn, 0.3f, 4, 1.5f, xbd);
-            int xw = mtxt("X", 11);
-            dtxt("X", xbx + xbw/2 - xw/2, xby + xbh/2 - fh(11)/2, 11, xtc);
-        }
-
-        // Corps de la fiche
-        int body_y = card_y + hdr_h + 12;
-        int pad = 14;
-
-        // Splash art
-        int splash_sz = 160;
-        Texture2D *spl = NULL;
-        if      (de->type == DISC_ENEMY) spl = &g_enemy_splash[de->idx];
-        else if (de->type == DISC_TOWER) spl = &g_tower_splash[de->idx];
-        else if (de->type == DISC_UNIT)  spl = &g_unit_splash [de->idx];
-        // DISC_MATERIAL : pas de splash → le fallback dessine un carre couleur minerai
-
-        int spl_x = card_x + pad;
-        int spl_y = body_y;
-        /* Slide depuis la gauche (-30 px) + fondu, puis flash de révélation */
-        {
-            float k3 = (dt_open - DISC_SPL_T0) / DISC_SPL_DUR;
-            k3 = k3 < 0.0f ? 0.0f : k3 > 1.0f ? 1.0f : k3;
-            int  sxo = spl_x - (int)(30.0f * (1.0f - ea_out_cubic(k3)));
-            unsigned char sa = (unsigned char)(255.0f * k3);
-            if (k3 > 0.0f) {
-                if (spl && spl->id != 0) {
-                    DrawTexturePro(*spl,
-                        (Rectangle){0,0,(float)spl->width,(float)spl->height},
-                        (Rectangle){(float)sxo,(float)spl_y,
-                                    (float)splash_sz,(float)splash_sz},
-                        (Vector2){0,0}, 0.0f, (Color){255,255,255,sa});
-                    DrawRectangleLinesEx(
-                        (Rectangle){(float)sxo,(float)spl_y,
-                                    (float)splash_sz,(float)splash_sz},
-                        1.5f, (Color){cat_col.r, cat_col.g, cat_col.b, sa});
-                } else {
-                    // Fallback : carré coloré
-                    DrawRectangleRounded(
-                        (Rectangle){(float)sxo,(float)spl_y,
-                                    (float)splash_sz,(float)splash_sz},
-                        0.1f, 4,
-                        (Color){cat_dim.r, cat_dim.g, cat_dim.b, sa});
-                    DrawRectangleRoundedLinesEx(
-                        (Rectangle){(float)sxo,(float)spl_y,
-                                    (float)splash_sz,(float)splash_sz},
-                        0.1f, 4, 1.5f,
-                        (Color){cat_col.r, cat_col.g, cat_col.b, sa});
-                }
-            }
-            /* Flash blanc bref qui « révèle » l'image */
-            float kf = (dt_open - DISC_FLASH_T0) / DISC_FLASH_DUR;
-            if (kf > 0.0f && kf < 1.0f)
-                DrawRectangle(spl_x, spl_y, splash_sz, splash_sz,
-                              (Color){255,255,255,
-                                      (unsigned char)(90.0f * (1.0f - kf))});
-        }
-
-        // Texte à droite du splash
-        int txt_x  = spl_x + splash_sz + pad;
-        int txt_w  = card_x + cw - pad - txt_x;
-        int txt_y  = body_y;
-
-        // Nom de l'entité
-        const char *name = NULL;
-        if      (de->type == DISC_ENEMY)    name = ENEMY_BASE_STATS[de->idx].name;
-        else if (de->type == DISC_TOWER)    name = TOWER_BASE_STATS[de->idx].name;
-        else if (de->type == DISC_MATERIAL) name = MATERIAL_NAMES  [de->idx];
-        else                                name = UNIT_BASE_STATS [de->idx].name;
-        disc_txt(name, txt_x, txt_y, 20, cat_col,
-                 dt_open, DISC_TXT_T0);
-        txt_y += fh(20) + 2;
-
-        // Sous-titre type
-        const char *sub =
-            de->type == DISC_ENEMY    ? "Ennemi rencontre" :
-            de->type == DISC_TOWER    ? "Tour de defense"  :
-            de->type == DISC_MATERIAL ? "Minerai - a appliquer sur une tour" :
-                                        "Unite alliee";
-        disc_txt(sub, txt_x, txt_y, 9, (Color){100,85,60,220},
-                 dt_open, DISC_TXT_T0 + DISC_TXT_STEP);
-        txt_y += fh(10) + 8;
-
-        // Séparateur (fondu avec les lignes voisines)
-        {
-            float ks = (dt_open - (DISC_TXT_T0 + DISC_TXT_STEP)) / DISC_LINE_DUR;
-            ks = ks < 0.0f ? 0.0f : ks > 1.0f ? 1.0f : ks;
-            DrawLineEx((Vector2){(float)txt_x,(float)txt_y},
-                       (Vector2){(float)(txt_x+txt_w),(float)txt_y},
-                       1.2f, (Color){cat_col.r/3,cat_col.g/3,cat_col.b/3,
-                                     (unsigned char)(220.0f * ks)});
-        }
-        txt_y += 6;
-
-        // Stats condensées
-        char stat_a[64] = {0}, stat_b[96] = {0};   // stat_b : liste des faiblesses ennemi
-        if (de->type == DISC_ENEMY) {
-            snprintf(stat_a, sizeof(stat_a), "PV : %.0f   Vitesse : %.1f   Or : %d",
-                     ENEMY_BASE_STATS[de->idx].hp,
-                     ENEMY_BASE_STATS[de->idx].speed,
-                     ENEMY_BASE_STATS[de->idx].reward);
-            // Faiblesses elementaires (mult >= 1.3) : apprend le CONTRE a utiliser.
-            char wk[64]; int off = 0, wn = 0;
-            for (int d = 0; d < DAMAGE_TYPE_COUNT && off < (int)sizeof(wk) - 1; d++) {
-                if (ENEMY_DMG_MULT[de->idx][d] >= 1.30f)
-                    off += snprintf(wk + off, sizeof(wk) - off, "%s%s",
-                                    wn++ ? ", " : "", DAMAGE_NAMES[d]);
-            }
-            if (wn) snprintf(stat_b, sizeof(stat_b), "Faible : %s", wk);
-            else    snprintf(stat_b, sizeof(stat_b), "Peu de faiblesse elementaire");
-        } else if (de->type == DISC_TOWER) {
-            snprintf(stat_a, sizeof(stat_a), "Cout : %d or   Dgts : %.0f",
-                     TOWER_BASE_STATS[de->idx].cost,
-                     TOWER_BASE_STATS[de->idx].damage);
-            snprintf(stat_b, sizeof(stat_b), "Portee : %.1f   Cad : %.1f/s",
-                     TOWER_BASE_STATS[de->idx].range,
-                     TOWER_BASE_STATS[de->idx].fire_rate);
-        } else if (de->type == DISC_MATERIAL) {
-            snprintf(stat_a, sizeof(stat_a), "Applique a une tour : gros bonus");
-            snprintf(stat_b, sizeof(stat_b), "Change son type de degats");
-        } else {
-            snprintf(stat_a, sizeof(stat_a), "Cout : %d or   PV : %.0f",
-                     UNIT_BASE_STATS[de->idx].cost,
-                     UNIT_BASE_STATS[de->idx].hp);
-            snprintf(stat_b, sizeof(stat_b), "Dgts : %.0f   Vitesse : %.1f",
-                     UNIT_BASE_STATS[de->idx].damage,
-                     UNIT_BASE_STATS[de->idx].speed);
-        }
-        if (stat_a[0]) {
-            disc_txt(stat_a, txt_x, txt_y, 10, (Color){175,155,115,255},
-                     dt_open, DISC_TXT_T0 + 2*DISC_TXT_STEP);
-            txt_y += fh(10)+3;
-        }
-        if (stat_b[0]) {
-            disc_txt(stat_b, txt_x, txt_y, 10, (Color){175,155,115,255},
-                     dt_open, DISC_TXT_T0 + 3*DISC_TXT_STEP);
-            txt_y += fh(10)+6;
-        }
-
-        // Séparateur (fondu)
-        {
-            float ks = (dt_open - (DISC_TXT_T0 + 3*DISC_TXT_STEP)) / DISC_LINE_DUR;
-            ks = ks < 0.0f ? 0.0f : ks > 1.0f ? 1.0f : ks;
-            DrawLineEx((Vector2){(float)txt_x,(float)txt_y},
-                       (Vector2){(float)(txt_x+txt_w),(float)txt_y},
-                       1.0f, (Color){cat_col.r/4,cat_col.g/4,cat_col.b/4,
-                                     (unsigned char)(180.0f * ks)});
-        }
-        txt_y += 6;
-
-        // ── Description + lore : PLEINE LARGEUR sous le splash ─────
-        // Word-wrap sur toute la largeur de la fiche (≈512 px) au lieu de
-        // tronquer chaque ligne dans la colonne étroite → plus de mots coupés.
-        int desc_y = body_y + splash_sz + 12;
-        if (desc_y < txt_y) desc_y = txt_y;          // si la colonne droite déborde
-        int fx    = card_x + pad;
-        int fw    = cw - pad*2;
-        int y_lim = card_y + ch - 14 - 34 - 12;      // au-dessus du bouton CONTINUER
-
-        const char *desc = NULL;
-        if      (de->type == DISC_ENEMY)    desc = ENEMY_DESC[de->idx];
-        else if (de->type == DISC_TOWER)    desc = TOWER_BASE_STATS[de->idx].description;
-        else if (de->type == DISC_MATERIAL) desc = MATERIAL_DESC[de->idx];
-        else                                desc = UNIT_BASE_STATS [de->idx].description;
-        {   /* description puis lore : fondu en cascade (alpha seul) */
-            float kd = (dt_open - (DISC_TXT_T0 + 4*DISC_TXT_STEP)) / DISC_LINE_DUR;
-            kd = kd < 0.0f ? 0.0f : kd > 1.0f ? 1.0f : kd;
-            if (kd > 0.0f)
-                draw_wrapped(desc, fx, &desc_y, fw, 11,
-                             (Color){190,170,120,(unsigned char)(255.0f*kd)},
-                             y_lim);
-        }
-        desc_y += 5;
-
-        const char *lore = NULL;
-        if      (de->type == DISC_ENEMY)    lore = ENEMY_SPEC[de->idx];
-        else if (de->type == DISC_TOWER)    lore = TOWER_LORE[de->idx];
-        else if (de->type == DISC_MATERIAL) lore = MATERIAL_LORE[de->idx];
-        else                                lore = UNIT_LORE [de->idx];
-        {
-            float kl = (dt_open - (DISC_TXT_T0 + 5*DISC_TXT_STEP)) / DISC_LINE_DUR;
-            kl = kl < 0.0f ? 0.0f : kl > 1.0f ? 1.0f : kl;
-            if (kl > 0.0f)
-                draw_wrapped(lore, fx, &desc_y, fw, 10,
-                             (Color){145,130,95,(unsigned char)(200.0f*kl)},
-                             y_lim);
-        }
-
-        // Compteur si plusieurs fiches en attente — bounce quand N change
-        if (ui->disc_count > 1) {
-            static int   prev_n   = -1;
-            static float bounce_t = 1e9f;
-            if (ui->disc_count != prev_n) {
-                if (prev_n >= 0) bounce_t = 0.0f;
-                prev_n = ui->disc_count;
-            }
-            bounce_t += ui_dt();
-            int qfs = 9;
-            if (bounce_t < 0.20f)   /* scale 1.3 → 1.0 via taille de police */
-                qfs = 9 + (int)(3.0f * (1.0f - ea_out_cubic(bounce_t / 0.20f)));
-            char qbuf[32];
-            snprintf(qbuf, sizeof(qbuf), "+%d en attente", ui->disc_count - 1);
-            int qw = mtxt(qbuf, qfs);
-            dtxt(qbuf, card_x + cw - pad - qw,
-                 card_y + ch - 14 - 34 - 4 - fh(10), qfs,
-                 (Color){100,85,60,200});
-        }
-
-        // Bouton CONTINUER — apparaît à 0.55 s, cliquable dès la frame 1
-        // (le clic est géré par hud_input.c, indépendant du dessin).
-        {
-            float kb2 = (dt_open - DISC_BTN_T0) / DISC_LINE_DUR;
-            kb2 = kb2 < 0.0f ? 0.0f : kb2 > 1.0f ? 1.0f : kb2;
-            if (kb2 > 0.0f) {
-                int btnw = 160, btnh = 34;
-                int btnx = cx - btnw/2, btny = card_y + ch - 14 - btnh;
-                Rectangle cont = {(float)btnx,(float)btny,(float)btnw,(float)btnh};
-                int chov = CheckCollisionPointRec(virt_mouse(), cont);
-                Color cbg = chov ? cat_col : cat_dim;
-                Color ctc = chov ? (Color){8,5,2,255} : cat_col;
-                cbg.a = (unsigned char)((float)cbg.a * kb2);
-                ctc.a = (unsigned char)((float)ctc.a * kb2);
-                DrawRectangleRounded(cont, 0.3f, 4, cbg);
-                DrawRectangleRoundedLinesEx(cont, 0.3f, 4, 1.5f,
-                    (Color){cat_col.r, cat_col.g, cat_col.b,
-                            (unsigned char)(255.0f * kb2)});
-                const char *btn_lbl = ui->disc_count > 1 ? "SUIVANT >" : "CONTINUER";
-                int blw = mtxt(btn_lbl, 12);
-                dtxt(btn_lbl, btnx + btnw/2 - blw/2,
-                     btny + btnh/2 - fh(12)/2, 12, ctc);
-            }
-        }
-    }
+    hud_render_discovery(ui, gs);
 }

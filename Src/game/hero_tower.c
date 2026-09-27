@@ -153,8 +153,7 @@ int hero_tower_update(AppContext *ctx) {
     /* CLIC G : tir manuel via le pipeline de la tour (cooldown de la tour) */
     if (IsMouseButtonDown(MOUSE_LEFT_BUTTON) && tw->fire_timer <= 0.0f) {
         int hit = hero_aim_pick(ctx, range, NULL, NULL);
-        if (hit >= 0) {
-            projectile_spawn(&gs->towers, tw, hit, &gs->enemies);
+        if (hit >= 0 && projectile_spawn(&gs->towers, tw, hit, &gs->enemies)) {
             tw->fire_timer = 1.0f / tw->fire_rate;
             audio_play_sfx(AUDIO_SFX_TOWER_FIRE_GUN + (int)tw->type);
             h->fire_flash = 0.12f;         /* feedback réticule */

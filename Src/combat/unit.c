@@ -245,6 +245,8 @@ void unit_assign_deposit(UnitPool *up, int unit_idx, int deposit_idx) {
     u->state       = USTATE_GOTO_DEPOSIT;
 }
 
+int g_worker_auto_mine = 1;
+
 /* Dépôt ACTIF le plus proche d'une position (-1 si aucun).
    Sert à l'enchaînement automatique des voyages de minage. */
 static int nearest_active_deposit(const Map *map, float x, float y) {
@@ -561,6 +563,19 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             }
 
             default:
+                /* Inactif (recrue, gisement épuisé, nouveau filon ouvert) :
+                   part SEUL vers le gisement actif le plus proche. Avant,
+                   une recrue tournait autour de la base tant que le joueur
+                   ne la sélectionnait pas puis cliquait un gisement — rien
+                   ne l'indiquait, et sa fiche promettait l'inverse. */
+                if (g_worker_auto_mine) {
+                    int nd = nearest_active_deposit(map, u->x, u->y);
+                    if (nd >= 0) {
+                        u->deposit_idx = nd;
+                        u->state       = USTATE_GOTO_DEPOSIT;
+                        break;
+                    }
+                }
                 // PATROL : tourne autour de la base
                 u->state = USTATE_PATROL;
                 u->patrol_angle += UNIT_WORKER_PATROL_ANGLE_SPEED * dt;

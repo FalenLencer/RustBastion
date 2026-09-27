@@ -17,7 +17,7 @@ static const char *MP_MODE_NAMES[MP_MODE_COUNT] = {
 };
 static const char *MP_MODE_DESC[MP_MODE_COUNT] = {
     "",
-    "Course : memes vagues, boards separes. Dernier debout / meilleur score.",
+    "Course : memes vagues, plateaux separes. Dernier debout / meilleur score.",
     "Duel : survivez ET envoyez des ennemis chez l'adversaire (touches Z/C/V).",
     "Asymetrique : l'hote defend, l'invite commande la horde.",
     "Co-op : tenez ensemble, l'un tombe = tous perdent. Entraide [G].",

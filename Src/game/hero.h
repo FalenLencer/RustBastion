@@ -221,6 +221,8 @@ int  hero_aim_pick(struct AppContext *ctx, float range,
 /* ── hero_survival.c : PV, dégâts de contact, K.O./respawn ─────── */
 /* Tuile praticable la plus proche de la base primaire (spawn/respawn). */
 void hero_find_spawn(struct AppContext *ctx, float *out_px, float *out_py);
+/* Cap de regard au (re)spawn : direction la plus dégagée vers le centre. */
+float hero_spawn_yaw(struct AppContext *ctx, float px, float py);
 /* Contact ennemi → dégâts ; régén près d'une base ; passage à terre. */
 void hero_survival_update(struct AppContext *ctx, float dt);
 /* Frame complète pendant le K.O. (sim + rendu + compte à rebours). */

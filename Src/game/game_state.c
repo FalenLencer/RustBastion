@@ -140,6 +140,14 @@ void game_state_init(GameState *gs) {
     gs->campaign_order_seed = 0;
     gs->campaign_flags      = 0;
     gs->challenge_mode      = 0;
+    /* Drapeaux de MODE : sans cette remise à zéro, une campagne lancée ou
+       rechargée après une partie arcade gardait is_endless=1 (extraction
+       endless aux vagues 10/20 d'un acte, score endless à la défaite…). */
+    gs->is_custom               = 0;
+    gs->is_endless              = 0;
+    gs->endless_series          = 0;
+    gs->endless_multiplier      = 1.0f;
+    gs->endless_pending_extract = 0;
     gs->inventory_count     = 0;
     for (int i = 0; i < MAX_INVENTORY; i++)
         gs->inventory[i] = MAT_NONE;
@@ -352,11 +360,12 @@ void game_state_update(GameState *gs, float dt) {
                     gs->is_campaign, max_stage);
     }
 
-    // ── Apparition du boss de fin de chapitre ────────────────────
-    // Au dernier acte d'un chapitre, le boss déboule pendant la vague
-    // finale (le combat ne peut s'achever tant qu'il n'est pas vaincu
-    // ou n'a pas atteint une base).
-    if (gs->is_campaign && gs->boss_pending &&
+    // ── Apparition du boss ───────────────────────────────────────
+    // Campagne : au dernier acte d'un chapitre, pendant la vague finale.
+    // Arcade/endless : toutes les ARCADE_BOSS_EVERY vagues (armé au début
+    // de vague, cf. fin de fonction). boss_pending n'est armé QUE par ces
+    // deux chemins : custom, tutoriel et multijoueur n'en ont jamais.
+    if (gs->boss_pending &&
         gs->wave_manager.number >= gs->boss_wave &&
         (gs->wave_manager.state == WAVE_SPAWNING ||
          gs->wave_manager.state == WAVE_ONGOING)) {
@@ -364,7 +373,10 @@ void game_state_update(GameState *gs, float dt) {
         for (int p = 0; p < gs->enemy_paths.count; p++)
             if (gs->enemy_paths.paths[p].found) { bpath = p; break; }
         if (bpath >= 0) {
-            float hp_scale = 1.0f + (float)gs->boss_chapter * 0.6f;
+            int tier = gs->is_campaign ? gs->boss_chapter
+                                       : gs->boss_wave / ARCADE_BOSS_EVERY - 1;
+            if (tier < 0) tier = 0;
+            float hp_scale = 1.0f + (float)tier * BOSS_HP_PER_TIER;
             enemy_spawn_boss(&gs->enemies, bpath, &gs->enemy_paths, hp_scale,
                              gs->boss_chapter);
             gs->boss_pending = 0;
@@ -413,12 +425,39 @@ void game_state_update(GameState *gs, float dt) {
                  gs->wave_manager.state == WAVE_COMPLETE)
                 ? PHASE_PREP : PHASE_WAVE;
 
-    // ── Bandeau de fin de vague (P1.1) ───────────────────────────
-    // Debut de vague : baseline kills + or ; masque un eventuel bandeau.
-    if (_phase_before == PHASE_PREP && gs->phase == PHASE_WAVE) {
-        gs->ui.wave_kills_start = gs->kills;
-        gs->ui.wave_gold_acc    = 0;
-        gs->ui.wave_banner_t    = 0.0f;
+    // ── DÉBUT DE VAGUE ───────────────────────────────────────────
+    // Détecté sur l'état du WaveManager, PAS sur la phase : le bouton de
+    // lancement du HUD et la touche du héros posent gs->phase = PHASE_WAVE
+    // AVANT game_state_update. L'ancienne détection par transition de phase
+    // ne voyait donc JAMAIS un lancement manuel — le cas le plus courant, à
+    // cause du bonus d'anticipation — et le bandeau de fin de vague cumulait
+    // les kills et l'or de plusieurs vagues.
+    // `wave_prep_seen` exige d'avoir observé une préparation : charger une
+    // sauvegarde en pleine vague ne redéclenche rien (ni bandeau, ni boss).
+    {
+        int in_wave = (gs->wave_manager.state == WAVE_SPAWNING ||
+                       gs->wave_manager.state == WAVE_ONGOING);
+        if (!in_wave) {
+            gs->ui.wave_prep_seen = 1;
+        } else if (gs->ui.wave_prep_seen) {
+            gs->ui.wave_prep_seen   = 0;
+            gs->ui.wave_kills_start = gs->kills;
+            gs->ui.wave_gold_acc    = 0;
+            gs->ui.wave_banner_t    = 0.0f;
+
+            /* Arcade / endless : vague de BOSS périodique. Ces modes, faits
+               pour être rejoués, étaient les plus plats du jeu — aucune
+               ponctuation, aucun pic. On réemploie le boss de campagne
+               (capacités télégraphiées incluses) ; la capacité tourne d'un
+               palier à l'autre pour varier les affrontements. */
+            if (gs->is_endless && !gs->is_campaign &&
+                gs->wave_manager.number % ARCADE_BOSS_EVERY == 0) {
+                gs->boss_pending = 1;
+                gs->boss_wave    = gs->wave_manager.number;
+                gs->boss_chapter = (gs->wave_manager.number / ARCADE_BOSS_EVERY - 1)
+                                   % CAMPAIGN_CHAPTERS;
+            }
+        }
     }
     // Vague repoussee : fige le recap (number = vague qui vient de finir).
     if (_phase_before == PHASE_WAVE && gs->phase == PHASE_PREP) {
@@ -436,4 +475,13 @@ void game_state_update(GameState *gs, float dt) {
 
     // ── Succes (P1.3) : conditions pollables, idempotent et bon marche ──
     ach_poll_game(gs);
+}
+
+int game_next_wave_is_boss(const GameState *gs) {
+    int next = gs->wave_manager.number + 1;
+    if (gs->is_campaign)
+        return gs->boss_pending && next >= gs->boss_wave;
+    if (gs->is_endless)
+        return next % ARCADE_BOSS_EVERY == 0;
+    return 0;
 }

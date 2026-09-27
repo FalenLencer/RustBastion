@@ -9,7 +9,7 @@ SRC = Src/main.c                                                              \
       Src/engine/assets.c      Src/engine/paths.c                            \
       Src/game/game_state.c    Src/game/game_init.c   Src/game/save.c       \
       Src/game/meta.c          Src/game/app.c         Src/game/runperks.c   \
-      Src/game/app_tutorial.c  Src/game/app_mp.c                            \
+      Src/game/app_tutorial.c  Src/game/app_mp.c Src/game/app_flow.c                            \
       Src/game/hero.c          Src/game/hero_actions.c Src/game/hero_hud.c  \
       Src/game/hero_tower.c    Src/game/hero_survival.c                     \
       Src/game/campaign_data.c Src/game/achievements.c                      \
@@ -23,11 +23,12 @@ SRC = Src/main.c                                                              \
       Src/ui/render3d.c        Src/ui/render3d_units.c Src/ui/render3d_enemies.c \
       Src/ui/render3d_world.c  Src/ui/render3d_terrain.c Src/ui/render3d_fx.c \
       Src/ui/perk_art.c                                                     \
-      Src/ui/hud.c             Src/ui/hud_input.c     Src/ui/hud_render.c   \
+      Src/ui/hud.c             Src/ui/hud_input.c     Src/ui/hud_render.c Src/ui/hud_render_disc.c   \
       Src/ui/menu.c            Src/ui/menu_screens.c  Src/ui/menu_campaign.c \
       Src/ui/menu_anim.c                                                     \
       Src/ui/menu_options.c    Src/ui/menu_upgrades.c Src/ui/menu_bestiary.c \
       Src/ui/menu_custom_config.c                                             \
+      Src/ui/menu_keys.c                                                     \
       Src/ui/menu_mp.c                                                       \
       Src/ui/interlude.c                                                     \
       Src/net/net_transport.c  Src/net/net_session.c   Src/net/net_upnp.c     \
@@ -49,7 +50,7 @@ ZIP_LINUX    = $(RELEASE_DIR)/rustbastion_linux.tar.gz
 #  LINUX
 # ════════════════════════════════════════════════════════════════
 CC_LINUX      = gcc
-CFLAGS_LINUX  = -Wall -Wextra -O2 -Isrc -DGL_DISABLE_VSYNC
+CFLAGS_LINUX  = -Wall -Wextra -O2 -ISrc -DGL_DISABLE_VSYNC
 LDFLAGS_LINUX = -lraylib -lGL -lm -lpthread -ldl -lrt \
                 -lX11 -lXi -lXcursor -lXrandr -lXinerama
 OUT_LINUX     = $(BUILD_DIR)/rustbastion
@@ -62,7 +63,7 @@ WINDRES         = x86_64-w64-mingw32-windres
 RAYLIB_WIN_PATH = ./raylib_win
 
 CFLAGS_WIN  = -Wall -Wextra -O2                          \
-              -Isrc                                       \
+              -ISrc                                       \
               -I$(RAYLIB_WIN_PATH)/include                \
               -mwindows
 LDFLAGS_WIN = -L$(RAYLIB_WIN_PATH)/lib                   \
@@ -95,7 +96,10 @@ zip: zip_win zip_linux
 # ── Linux ────────────────────────────────────────────────────────
 linux: $(OUT_LINUX)
 
-$(OUT_LINUX): $(SRC)
+# En-tetes en dependance : modifier un .h (struct, #define) recompile aussi.
+HDR = $(wildcard Src/*.h Src/*/*.h)
+
+$(OUT_LINUX): $(SRC) $(HDR)
 	@mkdir -p $(BUILD_DIR)
 	$(CC_LINUX) $(CFLAGS_LINUX) $(SRC) -o $(OUT_LINUX) $(LDFLAGS_LINUX)
 	@echo "✓ Linux build : $(OUT_LINUX)"
@@ -108,7 +112,7 @@ $(ICON_OBJ): $(ICON_RC)
 # ── Windows — exécutable ─────────────────────────────────────────
 win: $(OUT_WIN)
 
-$(OUT_WIN): $(SRC) $(ICON_OBJ)
+$(OUT_WIN): $(SRC) $(ICON_OBJ) $(HDR)
 	@mkdir -p $(BUILD_DIR)
 	$(CC_WIN) $(CFLAGS_WIN) $(SRC) $(ICON_OBJ) -o $(OUT_WIN) $(LDFLAGS_WIN)
 	@echo "✓ Windows build : $(OUT_WIN)"
@@ -209,12 +213,12 @@ package_win: win
 # ════════════════════════════════════════════════════════════════
 zip_win: package_win
 	@mkdir -p $(RELEASE_DIR)
-	cd $(RELEASE_DIR)/win && tar -czf ../../$(ZIP_WIN) rustbastion
+	cd $(RELEASE_DIR)/win && tar --exclude='rustbastion/saves/*' --exclude='rustbastion/config/*' --exclude='*Zone.Identifier' -czf ../../$(ZIP_WIN) rustbastion
 	@echo "✓ Archive Windows : $(ZIP_WIN)"
 
 zip_linux: package_linux
 	@mkdir -p $(RELEASE_DIR)
-	cd $(RELEASE_DIR)/linux && tar -czf ../../$(ZIP_LINUX) rustbastion
+	cd $(RELEASE_DIR)/linux && tar --exclude='rustbastion/saves/*' --exclude='rustbastion/config/*' --exclude='*Zone.Identifier' -czf ../../$(ZIP_LINUX) rustbastion
 	@echo "✓ Archive Linux : $(ZIP_LINUX)"
 
 # ── Les deux plateformes d'un coup ───────────────────────────────
@@ -246,21 +250,35 @@ help:
 	@echo "  make zip_linux     — package Linux + archive .tar.gz"
 	@echo "  make zip_win       — package Windows + archive .zip"
 	@echo "  make release       — les deux plateformes en une commande"
+	@echo "  make selftest      — compile et lance les auto-tests (reseau, save, boutique)"
 	@echo "  make clean         — supprime tous les fichiers générés"
 	@echo ""
 
 # -----------------------------
-# Self-tests (optional, not in main build)
+# Self-tests (hors build principal) : `make selftest` COMPILE puis EXECUTE
+# chaque test (arret au premier echec). Binaires dans build/tests/ (ignore).
 # -----------------------------
+TEST_DIR  = $(BUILD_DIR)/tests
+SELFTESTS = $(TEST_DIR)/net_selftest $(TEST_DIR)/net_relay_selftest \
+            $(TEST_DIR)/save_selftest $(TEST_DIR)/shop_selftest
+
 .PHONY: selftest
-selftest: tests/net_selftest tests/net_relay_selftest tests/save_selftest
-	@echo "✓ selftests built: ./tests/net_selftest, ./tests/net_relay_selftest, ./tests/save_selftest"
+selftest: $(SELFTESTS)
+	@for t in $(SELFTESTS); do echo "-- $$t"; ./$$t || exit 1; done
+	@echo "✓ selftests : tous OK"
 
-tests/net_selftest: tests/net_selftest.c Src/net/net_transport.c Src/net/net_session.c
-	$(CC_LINUX) $(CFLAGS_LINUX) -ISrc/net -ISrc Src/net/net_transport.c Src/net/net_session.c tests/net_selftest.c -o tests/net_selftest
+$(TEST_DIR)/net_selftest: tests/net_selftest.c Src/net/net_transport.c Src/net/net_session.c
+	@mkdir -p $(TEST_DIR)
+	$(CC_LINUX) $(CFLAGS_LINUX) -ISrc/net $^ -o $@
 
-tests/net_relay_selftest: tests/net_relay_selftest.c Src/net/net_transport.c Src/net/net_session.c Src/net/net_relay.c
-	$(CC_LINUX) $(CFLAGS_LINUX) -pthread -ISrc/net -ISrc Src/net/net_transport.c Src/net/net_session.c Src/net/net_relay.c tests/net_relay_selftest.c -o tests/net_relay_selftest
+$(TEST_DIR)/net_relay_selftest: tests/net_relay_selftest.c Src/net/net_transport.c Src/net/net_session.c Src/net/net_relay.c
+	@mkdir -p $(TEST_DIR)
+	$(CC_LINUX) $(CFLAGS_LINUX) -pthread -ISrc/net $^ -o $@
 
-tests/save_selftest: tests/save_selftest.c
-	$(CC_LINUX) $(CFLAGS_LINUX) tests/save_selftest.c -o tests/save_selftest
+$(TEST_DIR)/save_selftest: tests/save_selftest.c
+	@mkdir -p $(TEST_DIR)
+	$(CC_LINUX) $(CFLAGS_LINUX) $^ -o $@
+
+$(TEST_DIR)/shop_selftest: Src/game/shop_selftest.c Src/game/runperks.c
+	@mkdir -p $(TEST_DIR)
+	$(CC_LINUX) $(CFLAGS_LINUX) $^ -o $@ $(LDFLAGS_LINUX)

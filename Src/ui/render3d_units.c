@@ -77,6 +77,9 @@ static void load_um(UnitModel *um, const char *path, Camera3D cam,
                     float rest_phi, float yaw_off) {
     um->model = LoadModel(path);
     if (um->model.meshCount == 0) { um->have = 0; return; }
+    if (!skin_model_indices_ok(&um->model, path)) {
+        UnloadModel(um->model); um->have = 0; return;
+    }
     skin_apply_vc(&um->model, g_shader_vc);
     um->gain = skin_model_gain(&um->model);
     um->anims = LoadModelAnimations(path, &um->anim_count);   /* 0 = modèle statique */

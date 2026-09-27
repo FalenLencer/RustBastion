@@ -17,6 +17,16 @@
 
 typedef enum { PHASE_PREP, PHASE_WAVE, PHASE_GAMEOVER } GamePhase;
 
+/* ── Boss ─────────────────────────────────────────────────────────
+   Un « palier » = le chapitre en campagne, le rang de la série de
+   ARCADE_BOSS_EVERY vagues en arcade/endless. Même pente de PV dans les
+   deux modes : le 1er boss d'arcade (vague 10, palier 0) vaut exactement
+   le boss du chapitre 1 de la campagne, qui tombe lui aussi vers la 10e. */
+#define BOSS_HP_PER_TIER   0.6f  /* +60 % de PV de boss par palier          */
+#define ARCADE_BOSS_EVERY  10    /* arcade/endless : un boss toutes les N
+                                    vagues — calé sur les séries d'extraction
+                                    endless (le boss couronne la série)      */
+
 struct GameState {
     Map          map;
     PathSet      enemy_paths;
@@ -81,3 +91,7 @@ void game_damage_base(GameState *gs, int base_id, int dmg);
 
 void game_state_init  (GameState *gs);
 void game_state_update(GameState *gs, float dt);
+
+/* 1 si la PROCHAINE vague amène un boss (campagne ou arcade/endless).
+   Source unique du préavis affiché au joueur. */
+int  game_next_wave_is_boss(const GameState *gs);

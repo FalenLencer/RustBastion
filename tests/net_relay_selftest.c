@@ -7,10 +7,7 @@
  * (hôte + client) qui passent PAR le relais, et vérifie :
  *   handshake (LOBBY + noms) → ready → START (INGAME) → transfert d'un message.
  *
- * Compilation (depuis la racine) :
- *   gcc -Wall -Wextra -pthread Src/net/net_transport.c Src/net/net_session.c \
- *       Src/net/net_relay.c Src/net/net_relay_selftest.c -o /tmp/relay_test \
- *   && /tmp/relay_test
+ * Compilation + exécution (depuis la racine) : make selftest
  */
 #include "net_session.h"
 #include "net_relay.h"

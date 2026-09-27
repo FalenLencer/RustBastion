@@ -27,6 +27,12 @@
 
 #define OPT_GAP    20   // espace vertical entre deux groupes label+bouton
 #define OPT_GAP_S   8   // espace entre boutons d'une même section
+/* Pas vertical sous un libellé encadré (draw_text_boxed : fh(11) + 2×3 px de
+   cadre). L'ancien « +16 » faisait chevaucher le cadre et le bouton suivant. */
+#define OPT_LABEL_STEP (fh(11) + 6)
+/* Hauteur du panneau : 500 laissait déborder Graphismes et Commandes sur
+   « Fenetre actuelle » et le bouton RETOUR. */
+#define OPT_PANEL_H 580
 #define DD_ITEM_H  26   // hauteur d'un item de liste déroulante
 #define DD_ITEM_SP 30   // pas vertical entre items
 
@@ -42,47 +48,7 @@ static const char *RLBL[5] = {
     "1960 x 1346 (1.75x)","2240 x 1540 (2x)",
 };
 
-// ── Nom lisible d'un code de touche raylib (buffer appelant) ─────
-void opts_key_name(int key, char *out, int outsz) {
-    if (key >= KEY_A && key <= KEY_Z) {
-        snprintf(out, outsz, "%c", 'A' + (key - KEY_A));
-        return;
-    }
-    if (key >= KEY_ZERO && key <= KEY_NINE) {
-        snprintf(out, outsz, "%c", '0' + (key - KEY_ZERO));
-        return;
-    }
-    if (key >= KEY_F1 && key <= KEY_F12) {
-        snprintf(out, outsz, "F%d", key - KEY_F1 + 1);
-        return;
-    }
-    if (key >= KEY_KP_0 && key <= KEY_KP_9) {
-        snprintf(out, outsz, "PAVE %d", key - KEY_KP_0);
-        return;
-    }
-    const char *n = NULL;
-    switch (key) {
-        case KEY_SPACE:         n = "ESPACE";    break;
-        case KEY_LEFT_SHIFT:    n = "SHIFT G";   break;
-        case KEY_RIGHT_SHIFT:   n = "SHIFT D";   break;
-        case KEY_LEFT_CONTROL:  n = "CTRL G";    break;
-        case KEY_RIGHT_CONTROL: n = "CTRL D";    break;
-        case KEY_LEFT_ALT:      n = "ALT";       break;
-        case KEY_TAB:           n = "TAB";       break;
-        case KEY_ENTER:         n = "ENTREE";    break;
-        case KEY_BACKSPACE:     n = "RETOUR AR"; break;
-        case KEY_UP:            n = "FL. HAUT";  break;
-        case KEY_DOWN:          n = "FL. BAS";   break;
-        case KEY_LEFT:          n = "FL. GAUCHE";break;
-        case KEY_RIGHT:         n = "FL. DROITE";break;
-        case KEY_SEMICOLON:     n = "; (M azerty)"; break;
-        case KEY_COMMA:         n = ",";         break;
-        case KEY_PERIOD:        n = ".";         break;
-        default: break;
-    }
-    if (n) snprintf(out, outsz, "%s", n);
-    else   snprintf(out, outsz, "CODE %d", key);
-}
+/* opts_key_name : menu_keys.c */
 
 // ════════════════════════════════════════════════════
 // OPTIONS
@@ -96,7 +62,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
     else
         draw_bg(m, vw, vh);
 
-    int pw = 600, ph = 500;
+    int pw = 600, ph = OPT_PANEL_H;
     draw_panel(cx, cy, pw, ph, C_BORDER);
 
     int px = cx - pw/2;
@@ -157,7 +123,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             int y = content_y;
 
             draw_text_boxed("Plein ecran", content_x, y, 11, C_GOLD);
-            y += 16;
+            y += OPT_LABEL_STEP;
             /* Utilise l'état réel de la fenêtre comme source de vérité */
             int _is_fs = IsWindowFullscreen();
             m->opts.fullscreen = _is_fs; /* sync systématique */
@@ -168,7 +134,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             y += BTN_H + OPT_GAP;
 
             draw_text_boxed("FPS Cible", content_x, y, 11, C_GOLD);
-            y += 16;
+            y += OPT_LABEL_STEP;
             char fps_display[32];
             if (m->opts.target_fps == 0)
                 snprintf(fps_display, sizeof(fps_display), "Illimite");
@@ -186,7 +152,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             y += BTN_H + OPT_GAP;
 
             draw_text_boxed("Compteur FPS", content_x, y, 11, C_GOLD);
-            y += 16;
+            y += OPT_LABEL_STEP;
             {
                 const char *fps_lbl = m->opts.show_fps
                     ? "[*] Active" : "[ ] Desactive";
@@ -254,7 +220,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             int y = content_y;
 
             draw_text_boxed("Resolution", content_x, y, 11, C_GOLD);
-            y += 16;
+            y += OPT_LABEL_STEP;
             char res_display[64];
             snprintf(res_display, sizeof(res_display), "%d x %d",
                      m->opts.win_width, m->opts.win_height);
@@ -269,7 +235,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             y += BTN_H + OPT_GAP;
 
             draw_text_boxed("Affichage en jeu", content_x, y, 11, C_GOLD);
-            y += 16;
+            y += OPT_LABEL_STEP;
             {
                 const char *nm_lbl = m->opts.show_entity_names
                     ? "[*] Noms des ennemis au-dessus des sprites"
@@ -292,7 +258,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             y += BTN_H + OPT_GAP;
 
             draw_text_boxed("Accessibilite", content_x, y, 11, C_GOLD);
-            y += 16;
+            y += OPT_LABEL_STEP;
             {
                 const char *cb_lbl = m->opts.colorblind
                     ? "[*] Daltonisme (couleurs ennemis distinctes)"
@@ -309,7 +275,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
                DIT laquelle travaille — et on alerte si le pilote est
                retombé en rendu logiciel, seul cas où le CPU dessine. */
             draw_text_boxed("Processeur graphique", content_x, y, 11, C_GOLD);
-            y += 16;
+            y += OPT_LABEL_STEP;
             {
                 int  soft = gpu_is_software();
                 char gbuf[96];
@@ -318,17 +284,17 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
                 draw_text_boxed(gbuf, content_x, y, 10,
                                 soft ? (Color){231, 76, 60, 255}
                                      : (Color){120, 210, 130, 255});
-                y += 15;
+                y += fh(10) + 2;
                 if (soft) {
                     draw_text_boxed("RENDU LOGICIEL : c'est le processeur qui dessine.",
                                     content_x, y, 9, (Color){231, 76, 60, 235});
-                    y += 13;
+                    y += fh(9) + 2;
                     draw_text_boxed("Installez/activez un pilote graphique.",
                                     content_x, y, 9, (Color){168, 148, 102, 235});
                 } else {
                     draw_text_boxed("Rendu materiel actif (carte dedie demandee au pilote).",
                                     content_x, y, 9, (Color){168, 148, 102, 235});
-                    y += 13;
+                    y += fh(9) + 2;
                     draw_text_boxed("Pour imposer une autre carte : reglages GPU du systeme.",
                                     content_x, y, 9, (Color){120, 110, 90, 220});
                 }
@@ -433,8 +399,11 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
              GetScreenWidth(), GetScreenHeight());
     txt_c(info, cx, cy + ph/2 - M_PAD - BTN_H - fh(9) - 6, 9, C_DIM);
 
-    if (draw_btn("RETOUR", cx - 55, cy + ph/2 - M_PAD - BTN_H,
-                 110, BTN_H, C_DIM, 0) && !ui_locked)
+    /* ÉCHAP = RETOUR, sauf depuis la pause (le jeu gère déjà ÉCHAP) et
+       pendant une saisie de touche / liste ouverte (ÉCHAP y annule). */
+    int esc_back = !m->paused && IsKeyPressed(KEY_ESCAPE);
+    if ((draw_btn("RETOUR", cx - 55, cy + ph/2 - M_PAD - BTN_H,
+                  110, BTN_H, C_DIM, 0) || esc_back) && !ui_locked)
         m->screen = m->paused ? MENU_PAUSE : m->back_screen;
 
     // ════════════════════════════════════════════════

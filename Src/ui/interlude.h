@@ -29,9 +29,15 @@ void interlude_render_dialog_before(const ActData *act, int node_id, int flags,
                                     int vw, int vh);
 void interlude_render_dialog_after(const ActData *act, int stars, int scrap_earned,
                                    int vw, int vh, int node_id, int flags);
-/* P0.2 — écran de RÉCAP de fin de partie. Retourne le choix cliqué :
-   0 = rien, 1 = REJOUER (si allow_replay), 2 = MENU / RETOUR CARTE.
+/* P0.2 — écran de fin de partie. Retourne le choix cliqué (GoChoice).
    L'action est exécutée par l'appelant (app.c, game_handle_gameover). */
+typedef enum {
+    GO_CHOICE_NONE     = 0,
+    GO_CHOICE_REPLAY   = 1,   // REJOUER (si allow_replay)
+    GO_CHOICE_MENU     = 2,   // MENU / RETOUR A LA CARTE
+    GO_CHOICE_CONTINUE = 3,   // campagne : reprise affaiblie / repli (= ESPACE)
+    GO_CHOICE_ABANDON  = 4,   // campagne : abandon de la run (= ECHAP)
+} GoChoice;
 int  interlude_render_gameover(const GameState *gs, Vector2 vm,
                                int vw, int vh, int allow_replay);
 void interlude_render_extract(const GameState *gs, int vw, int vh, Vector2 vmouse);

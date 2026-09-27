@@ -35,6 +35,10 @@ void game_next_campaign_stage(GameState *gs);
    node_id est borné à [0, CAMPAIGN_NODES-1]. */
 void game_goto_campaign_node(GameState *gs, int node_id);
 
+/* La PROCHAINE génération de carte réutilise ce seed (une seule fois) :
+   reprise d'un acte perdu sur la MÊME carte. 0 = aucun. */
+void game_init_reuse_map_seed(int seed);
+
 /* Active/désactive le MODE CHALLENGE et RÉ-APPLIQUE la difficulté de
    l'acte courant (à appeler juste après game_init_campaign : l'init
    remet le drapeau à zéro avant le calcul de difficulté). */

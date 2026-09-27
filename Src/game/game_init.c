@@ -32,6 +32,11 @@ static int all_bases_reachable(const GameState *gs) {
     return 1;
 }
 
+/* Seed imposé à la PROCHAINE génération (0 = aucun), consommé une fois. */
+static int g_reuse_map_seed = 0;
+
+void game_init_reuse_map_seed(int seed) { g_reuse_map_seed = seed; }
+
 void game_init_map_full(GameState *gs, ThemeID theme,
                         int forced_bases, int forced_spawns, int min_dist,
                         int forced_deposits, int map_w, int map_h) {
@@ -40,9 +45,13 @@ void game_init_map_full(GameState *gs, ThemeID theme,
     int seed;
     int attempts = 0;
     int ok       = 0;
+    int reuse    = g_reuse_map_seed;
+    g_reuse_map_seed = 0;
 
     do {
-        seed = GetRandomValue(1, 99999);
+        /* 1er essai sur le seed imposé (même carte) ; s'il ne valide plus,
+           les essais suivants reprennent le tirage aléatoire habituel. */
+        seed = (attempts == 0 && reuse > 0) ? reuse : GetRandomValue(1, 99999);
         generate_map(&gs->map, seed, min_dist, theme, forced_bases, forced_spawns,
                      forced_deposits, map_w, map_h);
         astar_all(&gs->map, &gs->enemy_paths);

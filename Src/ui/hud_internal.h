@@ -43,6 +43,10 @@
 #define OVERLAY_TR_H   (OVERLAY_OV_P + 17+3 + 14+3 + 14+3 + 9+5 + 14 + OVERLAY_OV_P)
 /* Hauteur dynamique de l'overlay BL — dépend de l'état des bases en jeu */
 int overlay_bl_h(const GameState *gs);
+/* Décale un panneau flottant (dir ±1) tant qu'il masque une base ou un
+   spawn — positions initiales des overlays (hud.c). */
+void overlay_avoid_marks(Vector2 *pos, int ow, int oh,
+                         const GameState *gs, int dir);
 
 // ════════════════════════════════════════════════════
 // COÛTS DES ACHATS EN JEU
@@ -86,6 +90,10 @@ void    disc_pop(UIState *ui);
 #define HUD_SLOTS_FROM_WAVE 3   /* vague d'apparition des achats de slots */
 int     hud_show_bases_panel(const GameState *gs);
 int     hud_show_slot_buys  (const GameState *gs);
+
+/* Fiche de découverte (hud_render_disc.c) — dessinée en DERNIER par
+   ui_render, au-dessus de tout le HUD. No-op si la file est vide. */
+void    hud_render_discovery(const UIState *ui, const GameState *gs);
 
 /* P0.3 — Conseil de contre : écrit dans `out` (≤ 63 chars utiles) une
    ligne du type "V7 Brutes, Raiders : Cryo efficace, Feu resiste"

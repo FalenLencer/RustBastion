@@ -43,19 +43,48 @@ Vector2 virt_mouse(void) {
     };
 }
 
+/* Position initiale d'un panneau flottant : s'il recouvre une BASE ou un
+   SPAWN (bords de carte), il glisse horizontalement (dir = +1 / -1) par pas
+   d'une tuile jusqu'à dégager la zone — sinon la base attaquée restait
+   cachée sous « Vague / Kills ». Le joueur peut toujours le déplacer. */
+#define OVERLAY_AVOID_STEPS  10
+void overlay_avoid_marks(Vector2 *pos, int ow, int oh,
+                                const GameState *gs, int dir) {
+    float   S = map_eff_scale();
+    Vector2 o = map_origin();
+    float   m = 0.5f * (float)TILE_SIZE * S;     /* marge : demi-tuile */
+    for (int step = 0; step < OVERLAY_AVOID_STEPS; step++) {
+        Rectangle r = { pos->x - m, pos->y - m, (float)ow + 2.0f * m, (float)oh + 2.0f * m };
+        int hit = 0;
+        for (int b = 0; b < gs->map.base_count && !hit; b++) {
+            Vector2 p = { o.x + ((float)gs->map.bases[b].pos.x + 0.5f) * TILE_SIZE * S,
+                          o.y + ((float)gs->map.bases[b].pos.y + 0.5f) * TILE_SIZE * S };
+            hit = CheckCollisionPointRec(p, r);
+        }
+        for (int i = 0; i < gs->map.path_count && !hit; i++) {
+            if (!gs->map.paths[i].active) continue;
+            Vector2 p = { o.x + ((float)gs->map.paths[i].spawn.x + 0.5f) * TILE_SIZE * S,
+                          o.y + ((float)gs->map.paths[i].spawn.y + 0.5f) * TILE_SIZE * S };
+            hit = CheckCollisionPointRec(p, r);
+        }
+        if (!hit) return;
+        pos->x += (float)(dir * TILE_SIZE) * S;
+    }
+}
+
 // ════════════════════════════════════════════════════
 // DONNÉES DES OUTILS
 // ════════════════════════════════════════════════════
 const ToolInfo TOOL_INFO[TOOL_COUNT] = {
-    [TOOL_TOWER_GUN]    = {"TOURELLE",  "Gun",     "T", "Polyvalente.",   15,  20, 3.5f, 1.5f, 0},
+    [TOOL_TOWER_GUN]    = {"TOURELLE",  "Tourelle",     "T", "Polyvalente.",   15,  20, 3.5f, 1.5f, 0},
     [TOOL_TOWER_SNIPER] = {"SNIPER",    "Sniper",  "S", "Longue portee.", 25,  90, 6.5f, 0.4f, 0},
-    [TOOL_TOWER_FLAME]  = {"FLAMMES",   "Flame",   "F", "Zone courte.",   30,  12, 2.0f, 3.0f, 0},
+    [TOOL_TOWER_FLAME]  = {"FLAMMES",   "Flamme",   "F", "Zone courte.",   30,  12, 2.0f, 3.0f, 0},
     [TOOL_TOWER_TESLA]  = {"TESLA",     "Tesla",   "E", "Chaine x2.",     50,  31, 4.0f, 0.8f, 0},
     [TOOL_UNIT_SOLDIER] = {"SOLDAT",    "Soldat",  "o", "Polyvalent.",    20,  25, 1.2f, 1.2f, 1},
     [TOOL_UNIT_HEAVY]   = {"LOURD",     "Lourd",   "H", "Tank.",          35,  50, 1.0f, 0.6f, 1},
     [TOOL_UNIT_MEDIC]   = {"MEDIC",     "Medic",   "+", "Soigneur.",      25,   8, 3.0f, 0.5f, 1},
     [TOOL_UNIT_DOG]     = {"CHIEN",     "Chien",   "d", "Rapide.",        10,  15, 0.8f, 2.0f, 1},
-    [TOOL_UNIT_WORKER]  = {"OUVRIER",   "Ouvrier", "W", "Collecte mat.",  15,   5, 0.8f, 0.5f, 1},
+    [TOOL_UNIT_WORKER]  = {"OUVRIER",   "Ouvrier", "W", "Collecte mat.",  15,   0, 0.8f, 0.0f, 1},
 };
 
 const char *ui_tool_name(ToolID id) {
@@ -184,6 +213,10 @@ int tool_is_unlocked(ToolID id, const GameState *gs) {
     TowerType tt = ui_tool_to_tower(id);
     int threshold = TOWER_UNLOCK_AT[tt];
     if (threshold < 0) return 1;               // Gun : toujours dispo
+    // Le verrou est une ÉTAPE D'APPRENTISSAGE de la campagne. Hors campagne
+    // (arcade « mode libre », partie perso, multi, héros) tout est ouvert,
+    // comme l'annonce l'en-tête ci-dessus (le test manquait).
+    if (!gs->is_campaign) return 1;
     return meta_max_stage_completed(&gs->meta) >= threshold;
 }
 
@@ -227,7 +260,10 @@ void disc_pop(UIState *ui) {
 // ════════════════════════════════════════════════════
 void ui_init(UIState *ui) {
     memset(ui, 0, sizeof(UIState));
-    ui->selected_tool       = TOOL_TOWER_GUN;
+    /* Aucun outil armé au départ : le panneau d'info invite à en choisir un,
+       et le 1er ÉCHAP ouvre bien la pause (il servait à désarmer un outil
+       que le joueur n'avait jamais choisi). */
+    ui->selected_tool       = TOOL_NONE;
     ui->hovered_tool        = -1;
     ui->hovered_tile_x      = -1;
     ui->hovered_tile_y      = -1;

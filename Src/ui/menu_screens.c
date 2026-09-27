@@ -383,7 +383,7 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     }
     by += bh2 + gap;
 
-    if (fade_nav_btn("X", "CUSTOM GAME",
+    if (fade_nav_btn("X", "PARTIE PERSO",
                      "Carte, spawns, bases, terrain et difficulte sur mesure.",
                      C_ORANGE, bx, by, bw, bh2, t, 3*HUB_BTN_STEP)) {
         push_back_screen(m);
@@ -520,7 +520,9 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
 
         /* ── Boutons communs (calculés ici pour aligner le clip du titre) ── */
         const int bh2  = 26;
-        const int bw_rep = 88, bw_del = 58, btn_gap = 4;
+        const int bw_rep  = mtxt("REPRENDRE", BTN_FS) + 2 * BTN_TXT_PAD;   /* au texte */
+        const int bw_del  = mtxt("EFFACER",   BTN_FS) + 2 * BTN_TXT_PAD;
+        const int btn_gap = SLOT_BTN_GAP;
         const int bx_del = sx + sw - M_IN - bw_del;
         const int bx_rep = bx_del - btn_gap - bw_rep;
         const int by2    = y + sh/2 - bh2/2;
@@ -709,7 +711,8 @@ MenuAction draw_new_campaign(MenuState *m, const MetaProgress *meta,
         act.start_campaign_act  = m->selected_campaign_act;
     }
     if (draw_btn("ANNULER", px + half + M_IN, py,
-                 pw - M_PAD*2 - M_IN - half, BTN_H, C_DIM, 0)) {
+                 pw - M_PAD*2 - M_IN - half, BTN_H, C_DIM, 0) ||
+        IsKeyPressed(KEY_ESCAPE)) {
         m->screen = MENU_CAMPAIGN;
     }
     return act;
@@ -729,15 +732,18 @@ MenuAction draw_new_arcade(MenuState *m, int vw, int vh) {
     draw_bg(m, vw, vh);
     draw_header("NOUVELLE PARTIE ARCADE", vw);
 
-    dtxt(TextFormat("Emplacement : %d", m->new_slot+1),
-             cx - 100, M_PAD + 62, 11, C_TEXT);
-
     int bw = 300, bh = 30, gap = 5;
     int bx = cx - bw/2;
-    int by = M_PAD + 82;
+    /* Sous le séparateur de draw_header (M_PAD+70) : « Emplacement » était
+       posé DANS le sous-titre, et la liste démarrait sous un libellé encadré
+       plus haut que le pas utilisé (chevauchements). */
+    int by = M_PAD + 70 + M_SECT;
+    const char *slot_lbl = TextFormat("Emplacement : %d", m->new_slot+1);
+    dtxt(slot_lbl, cx - mtxt(slot_lbl, 11)/2, by, 11, C_TEXT);
+    by += fh(11) + M_SECT;
 
     draw_text_boxed("Choisir un environnement :", bx, by, 11, C_GOLD);
-    by += M_LINE + 4;
+    by += fh(11) + 6 + M_IN;          /* cadre du libellé = fh + 2×3 px */
 
     for (int i = 0; i <= THEME_COUNT; i++) {
         int is_sel = ((int)m->new_theme == i);
@@ -748,7 +754,7 @@ MenuAction draw_new_arcade(MenuState *m, int vw, int vh) {
         float lw  = is_sel ? 2.0f : 1.0f;
         DrawRectangleRounded(r, rnd, 5, bg);
         DrawRectangleRoundedLinesEx(r, rnd, 5, lw, brd);
-        dtxt(THEME_LABELS[i], bx + M_IN, by + bh/2 - 5, 11,
+        dtxt(THEME_LABELS[i], bx + M_IN, by + bh/2 - fh(11)/2, 11,
                  is_sel ? C_BLUE : C_TEXT);
         if (is_sel) {
             const char *chk = ">";
@@ -767,7 +773,7 @@ MenuAction draw_new_arcade(MenuState *m, int vw, int vh) {
         act.new_slot     = m->new_slot;
     }
     if (draw_btn("ANNULER", bx+half+M_IN, by,
-                 bw-M_IN-half, BTN_H, C_DIM, 0))
+                 bw-M_IN-half, BTN_H, C_DIM, 0) || IsKeyPressed(KEY_ESCAPE))
         m->screen = MENU_ARCADE;
 
     return act;
@@ -806,7 +812,8 @@ MenuAction draw_confirm_del(MenuState *m, int vw, int vh) {
                     ? m->back_screen : MENU_PLAY_HUB;
         set_msg(m, "Partie effacee.");
     }
-    if (draw_btn("ANNULER", cx + M_IN/2, by2, bw2, bh2, C_TEXT, 0))
+    if (draw_btn("ANNULER", cx + M_IN/2, by2, bw2, bh2, C_TEXT, 0) ||
+        IsKeyPressed(KEY_ESCAPE))
         m->screen = m->back_screen;
 
     return act;
@@ -896,7 +903,8 @@ MenuAction draw_pause(MenuState *m, int vw, int vh) {
         m->screen = MENU_OPTIONS;
     py += bh2 + gap;
 
-    if (fade_btn("MENU PRINCIPAL", px, py, iw, bh2, C_DIM, t,
+    /* C_TEXT (et non C_DIM, la teinte « désactivé ») : le bouton est actif. */
+    if (fade_btn("MENU PRINCIPAL", px, py, iw, bh2, C_TEXT, t,
                  PAUSE_BTN_DELAY0 + 3*PAUSE_BTN_STEP,
                  PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0))
         act.save_and_quit = 1;

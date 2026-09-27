@@ -106,7 +106,8 @@ static void draw_stars(int cx, int y, int stars, int max_stars) {
     for (int i = 0; i < max_stars; i++) {
         Color c = (i < stars) ? (Color){232,200,32,255}
                                : (Color){50,40,20,255};
-        dtxt("*", sx + i*(sw+gap), y, sw, c);
+        ui_draw_star((float)(sx + i*(sw+gap) + sw/2), (float)(y + sw/2),
+                     (float)sw / 2.0f, c);
     }
 }
 
@@ -352,7 +353,7 @@ void interlude_render_dialog_after(const ActData *act, int stars,
         }
     } else {
         const char *hint = is_last ? "ESPACE -- Retour au menu"
-                                    : "ESPACE -- Stage suivant";
+                                    : "ESPACE -- Acte suivant";
         txt_c(hint, cx, cy + ph/2 - M - 12, 10, UI_BORDER);
     }
 }
@@ -389,7 +390,7 @@ int interlude_render_gameover(const GameState *gs, Vector2 vm,
     int py = cy - ph/2 + M;
 
     txt_c(diverge ? "POSITION PERDUE" : "BASTION TOMBE", cx, py, 22, border);
-    py += 32;
+    py += fh(22) + 4;   /* (ancien « +32 » < fh(22) : la ligne suivante mordait le titre) */
 
     if (gs->is_campaign) {
         const ActData *ad = campaign_act_get(gs->campaign_stage);
@@ -409,12 +410,24 @@ int interlude_render_gameover(const GameState *gs, Vector2 vm,
             : "Tout n'est pas perdu — un nouvel assaut est possible.";
         txt_c(flavor, cx, py, 10, (Color){150, 170, 150, 255});
 
-        const char *opt1 = (dm == DEFEAT_RETREAT)
-            ? "[ESPACE]   Se replier"
-            : "[ESPACE]   Reprendre (affaibli)";
-        txt_c(opt1, cx, cy + ph/2 - M - 30, 13, (Color){120, 210, 90, 255});
-        txt_c("[ECHAP]   Abandonner  —  retour a la carte",
-              cx, cy + ph/2 - M - 12, 10, (Color){185, 95, 70, 255});
+        /* Boutons cliquables (avant : raccourcis clavier SEULS, alors que le
+           récap arcade propose des boutons). Raccourcis rappelés dessous. */
+        const char *opt1 = (dm == DEFEAT_RETREAT) ? "SE REPLIER" : "REPRENDRE (AFFAIBLI)";
+        int bw2 = 200, bh2 = 38, gap2 = 12;
+        int byb = cy + ph/2 - M - bh2 - fh(9) - 4;
+        Rectangle cb = {(float)(cx - bw2 - gap2/2), (float)byb, (float)bw2, (float)bh2};
+        Rectangle ab = {(float)(cx + gap2/2),       (float)byb, (float)bw2, (float)bh2};
+        int hc = CheckCollisionPointRec(vm, cb);
+        int ha = CheckCollisionPointRec(vm, ab);
+        il_keycap((int)cb.x, (int)cb.y, bw2, bh2, opt1, (Color){120, 210, 90, 255}, hc);
+        il_keycap((int)ab.x, (int)ab.y, bw2, bh2, "ABANDONNER LA RUN",
+                  (Color){185, 95, 70, 255}, ha);
+        txt_c("ESPACE : continuer    ECHAP : abandonner (sauvegarde effacee)",
+              cx, byb + bh2 + 4, 9, (Color){130, 110, 80, 255});
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            if (hc)      choice = GO_CHOICE_CONTINUE;
+            else if (ha) choice = GO_CHOICE_ABANDON;
+        }
     } else {
         /* ── P0.2 : RÉCAP — sobre et encourageant ────────────────
            « Tenu N vagues » + record, kills, or final, perks (camp.),
@@ -472,8 +485,8 @@ int interlude_render_gameover(const GameState *gs, Vector2 vm,
             il_keycap((int)mb.x, (int)mb.y, bw2, bh2, "MENU",
                       UI_BORDER, hm);
             if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                if (hr) choice = 1;
-                else if (hm) choice = 2;
+                if (hr) choice = GO_CHOICE_REPLAY;
+                else if (hm) choice = GO_CHOICE_MENU;
             }
         } else {
             const char *lbl = gs->is_campaign ? "RETOUR A LA CARTE" : "MENU";
@@ -482,7 +495,7 @@ int interlude_render_gameover(const GameState *gs, Vector2 vm,
                             (float)bwl, (float)bh2};
             int hm = CheckCollisionPointRec(vm, mb);
             il_keycap((int)mb.x, (int)mb.y, bwl, bh2, lbl, UI_BORDER, hm);
-            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && hm) choice = 2;
+            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && hm) choice = GO_CHOICE_MENU;
         }
     }
     (void)py;

@@ -8,6 +8,7 @@
 #include "raylib.h"
 #include "../map/pathfinding.h"
 #include "../map/theme.h"
+#include "material.h"          /* DamageType + DAMAGE_TYPE_COUNT (source unique) */
 
 #define MAX_ENEMIES 256
 
@@ -121,15 +122,22 @@ extern const EnemyStats ENEMY_BASE_STATS[ENEMY_TYPE_COUNT];
 // ── Résistances / faiblesses ─────────────────────────────────
 // [EnemyType][DamageType] → multiplicateur de dégâts
 // DMG_PHYSICAL=0, DMG_POISON=1, DMG_ELECTRIC=2, DMG_CRYO=3, DMG_NANO=4, DMG_FIRE=5
-#define DAMAGE_TYPE_COUNT 6
+// (DAMAGE_TYPE_COUNT : défini dans material.h, collé à l'enum)
 extern const float ENEMY_DMG_MULT[ENEMY_TYPE_COUNT][DAMAGE_TYPE_COUNT];
 
 // ── Descriptions bestiaire ───────────────────────────────────
 extern const char *ENEMY_DESC[ENEMY_TYPE_COUNT];
 extern const char *ENEMY_SPEC[ENEMY_TYPE_COUNT];
 
-// ── Paliers de brûlure (lance-flammes) ───────────────────────
+// ── Paliers de brûlure (lance-flammes, DMG_FIRE) ─────────────
 #define BURN_MAX_STACKS 10
+#define BURN_STEP        0.10f  /* +10 % de dégâts de feu par palier        */
+#define BURN_DECAY_TIME  2.5f   /* s sans être brûlé → paliers perdus       */
+
+// ── Poison (minerai Acide, DMG_POISON) ───────────────────────
+#define POISON_DURATION  3.0f   /* durée des dégâts sur la durée (s)        */
+#define POISON_DOT_FRAC  0.30f  /* DoT par seconde = coup × mult × frac     */
+#define POISON_HIT_FRAC  0.50f  /* part des dégâts appliquée à l'impact     */
 
 // ── Synergies élémentaires (matériaux) ───────────────────────
 // Un ennemi sous effet d'état devient vulnérable → récompense la combinaison

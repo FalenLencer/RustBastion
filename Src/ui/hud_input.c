@@ -230,6 +230,8 @@ void ui_update(UIState *ui, GameState *gs) {
                 (float)(g_map_x_off + g_canvas_virt_w_base - 8 - OVERLAY_W),
                 8.0f
             };
+            overlay_avoid_marks(&ui->overlay_tl_pos, OVERLAY_W, OVERLAY_TL_H, gs, +1);
+            overlay_avoid_marks(&ui->overlay_tr_pos, OVERLAY_W, OVERLAY_TR_H, gs, -1);
         }
         if (ui->overlay_bl_pos.x < 0.0f) {
             int _bh = overlay_bl_h(gs);
@@ -237,6 +239,7 @@ void ui_update(UIState *ui, GameState *gs) {
                 (float)(g_map_x_off + 8),
                 (float)(HUD_Y - _bh - 8)
             };
+            overlay_avoid_marks(&ui->overlay_bl_pos, OVERLAY_BL_W, _bh, gs, +1);
         }
 
         // Mise à jour de la position pendant le drag
@@ -399,7 +402,7 @@ void ui_update(UIState *ui, GameState *gs) {
                                 _base->repair_count++;
                                 audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
                                 char _nbuf[48];
-                                snprintf(_nbuf, sizeof(_nbuf), "+%d HP (base reparee)", _restore);
+                                snprintf(_nbuf, sizeof(_nbuf), "+%d PV (base reparee)", _restore);
                                 ui_push_notif(ui, _nbuf, (Color){46, 204, 113, 255});
                             } else {
                                 ui_push_notif(ui, "Or insuffisant !", (Color){243, 156, 18, 255});
@@ -527,7 +530,7 @@ void ui_update(UIState *ui, GameState *gs) {
                 }
                 if (CheckCollisionPointRec(mouse, ui->repair_tower_btn)) {
                     if (_tw->hp >= TOWER_MAX_HP) {
-                        ui_push_notif(ui, "Tour deja a plein HP !", (Color){130, 90, 40, 255});
+                        ui_push_notif(ui, "Tour deja intacte !", (Color){130, 90, 40, 255});
                     } else if (gs->gold >= TOWER_REPAIR_COST) {
                         gs->gold -= TOWER_REPAIR_COST;
                         tower_do_repair(_tw);
@@ -613,11 +616,7 @@ void ui_update(UIState *ui, GameState *gs) {
                  CheckCollisionPointRec(mouse, ui->sell_btn)) {
             Tower *tw = &gs->towers.towers[ui->selection.tower_idx];
             if (tw->active) {
-                int real_cost = tower_cost_on_tile(tw->type, &gs->map,
-                                                   tw->tile_x, tw->tile_y);
-                float rfrac = TOWER_SELL_REFUND + g_run_mods.sell_refund_add;
-                if (rfrac > 1.0f) rfrac = 1.0f;   // perk Recyclage (cap 100 %)
-                int refund = (int)(real_cost * rfrac);
+                int refund = tower_sell_refund(tw, &gs->map);   // pose + améliorations
                 gs->gold += refund;
                 // Rend le MINERAI appliqué à l'inventaire (s'il reste de la place).
                 if (tw->material != MAT_NONE && gs->inventory_count < MAX_INVENTORY) {
@@ -816,24 +815,33 @@ void ui_update(UIState *ui, GameState *gs) {
 
             // Ouvrier sélectionné → dépôt, ou DÉBLAIEMENT d'un obstacle
             if (ui->worker_selected_idx >= 0) {
-                int assigned = 0;
+                int assigned = 0, locked_dep = 0;
                 for (int d = 0; d < gs->map.deposit_count; d++) {
                     MaterialDeposit *dep = &gs->map.deposits[d];
-                    if (dep->active &&
-                        dep->tile_x == tx && dep->tile_y == ty) {
+                    if (dep->tile_x != tx || dep->tile_y != ty) continue;
+                    if (dep->active) {
                         unit_assign_deposit(&gs->units,
                                             ui->worker_selected_idx, d);
                         ui->worker_selected_idx = -1;
                         gs->units.selected_unit = -1;
                         assigned = 1;
-                        break;
+                    } else if (!dep->mined && dep->spawn_wave > 0) {
+                        /* Filon pas encore ouvert : on le DIT. Avant, le clic
+                           tombait sur la ruine en dessous → déblaiement payant
+                           silencieux au lieu du minage attendu. */
+                        ui_push_notif(ui, TextFormat("Gisement ferme : s'ouvre a la vague %d",
+                                                     dep->spawn_wave),
+                                      (Color){243, 156, 18, 255});
+                        locked_dep = 1;
                     }
+                    break;
                 }
                 /* Pas un gisement : une ruine ou une roche minée sur la case ?
                    L'ouvrier peut la déblayer — le terrain redevient
                    franchissable ET constructible. */
-                int keep_sel = 0;
-                if (!assigned && unit_tile_clearable(&gs->map, &gs->towers, tx, ty)) {
+                int keep_sel = locked_dep;   // filon fermé : l'ouvrier reste sélectionné
+                if (!assigned && !locked_dep &&
+                    unit_tile_clearable(&gs->map, &gs->towers, tx, ty)) {
                     char cbuf[52];
                     if (gs->gold >= UNIT_WORKER_CLEAR_COST) {
                         gs->gold -= UNIT_WORKER_CLEAR_COST;

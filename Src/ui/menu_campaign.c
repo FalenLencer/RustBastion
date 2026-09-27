@@ -212,8 +212,8 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                     if (ks < 1.0f)                        // scale 1.8 → 1.0
                         fs = (int)(12.0f * (1.8f - 0.8f * ea_out_back(ks)));
                 }
-                dtxt("*", ax + 3 + s*12, ay + dy + ah - 14, fs,
-                     wm_fade(sc, ka));
+                ui_draw_star((float)(ax + 8 + s*12), (float)(ay + dy + ah - 8),
+                             (float)fs * 0.45f, wm_fade(sc, ka));
             }
 
             if (badge) {
@@ -351,12 +351,10 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
             // Numéro d'acte (gauche) + étoiles gagnées (droite, même ligne)
             wm_txt(TextFormat("Acte %d", sel + 1), px, py, 10, C_DIM);
             int stars_earned = meta->act_stars[sel];
-            if (stars_earned > 0) {
-                char sbuf[16];
-                snprintf(sbuf, sizeof(sbuf), "%d *", stars_earned);
-                int sw = mtxt(sbuf, 10);
-                wm_txt(sbuf, right_x + right_w - M_IN - sw, py, 10,
-                     (Color){232, 200, 32, 255});
+            for (int s = 0; s < stars_earned; s++) {   /* étoiles dessinées, calées à droite */
+                Color stc = {232, 200, 32, (unsigned char)(255.0f * g_wm_al)};
+                ui_draw_star((float)(right_x + right_w - M_IN - 6 - s * 14 + g_wm_dx),
+                             (float)(py + fh(10) / 2), 6.0f, stc);
             }
             py += fh(10) + 2;
 
@@ -480,10 +478,14 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                                     hov_s ? 2.0f : 1.2f, sbrd);
 
         if (si->exists) {
-            int bw_rep2 = 82, bw_del2 = 54, btn_gap2 = 4;
+            /* Largeurs au TEXTE (82/54 px fixes : libellés plus larges que
+               leurs boutons, REPRENDRE et EFFACER se touchaient). */
+            int bw_rep2 = mtxt("REPRENDRE", BTN_FS) + 2 * BTN_TXT_PAD;
+            int bw_del2 = mtxt("EFFACER",   BTN_FS) + 2 * BTN_TXT_PAD;
+            int btn_gap2 = SLOT_BTN_GAP;
             int bx_del2 = right_x + right_w - M_IN - bw_del2;
             int bx_rep2 = bx_del2 - btn_gap2 - bw_rep2;
-            int bh2     = 22;
+            int bh2     = fh(BTN_FS) + 4;
             int by2     = ry + slot_h/2 - bh2/2;
             int txt_avail = bx_rep2 - (right_x + M_IN) - M_IN;
 

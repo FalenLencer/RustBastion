@@ -43,7 +43,7 @@ const char *UPGRADE_DESC[UPGRADE_COUNT] = {
     "+15% degats par niv",
     "+10% portee par niv",
     "+10% cadence par niv",
-    "+20% HP unites/niv",
+    "+20% PV unites/niv",
     "+15% degats unites/niv",
     "+25 or de depart/niv",
     "+5 vies max/niv",

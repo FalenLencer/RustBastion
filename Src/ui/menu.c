@@ -395,7 +395,7 @@ int draw_btn(const char *label, int x, int y, int w, int h,
 
     draw_btn_sweep(x, y, w, h, sweep);
 
-    int fs = 14;
+    int fs = BTN_FS;
     int tw = mtxt(label, fs);
     dtxt(label, x + w/2 - tw/2,
          y + h/2 - fh(fs)/2 + (pressed ? 1 : 0), fs, col);
@@ -498,11 +498,13 @@ int draw_nav_btn(const char *icon, const char *title,
     return 0;
 }
 
-// Bouton Retour standard
+// Bouton Retour standard — ÉCHAP équivaut au clic (convention : ÉCHAP =
+// revenir d'un cran). Chaque écran garde SA logique de retour.
 int draw_back_btn(int vw, int vh) {
     (void)vw;
-    return draw_btn("< RETOUR", M_PAD, vh - M_PAD - BTN_H,
-                    110, BTN_H, C_DIM, 0);
+    int clicked = draw_btn("< RETOUR", M_PAD, vh - M_PAD - BTN_H,
+                           110, BTN_H, C_DIM, 0);
+    return clicked || IsKeyPressed(KEY_ESCAPE);
 }
 
 // Message temporaire centré en bas

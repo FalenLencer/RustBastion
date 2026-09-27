@@ -9,7 +9,7 @@
  *     les sections/scalaires suivants (cœur de la robustesse) ;
  *   - un scalaire absent (save tronquée/ancienne) prend la valeur par défaut.
  *
- * Compile : gcc -Wall -Wextra Src/game/save_selftest.c -o /tmp/save_test && /tmp/save_test
+ * Compilation + exécution (depuis la racine) : make selftest
  */
 #include <stdio.h>
 #include <string.h>
