@@ -10,6 +10,7 @@
 #include "combat_math.h"
 #include "../game/runperks.h"   // g_run_mods (build de run)
 #include "../engine/audio.h"
+#include "fx.h"                 // popup monde (retour joueur : inventaire plein)
 #include <string.h>
 #include <math.h>
 #include <float.h>
@@ -213,7 +214,13 @@ int unit_spawn_at(UnitPool *up, UnitType type, int *gold, const MetaBonuses *bon
     float max_radius_y  = fminf(bpy, MAP_H * TILE_SIZE - bpy);
     float max_radius    = fminf(max_radius_x, max_radius_y) - TILE_SIZE;
     float wanted_radius = (2.0f + (float)(slot % 3)) * TILE_SIZE;
-    u->patrol_radius = fminf(wanted_radius, max_radius);
+    /* PLANCHER : une base collée au bord de carte donnait un max_radius
+       NÉGATIF (bpy=620 pour un bord à 640 → -20), donc une orbite
+       effondrée SUR le bâtiment — l'unité « se prenait la base » en
+       permanence. Le poste de garde est de toute façon recalé sur une
+       tuile libre (move_free_spot), un rayon sain suffit. */
+    u->patrol_radius = fmaxf(UNIT_PATROL_RADIUS_MIN * TILE_SIZE,
+                             fminf(wanted_radius, max_radius));
     u->patrol_angle  = ((float)slot / (float)MAX_UNITS) * 2.0f * PI;
 
     u->behavior        = UBEH_PATROL;
@@ -378,6 +385,22 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
         u->atk_timer  -= dt;
         u->heal_timer -= dt;
 
+        /* ── Position INVALIDE → recalage sur la tuile libre la plus
+           proche. Une unité peut se retrouver DANS un obstacle sans
+           avoir bougé : apparition sur l'orbite de base (unit_spawn_at
+           n'a pas la carte), tour construite sous ses pieds, ruine
+           révélée. Elle poussait alors contre le décor en permanence
+           (« elle se prend la base / les murs »). Recalage immédiat,
+           même source unique que les postes de garde. */
+        if (!move_can_stand(map, towers, u->x, u->y, u->size, MOVE_F_ALLY)) {
+            float sx, sy;
+            if (move_free_spot(map, towers, u->x, u->y, u->size,
+                               MOVE_F_ALLY, &sx, &sy)) {
+                u->x = sx; u->y = sy;
+                u->nav.active = 0;      /* chemin calculé depuis l'ancienne case */
+            }
+        }
+
         // ════════════════════════════════════════════════
         // OUVRIER — logique de collecte
         // ════════════════════════════════════════════════
@@ -533,8 +556,31 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 // Retour à la base autorisé même en PHASE_PREP
                 float dist = gdist(u->x, u->y, u->home_base_px, u->home_base_py);
                 if (dist <= TILE_SIZE * UNIT_BASE_ARRIVE_DIST) {
+                    /* INVENTAIRE PLEIN : le minerai était DÉTRUIT en
+                       silence (ni son, ni message) et l'objectif d'acte
+                       « collecter N » cessait d'avancer. L'ouvrier garde
+                       désormais sa charge et attend à la base : il livre
+                       dès qu'une place se libère (minerai appliqué à une
+                       tour). Popup toutes les UNIT_FULL_WARN_PERIOD s
+                       pour que la cause soit visible sans spammer. */
                     if (u->has_material && inv_count &&
-                        *inv_count < MAX_INVENTORY) {
+                        *inv_count >= MAX_INVENTORY) {
+                        /* collect_timer sert ici de cooldown de popup :
+                           il n'est lu qu'en USTATE_COLLECT/CLEARING (barre
+                           de progression) et y est réinitialisé à l'entrée
+                           — pas de champ ajouté à Unit, dont la section
+                           sauvegardée doit garder sa taille. */
+                        if (u->collect_timer > 0.0f) {
+                            u->collect_timer -= dt;
+                        } else {
+                            fx_popup(u->x, u->y - TILE_SIZE * 0.5f,
+                                     "INVENTAIRE PLEIN",
+                                     (Color){235, 170, 60, 255});
+                            u->collect_timer = UNIT_FULL_WARN_PERIOD;
+                        }
+                        break;   /* reste chargé, retente la frame suivante */
+                    }
+                    if (u->has_material && inv_count) {
                         inventory[*inv_count] = u->carried_mat;
                         (*inv_count)++;
                         audio_play_sfx(AUDIO_SFX_MATERIAL_COLLECT);
@@ -584,11 +630,20 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                                  + cosf(u->patrol_angle) * (TILE_SIZE * UNIT_WORKER_PATROL_RADIUS);
                     float ty   = u->home_base_py
                                  + sinf(u->patrol_angle) * (TILE_SIZE * UNIT_WORKER_PATROL_RADIUS);
+                    /* Poste de garde VALIDE : un point d'orbite tombant dans
+                       la base, un mur ou une tour faisait pousser l'ouvrier
+                       contre l'obstacle. + navigation (contourne au lieu de
+                       forcer). */
+                    float fx, fy;
+                    if (move_free_spot(map, towers, tx, ty, u->size,
+                                       MOVE_F_ALLY, &fx, &fy)) {
+                        tx = fx; ty = fy;
+                    }
                     float dist = gdist(u->x, u->y, tx, ty);
                     if (dist > UNIT_PATROL_SLACK) {
                         float step = u->speed * TILE_SIZE * UNIT_WORKER_PATROL_SPEED_FRAC * dt;
-                        move_toward(map, towers, &u->x, &u->y,
-                                    tx, ty, step, u->size, MOVE_F_ALLY);
+                        move_nav_toward(map, towers, &u->nav, &u->x, &u->y,
+                                        tx, ty, step, u->size, MOVE_F_ALLY);
                     }
                 }
                 break;
@@ -660,10 +715,18 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     u->state = USTATE_PATROL;
                 } else {
                     float step = u->speed * TILE_SIZE * dt;
-                    move_nav_toward(map, towers, &u->nav, &u->x, &u->y,
-                                    u->manual_x, u->manual_y,
-                                    step, u->size, MOVE_F_ALLY);
-                    u->state = USTATE_MOVE_MANUAL;
+                    if (!move_nav_toward(map, towers, &u->nav, &u->x, &u->y,
+                                         u->manual_x, u->manual_y,
+                                         step, u->size, MOVE_F_ALLY)) {
+                        /* Plus aucun rapprochement possible (destination
+                           enclavée, cernée de tours) : l'ordre est TERMINÉ
+                           au plus près — l'unité garde ce poste au lieu de
+                           rester « en déplacement » pour toujours. */
+                        u->manual_moving = 0;
+                        u->state         = USTATE_PATROL;
+                    } else {
+                        u->state = USTATE_MOVE_MANUAL;
+                    }
                 }
             }
             break;
@@ -699,9 +762,46 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
         u->target_idx = tgt;
 
         if (tgt != -1) {
-            Enemy *e    = &ep->enemies[tgt];
-            float  dist = gdist(u->x, u->y, e->x, e->y);
-            float  atk  = u->atk_range * TILE_SIZE;
+            Enemy *e     = &ep->enemies[tgt];
+            float  dist  = gdist(u->x, u->y, e->x, e->y);
+            float  atk   = u->atk_range * TILE_SIZE;
+            int    melee = (u->atk_range <= UNIT_MELEE_ATK_THRESHOLD);
+
+            /* ── POSTE D'INTERCEPTION : DEVANT l'ennemi, sur sa route ──
+               On vise un point entre l'ennemi et SON but au lieu de le
+               poursuivre par derrière (enemy_goal_point = source unique
+               du but : proie traquée, cible hors-chemin ou base visée).
+               - mêlée : le poste est dans la portée de contact de
+                 l'ennemi, car c'est elle qui déclenche son arrêt
+                 (enemy.c). Se tenir à sa PROPRE portée max le laissait
+                 défiler à côté sans jamais être bloqué ;
+               - à distance : on se place en travers de sa route, mais
+                 sans jamais réduire la distance de tir (cf. plus bas). */
+            float ax = e->x, ay = e->y;
+            {
+                float ex, ey;
+                if (enemy_goal_point(e, map, up, &ex, &ey)) {
+                    float gx2 = ex - e->x, gy2 = ey - e->y;
+                    float gd  = sqrtf(gx2 * gx2 + gy2 * gy2);
+                    if (gd > 1.0f) {
+                        float stand = atk * UNIT_BLOCK_STAND_FRAC;
+                        if (melee) {
+                            float contact = e->unit_atk_range * UNIT_BLOCK_CONTACT_FRAC;
+                            if (contact < stand) stand = contact;
+                        }
+                        if (stand > gd) stand = gd;
+                        float bx = e->x + gx2 / gd * stand;
+                        float by = e->y + gy2 / gd * stand;
+                        float fx, fy;
+                        if (move_free_spot(map, towers, bx, by, u->size,
+                                           MOVE_F_ALLY, &fx, &fy)) {
+                            ax = fx; ay = fy;
+                        }
+                    }
+                }
+            }
+
+            /* Tir dès que l'ennemi est à portée — indépendant du placement. */
             if (dist <= atk) {
                 u->state = USTATE_ATTACK;
                 if (u->atk_timer <= 0.0f) {
@@ -710,14 +810,23 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                     /* Contre-dégâts seulement en corps à corps :
                        une unité à longue portée ne prend pas de coups en retour
                        — c'est l'ennemi qui appliquera ses dégâts en s'approchant. */
-                    if (u->atk_range <= UNIT_MELEE_ATK_THRESHOLD)
+                    if (melee)
                         unit_damage(u, (float)e->damage * UNIT_COUNTER_DMG_MULT);
                 }
             } else {
                 u->state = USTATE_CHASE;
+            }
+
+            /* Placement : une unité de MÊLÉE rejoint son poste même en
+               train de frapper (sinon elle reste à sa portée max et
+               l'ennemi passe à côté). Une unité à DISTANCE ne bouge que
+               si la cible n'est pas encore à portée : elle garde son
+               écart de tir. */
+            if (melee || dist > atk) {
                 float step = u->speed * TILE_SIZE * dt;
-                move_toward(map, towers, &u->x, &u->y,
-                            e->x, e->y, step, u->size, MOVE_F_ALLY);
+                if (gdist(u->x, u->y, ax, ay) > UNIT_PATROL_SLACK)
+                    move_nav_toward(map, towers, &u->nav, &u->x, &u->y,
+                                    ax, ay, step, u->size, MOVE_F_ALLY);
             }
         } else if (u->behavior != UBEH_MANUAL || !u->manual_moving) {
             // Pas d'ennemi et pas en déplacement manuel actif → patrouille
@@ -727,19 +836,26 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                 float dist = gdist(u->x, u->y, eff_hx, eff_hy);
                 if (dist > UNIT_PATROL_SLACK) {
                     float step = u->speed * TILE_SIZE * UNIT_PATROL_SPEED_FRAC * dt;
-                    move_toward(map, towers, &u->x, &u->y,
-                                eff_hx, eff_hy, step, u->size, MOVE_F_ALLY);
+                    move_nav_toward(map, towers, &u->nav, &u->x, &u->y,
+                                    eff_hx, eff_hy, step, u->size, MOVE_F_ALLY);
                 }
             } else {
                 // Orbite normale autour de eff_hx/hy
                 u->patrol_angle += UNIT_PATROL_ANGLE_SPEED * dt;
                 float target_x = eff_hx + cosf(u->patrol_angle) * u->patrol_radius;
                 float target_y = eff_hy + sinf(u->patrol_angle) * u->patrol_radius;
+                /* Poste de garde VALIDE + navigation : l'orbite traversait la
+                   base, les murs et les tours, et l'unité poussait dedans. */
+                float fpx, fpy;
+                if (move_free_spot(map, towers, target_x, target_y,
+                                   u->size, MOVE_F_ALLY, &fpx, &fpy)) {
+                    target_x = fpx; target_y = fpy;
+                }
                 float dist     = gdist(u->x, u->y, target_x, target_y);
                 if (dist > UNIT_PATROL_SLACK) {
                     float step = u->speed * TILE_SIZE * UNIT_PATROL_SPEED_FRAC * dt;
-                    move_toward(map, towers, &u->x, &u->y,
-                                target_x, target_y, step, u->size, MOVE_F_ALLY);
+                    move_nav_toward(map, towers, &u->nav, &u->x, &u->y,
+                                    target_x, target_y, step, u->size, MOVE_F_ALLY);
                 }
             }
         }
@@ -750,8 +866,8 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             float d_base   = gdist(u->x, u->y, eff_hx, eff_hy);
             if (d_base > max_dist && u->target_idx == -1) {
                 float step = u->speed * TILE_SIZE * dt;
-                move_toward(map, towers, &u->x, &u->y,
-                            eff_hx, eff_hy, step, u->size, MOVE_F_ALLY);
+                move_nav_toward(map, towers, &u->nav, &u->x, &u->y,
+                                eff_hx, eff_hy, step, u->size, MOVE_F_ALLY);
                 u->state = USTATE_RETURN;
             }
         }

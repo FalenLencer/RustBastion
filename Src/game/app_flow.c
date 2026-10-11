@@ -113,6 +113,7 @@ void game_handle_gameover(AppContext *ctx) {
                 ctx->menu.paused = 0;
                 ctx->menu.screen = MENU_WORLD_MAP;
                 ctx->screen      = SCREEN_MENU;
+                ctx->interlude   = INTER_NONE;  /* rien ne survit au retour menu */
                 audio_play_menu_music();
             }
             return;   /* attend le choix du joueur */
@@ -140,6 +141,7 @@ void game_handle_gameover(AppContext *ctx) {
                           : ctx->gs.is_custom    ? MENU_CUSTOM
                           : MENU_ARCADE;
         ctx->screen       = SCREEN_MENU;
+        ctx->interlude    = INTER_NONE;  /* rien ne survit au retour menu */
         audio_play_menu_music();
     }
 }

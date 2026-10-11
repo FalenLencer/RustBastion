@@ -35,6 +35,9 @@
    montant AFFICHÉ sur le bouton et montant réellement crédité. */
 #define UNIT_SELL_REFUND               0.5f
 #define UNIT_DEPOSIT_ARRIVE_DIST       0.8f  /* seuil d'arrivée au dépôt (en tiles) */
+/* Intervalle du rappel « INVENTAIRE PLEIN » quand un ouvrier ne peut pas
+   livrer sa charge (s). Assez long pour ne pas spammer l'écran. */
+#define UNIT_FULL_WARN_PERIOD          6.0f
 /* ── Déblaiement d'obstacle (ruines / roches minées) ─────────── */
 #define UNIT_WORKER_CLEAR_COST         5     /* or dépensé à l'ordre        */
 #define UNIT_WORKER_CLEAR_DURATION     3.0f  /* durée du déblaiement (s)    */
@@ -49,9 +52,21 @@
 // ── Combat ────────────────────────────────────────────────────
 #define UNIT_COUNTER_DMG_MULT          2.0f  /* multiplicateur riposte ennemie (corps à corps) */
 #define UNIT_MELEE_ATK_THRESHOLD       1.5f  /* atk_range (tiles) ≤ seuil → mêlée → contre-dégâts */
+#define UNIT_BLOCK_STAND_FRAC          0.75f /* poste d'interception : cette fraction
+                                                de SA portée DEVANT l'ennemi (sur la
+                                                route de l'ennemi, pas dans son dos) */
+/* MÊLÉE : le poste est aussi borné à cette fraction de la portée de
+   contact de l'ENNEMI. C'est cette portée-là qui décide son arrêt
+   (enemy.c) : au-delà, l'ennemi défile sans jamais être bloqué. */
+#define UNIT_BLOCK_CONTACT_FRAC        0.70f
 #define UNIT_PATROL_ANGLE_SPEED        0.5f  /* vitesse angulaire patrouille (rad/s)*/
 #define UNIT_PATROL_SPEED_FRAC         0.6f  /* fraction de vitesse en patrouille   */
 #define UNIT_PATROL_SLACK              2.0f  /* seuil min déplacement patrouille (px)*/
+/* Rayon d'orbite MINIMAL (tuiles). Juste assez pour sortir du bâtiment
+   (demi-tuile = 0.5) : la garnison reste COLLÉE à la base et la protège.
+   Un plancher plus large (1.6) éloignait les unités d'une base de bord
+   de carte et laissait passer les assaillants. */
+#define UNIT_PATROL_RADIUS_MIN         1.1f
 
 typedef enum {
     UNIT_SOLDIER = 0,

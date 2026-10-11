@@ -458,6 +458,7 @@ void mp_handle_result(AppContext *ctx) {
         ctx->menu.paused = 0;
         ctx->screen      = SCREEN_MENU;
         ctx->menu.screen = MENU_MP_LOBBY;
+        ctx->interlude   = INTER_NONE;   /* rien ne survit au retour menu */
         audio_play_menu_music();
     } else if ((click && CheckCollisionPointRec(vm, mp_result_btn(1))) ||
                IsKeyPressed(KEY_ESCAPE)) {
@@ -468,6 +469,7 @@ void mp_handle_result(AppContext *ctx) {
         ctx->menu.paused = 0;
         ctx->screen      = SCREEN_MENU;
         ctx->menu.screen = MENU_MP_HUB;
+        ctx->interlude   = INTER_NONE;   /* rien ne survit au retour menu */
         audio_play_menu_music();
     }
 }

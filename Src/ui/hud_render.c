@@ -241,6 +241,35 @@ static void draw_overlay_frame(int ox, int oy, int ow, int oh,
 static int   g_sel_dx = 0;       // offset x courant des textes du panneau
 static float g_sel_al = 1.0f;    // facteur alpha courant du contenu
 
+/* ── Marqueur « amélioration disponible » (au-dessus d'une tour) ──
+   Flèche VERTE montante, et non plus un point jaune : le jaune se
+   confondait avec les pastilles de niveau et avec l'or, et un point ne
+   dit pas ce qu'il propose. Vert = action bénéfique dispo, flèche
+   montante = « monter d'un cran ». */
+#define UPG_ARROW_HW   5.0f   /* demi-largeur de la pointe (px)        */
+#define UPG_ARROW_H    6.0f   /* hauteur de la pointe (px)             */
+#define UPG_STEM_HW    2.0f   /* demi-largeur de la hampe (px)         */
+#define UPG_STEM_H     4.0f   /* hauteur de la hampe (px)              */
+#define UPG_EDGE_A     210    /* alpha max du contour sombre           */
+static void draw_upgrade_arrow(float cx, float cy, unsigned char a) {
+    Color fill = {90, 230, 120, a};
+    Color edge = {24, 120,  64, (unsigned char)(a < UPG_EDGE_A ? a : UPG_EDGE_A)};
+    /* Sommets dans le même ordre que perk_art.c (bas-gauche, bas-droit,
+       pointe) : winding valide pour raylib en repère écran (y vers le bas). */
+    DrawTriangle((Vector2){cx - UPG_ARROW_HW, cy},
+                 (Vector2){cx + UPG_ARROW_HW, cy},
+                 (Vector2){cx,                cy - UPG_ARROW_H}, fill);
+    DrawRectangleV((Vector2){cx - UPG_STEM_HW, cy},
+                   (Vector2){UPG_STEM_HW * 2.0f, UPG_STEM_H}, fill);
+    /* Contour : la flèche doit rester lisible sur un toit de tour clair. */
+    DrawLineEx((Vector2){cx - UPG_ARROW_HW, cy},
+               (Vector2){cx, cy - UPG_ARROW_H}, 1.0f, edge);
+    DrawLineEx((Vector2){cx + UPG_ARROW_HW, cy},
+               (Vector2){cx, cy - UPG_ARROW_H}, 1.0f, edge);
+    DrawLineEx((Vector2){cx - UPG_STEM_HW, cy + UPG_STEM_H},
+               (Vector2){cx + UPG_STEM_HW, cy + UPG_STEM_H}, 1.0f, edge);
+}
+
 static void ptxt(const char *s, int x, int y, int fs, Color c) {
     c.a = (unsigned char)((float)c.a * g_sel_al);
     dtxt(s, x + g_sel_dx, y, fs, c);
@@ -1596,13 +1625,10 @@ void ui_render(const UIState *ui, const GameState *gs) {
                               (c_range > 0 && gs->gold >= c_range) ||
                               (c_rate  > 0 && gs->gold >= c_rate);
                 if (!can_upg) continue;
-                /* Point pulsant en haut-droit de la tuile */
-                float dot_x = tw->tile_x * TILE_SIZE + TILE_SIZE - 5.0f;
-                float dot_y = tw->tile_y * TILE_SIZE + 5.0f;
-                DrawCircle((int)dot_x, (int)dot_y, 4,
-                           (Color){255, 220, 50, pa});
-                DrawCircleLines((int)dot_x, (int)dot_y, 4,
-                                (Color){200, 160, 20, 200});
+                /* Flèche verte pulsante en haut-droit de la tuile */
+                float dot_x = tw->tile_x * TILE_SIZE + TILE_SIZE - 7.0f;
+                float dot_y = tw->tile_y * TILE_SIZE + 8.0f;
+                draw_upgrade_arrow(dot_x, dot_y, pa);
             }
         }
 

@@ -13,6 +13,7 @@
 #include "../engine/assets.h"  // splash arts tours/unités
 #include "raylib.h"
 #include "ui_utils.h"   // DrawText/MeasureText → g_font (support accents)
+#include "ui_palette.h" // palette UI (source unique) : UI_DANGER…
 #include "../map/pathfinding.h"
 #include "../map/map_gen.h"
 #include "../map/theme.h"
@@ -140,6 +141,10 @@ Color renderer_base_color(int base_idx, int is_primary) {
 #define UNIT_SPRITE_HALF    (UNIT_SPRITE_SCALE * 0.5f)
 #define ENEMY_SPRITE_SCALE  3.8f
 #define ENEMY_SPRITE_HALF   (ENEMY_SPRITE_SCALE * 0.5f)
+
+/* Opacité du nom d'ennemi (option « noms des entités ») : en dessous de
+   l'opaque pour ne pas concurrencer la barre de vie et les sprites. */
+#define ENEMY_NAME_ALPHA    205
 
 // ── Dessine une texture centrée dans une box, ratio conservé ──
 // Retourne 1 si une image a été dessinée, 0 si texture absente.
@@ -514,10 +519,15 @@ void render_enemies(const EnemyPool *pool) {
                          : ratio > 0.3f ? (Color){243,156,18,255}
                                         : (Color){231,76,60,255};
             DrawRectangle(bx, by, (int)(bw * ratio), 3, hp_col);
-            /* Nom de l'espece : optionnel (defaut OFF — reduit le bruit) */
-            if (g_show_entity_names)
-                dtxt(ENEMY_BASE_STATS[e->type].name,
-                         bx, by-12, 8, (Color){200,200,180,180});
+            /* Nom de l'espece : optionnel (defaut OFF — reduit le bruit).
+               ROUGE = hostile : en blanc casse le nom se lisait comme une
+               etiquette neutre, alors que la couleur est le seul repere
+               immediat ami/ennemi sur la carte (vert = alliee). */
+            if (g_show_entity_names) {
+                Color nc = UI_DANGER;
+                nc.a = ENEMY_NAME_ALPHA;
+                dtxt(ENEMY_BASE_STATS[e->type].name, bx, by-12, 8, nc);
+            }
         }
     }
 }

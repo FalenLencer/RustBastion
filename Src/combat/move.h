@@ -33,6 +33,14 @@
 int  move_tile_blocked(const Map *map, const TowerPool *tp,
                        int tx, int ty, int flags);
 
+/* Le corps de rayon `radius` tient-il, ENTIER, a la position (x,y) ?
+   PREDICAT UNIQUE : deplacement reel, ligne de vue et validation de
+   destination l'utilisent tous. Tant qu'ils repondaient differemment,
+   une entite pouvait « voir » un passage ou elle ne tient pas, s'y
+   engager, et pousser contre le mur sans fin. */
+int  move_can_stand(const Map *map, const TowerPool *tp,
+                    float x, float y, float radius, int flags);
+
 /* Déplacement (dx,dy) avec GLISSEMENT axe par axe le long des murs,
    règle anti-blocage (une entité DANS une tuile bloquée peut toujours
    en sortir) et bornes de carte. radius = demi-largeur de l'entité (px).
@@ -47,6 +55,19 @@ int  move_slide(const Map *map, const TowerPool *tp,
 int  move_toward(const Map *map, const TowerPool *tp,
                  float *px, float *py, float tx, float ty,
                  float step, float radius, int flags);
+
+/* Position LIBRE la plus proche de (tx,ty) pour ce gabarit : la cible
+   elle-même si le CORPS y tient (move_can_stand — tester la seule
+   tuile du centre laissait un point où l'entité mord le mur voisin),
+   sinon le centre de la tuile libre la plus proche (anneaux
+   croissants, MOVE_FREE_MAX_RING max).
+   SOURCE UNIQUE des « destinations valides » : ordre du joueur cliqué sur
+   un mur, poste de garde sur le trajet d'une patrouille, apparition d'une
+   unité. Retourne 1 si un point libre a été trouvé (out_x/out_y écrits).  */
+#define MOVE_FREE_MAX_RING 8
+int  move_free_spot(const Map *map, const TowerPool *tp,
+                    float tx, float ty, float radius, int flags,
+                    float *out_x, float *out_y);
 
 /* ── NAVIGATION ──────────────────────────────────────────────────
    Principe : « ligne droite quand c'est possible, VRAI chemin sinon ».
@@ -70,6 +91,13 @@ int  move_toward(const Map *map, const TowerPool *tp,
 #define MOVE_NAV_LOS_STEP     0.25f /* échantillonnage de la ligne (tuiles) */
 #define MOVE_NAV_PULL_MAX     24    /* portée max du tir à la corde
                                        (borne le coût d'une replanif.) */
+/* Seuils de la regle d'approche MONOTONE (move_approach, move.c) :
+   un pas n'est retenu que s'il rapproche d'au moins PROGRESS_EPS, et
+   le filet anti-blocage exige un gain cumule d'au moins PROGRESS_MIN
+   pour considerer qu'il y a progres. Sans ces deux seuils, une entite
+   qui oscille de quelques dixiemes de pixel passerait pour active. */
+#define MOVE_PROGRESS_EPS     0.05f /* gain minimal d'un pas (px)      */
+#define MOVE_PROGRESS_MIN     0.5f  /* gain minimal sur la fenetre (px)*/
 
 typedef struct {
     float wx, wy;      /* waypoint courant (px monde sim)               */

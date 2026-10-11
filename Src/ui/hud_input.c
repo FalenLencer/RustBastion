@@ -801,8 +801,14 @@ void ui_update(UIState *ui, GameState *gs) {
                         }
                     }
                     if (!in_spawn) {
-                        _mu->manual_x      = wx_m;
-                        _mu->manual_y      = wy_m;
+                        /* Destination ramenée sur une case atteignable
+                           (clic sur un mur → point libre le plus proche,
+                           comme un clic minicarte dans un MOBA). */
+                        float _fx = wx_m, _fy = wy_m;
+                        move_free_spot(&gs->map, &gs->towers, wx_m, wy_m,
+                                       _mu->size, MOVE_F_ALLY, &_fx, &_fy);
+                        _mu->manual_x      = _fx;
+                        _mu->manual_y      = _fy;
                         _mu->manual_moving = 1;
                         goto end_click;
                     } else {
@@ -1070,9 +1076,15 @@ void ui_update(UIState *ui, GameState *gs) {
                     int   gx = placed % cols, gy = placed / cols;
                     float ox = ((float)gx - (cols - 1) * 0.5f) * sp;
                     float oy = ((float)gy - (rows - 1) * 0.5f) * sp;
+                    /* Chaque place de la formation est ramenée sur une
+                       case atteignable (sinon les unités du bord poussaient
+                       dans le décor). */
+                    float fx = wx + ox, fy = wy + oy;
+                    move_free_spot(&gs->map, &gs->towers, fx, fy,
+                                   u->size, MOVE_F_ALLY, &fx, &fy);
                     u->behavior      = UBEH_MANUAL;
-                    u->manual_x      = wx + ox;
-                    u->manual_y      = wy + oy;
+                    u->manual_x      = fx;
+                    u->manual_y      = fy;
                     u->manual_moving = 1;
                     placed++;
                 }

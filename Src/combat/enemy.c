@@ -728,6 +728,38 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
 }
 
 /* ════════════════════════════════════════════════════
+   VERS OÙ VA CET ENNEMI ?
+   Sert aux unités alliées pour se placer DEVANT lui (blocage) plutôt que
+   de le rejoindre par derrière. Ordre de priorité = celui de sa logique
+   de déplacement : proie traquée > cible hors-chemin > base visée.
+   ════════════════════════════════════════════════════ */
+int enemy_goal_point(const Enemy *e, const Map *map, const UnitPool *up,
+                     float *gx, float *gy) {
+    if (!e || !map || !gx || !gy) return 0;
+
+    /* Traque d'une unité/ouvrier (Raider en raid, Chasseur) */
+    int prey = (e->raiding && e->raid_target >= 0) ? e->raid_target
+             : (e->hunt_target >= 0)               ? e->hunt_target : -1;
+    if (up && prey >= 0 && prey < MAX_UNITS && up->units[prey].active) {
+        *gx = up->units[prey].x; *gy = up->units[prey].y;
+        return 1;
+    }
+    /* Briseur ayant quitté le chemin : sa cible libre */
+    if (e->path_broken) { *gx = e->target_x; *gy = e->target_y; return 1; }
+
+    /* Cas général : la base que dessert son chemin */
+    if (e->path_id >= 0 && e->path_id < map->path_count) {
+        int b = map->paths[e->path_id].base_id;
+        if (b >= 0 && b < map->base_count) {
+            *gx = ((float)map->bases[b].pos.x + 0.5f) * TILE_SIZE;
+            *gy = ((float)map->bases[b].pos.y + 0.5f) * TILE_SIZE;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* ════════════════════════════════════════════════════
    COMPTE LES ENNEMIS EN VIE
    ════════════════════════════════════════════════════ */
 int enemy_pool_alive(const EnemyPool *pool) {

@@ -906,6 +906,37 @@ static int game_do_render(AppContext *ctx) {
     return 1;
 }
 
+/* ════════════════════════════════════════════════════════════════
+   INVARIANT : un interlude DOIT correspondre au MODE de la partie
+   ────────────────────────────────────────────────────────────────
+   `ctx->interlude` est un état d'écran GLOBAL, écrit par une dizaine
+   de sites et restauré depuis la sauvegarde de campagne, alors que la
+   plupart des retours au menu (héros, tutoriel, game-over, fin de MP)
+   ne le remettaient PAS à zéro. Un POINT D'EXTRACTION — écran propre
+   au mode endless — pouvait donc s'afficher en pleine CAMPAGNE, où ses
+   deux boutons sont destructeurs : [E] supprime la sauvegarde ARCADE
+   (save_delete) et abandonne la run, [ESPACE] RÉGÉNÈRE la carte au
+   milieu de l'acte. Même chose en miroir pour butin/boutique/dialogues
+   qui réapparaîtraient dans une partie arcade.
+
+   Vérifié ici, à l'entrée de frame AVANT tout rendu ou handler : un
+   interlude hors de son mode est annulé, quelle que soit sa provenance
+   — y compris une sauvegarde écrite par une version précédente.      */
+static void interlude_check_mode(AppContext *ctx) {
+    const GameState *gs = &ctx->gs;
+    int ok;
+    switch (ctx->interlude) {
+    case INTER_NONE:    ok = 1; break;
+    case INTER_EXTRACT: ok = gs->is_endless  && !ctx->mp_in_game; break;
+    case INTER_DIALOG_BEFORE:
+    case INTER_DIALOG_AFTER:
+    case INTER_DRAFT:
+    case INTER_SHOP:    ok = gs->is_campaign && !ctx->mp_in_game; break;
+    default:            ok = 0; break;   /* valeur inconnue (vieille save) */
+    }
+    if (!ok) ctx->interlude = INTER_NONE;
+}
+
 // ════════════════════════════════════════════════════════════════
 // POINT D'ENTRÉE DE FRAME
 // ════════════════════════════════════════════════════════════════
@@ -928,6 +959,10 @@ int app_update(AppContext *ctx, float dt) {
 
     if (ctx->screen == SCREEN_MENU)
         return handle_menu(ctx);
+
+    /* Interlude cohérent avec le mode (cf. interlude_check_mode) —
+       AVANT tout handler et tout rendu de cette frame. */
+    interlude_check_mode(ctx);
 
     /* SCREEN_GAME — Asym ENVAHISSEUR : sim figée, écran de commande dédié */
     if (ctx->mp_invader) {

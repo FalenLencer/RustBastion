@@ -220,4 +220,10 @@ void  enemy_spawn      (EnemyPool *pool, EnemyType type,
 void  enemy_spawn_boss (EnemyPool *pool, int path_id, const PathSet *paths,
                         float hp_scale, int boss_chapter);
 int   enemy_pool_alive (const EnemyPool *pool);
+/* Point vers lequel cet ennemi se dirige (proie traquée, cible hors-chemin
+   ou base visée). 1 si écrit. Permet aux unités de se placer DEVANT lui.
+   `up` peut être NULL (on ignore alors la traque). */
+struct UnitPool;
+int   enemy_goal_point (const Enemy *e, const Map *map, const struct UnitPool *up,
+                        float *gx, float *gy);
 void  enemy_damage     (Enemy *e, float dmg);

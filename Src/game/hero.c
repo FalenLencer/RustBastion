@@ -149,6 +149,7 @@ static void hero_exit_to_menu(AppContext *ctx) {
     ctx->screen      = SCREEN_MENU;
     ctx->menu.screen = MENU_TITLE;
     ctx->menu.paused = 0;
+    ctx->interlude   = INTER_NONE;   /* aucun écran transitoire ne survit */
     audio_play_menu_music();
 }
 
