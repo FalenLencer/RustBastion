@@ -33,7 +33,7 @@ const EnemyStats ENEMY_BASE_STATS[ENEMY_TYPE_COUNT] = {
     [ENEMY_RAIDER]      = {.hp=60,  .speed=2.0f, .size=6,  .reward=5,  .damage=1, .melee_range=18.0f, .name="Raider"},
     [ENEMY_BRUTE]       = {.hp=200, .speed=0.9f, .size=9,  .reward=12, .damage=3, .melee_range=28.0f, .name="Brute"},
     [ENEMY_RUNNER]      = {.hp=40,  .speed=3.5f, .size=5,  .reward=7,  .damage=1, .melee_range=14.0f, .name="Runner"},
-    [ENEMY_VEHICLE]     = {.hp=500, .speed=0.6f, .size=12, .reward=30, .damage=5, .melee_range=36.0f, .name="Blinde"},
+    [ENEMY_VEHICLE]     = {.hp=500, .speed=0.6f, .size=12, .reward=30, .damage=5, .melee_range=36.0f, .name="Blindé"},
     [ENEMY_MUTANT]      = {.hp=120, .speed=1.2f, .size=8,  .reward=10, .damage=2, .melee_range=22.0f, .name="Mutant"},
     [ENEMY_GHOST]       = {.hp=35,  .speed=2.2f, .size=6,  .reward=15, .damage=1, .melee_range=16.0f, .name="Spectre"},
     [ENEMY_PATHBREAKER] = {.hp=150, .speed=2.0f, .size=7,  .reward=18, .damage=2, .melee_range=20.0f, .name="Briseur"},
@@ -64,29 +64,29 @@ const float ENEMY_DMG_MULT[ENEMY_TYPE_COUNT][DAMAGE_TYPE_COUNT] = {
    DESCRIPTIONS BESTIAIRE
    ════════════════════════════════════════════════════ */
 const char *ENEMY_DESC[ENEMY_TYPE_COUNT] = {
-    [ENEMY_RAIDER]      = "Pillard humain basique. Suit le chemin et attaque\nau corps a corps. Peu d'armure mais nombreux.",
-    [ENEMY_BRUTE]       = "Colosse recouvert de plaques d'acier. Lent mais\nencaisse enormement. Frappe tres fort.",
-    [ENEMY_RUNNER]      = "Eclaireur ultra-rapide. Fonce vers la base\nen evitant le gros des combats.",
-    [ENEMY_VEHICLE]     = "Vehicule blinde de guerre. Presque impossible a\narreter une fois lance. Immune aux ralentissements.",
-    [ENEMY_MUTANT]      = "Creature humanoide mutagene. Se regenere lentement\net resiste aux toxines grace a ses mutations.",
-    [ENEMY_GHOST]       = "Entite semi-incorporelle. Invisible aux tourelles,\nseules vos unites peuvent le detecter.",
-    [ENEMY_PATHBREAKER] = "Guerrier massif qui quitte le chemin a mi-parcours\npour foncer directement vers la base en ligne droite.",
-    [ENEMY_HEALER]      = "Soigneur ennemi. Restaure les PV de tous les\nennemis proches en continu. Priorite critique.",
-    [ENEMY_HUNTER]      = "Predateur qui traque vos unites alliees.\nIgnore le chemin et attaque vos soldats en priorite.",
-    [ENEMY_ARTILLERY]   = "Machine de guerre qui s'arrete a portee et\ndetruit methodiquement vos tourelles.",
+    [ENEMY_RAIDER]      = "Pillard humain basique. Suit le chemin et attaque\nau corps à corps. Peu d'armure mais nombreux.",
+    [ENEMY_BRUTE]       = "Colosse recouvert de plaques d'acier. Lent mais\nencaisse énormément. Frappe très fort.",
+    [ENEMY_RUNNER]      = "Éclaireur ultra-rapide. Fonce vers la base\nen évitant le gros des combats.",
+    [ENEMY_VEHICLE]     = "Véhicule blindé de guerre. Presque impossible à\narrêter une fois lancé. Immune aux ralentissements.",
+    [ENEMY_MUTANT]      = "Créature humanoïde mutagène. Se régénère lentement\net résiste aux toxines grâce à ses mutations.",
+    [ENEMY_GHOST]       = "Entite semi-incorporelle. Invisible aux tourelles,\nseules vos unités peuvent le détecter.",
+    [ENEMY_PATHBREAKER] = "Guerrier massif qui quitte le chemin à mi-parcours\npour foncer directement vers la base en ligne droite.",
+    [ENEMY_HEALER]      = "Soigneur ennemi. Restaure les PV de tous les\nennemis proches en continu. Priorité critique.",
+    [ENEMY_HUNTER]      = "Prédateur qui traque vos unités alliées.\nIgnore le chemin et attaque vos soldats en priorité.",
+    [ENEMY_ARTILLERY]   = "Machine de guerre qui s'arrête à portée et\ndétruit méthodiquement vos tourelles.",
 };
 
 const char *ENEMY_SPEC[ENEMY_TYPE_COUNT] = {
-    [ENEMY_RAIDER]      = "Aucune specialite. Chair a canon.",
-    [ENEMY_BRUTE]       = "Armure lourde. Vulnerable aux decharges electriques.",
-    [ENEMY_RUNNER]      = "Vitesse extreme. Peu de PV. Difficile a cibler.",
+    [ENEMY_RAIDER]      = "Aucune spécialité. Chair à canon.",
+    [ENEMY_BRUTE]       = "Armure lourde. Vulnérable aux décharges électriques.",
+    [ENEMY_RUNNER]      = "Vitesse extrême. Peu de PV. Difficile à cibler.",
     [ENEMY_VEHICLE]     = "Immune aux ralentissements. Froid grippe les engrenages.",
-    [ENEMY_MUTANT]      = "Regeneration passive. Tres resistant au poison.",
-    [ENEMY_GHOST]       = "Invisible aux tours. Nano-armes : vulnerabilite x2.",
-    [ENEMY_PATHBREAKER] = "Quitte le chemin. Fonce en ligne droite. Imprevable.",
-    [ENEMY_HEALER]      = "Soin de zone continue. Eliminez-le en premier.",
-    [ENEMY_HUNTER]      = "Traque les unites. Tres vulnerable aux armes physiques.",
-    [ENEMY_ARTILLERY]   = "Siege : bombarde les tours. Tres sensible a l'electricite.",
+    [ENEMY_MUTANT]      = "Régénération passive. Très résistant au poison.",
+    [ENEMY_GHOST]       = "Invisible aux tours. Nano-armes : vulnérabilité x2.",
+    [ENEMY_PATHBREAKER] = "Quitte le chemin. Fonce en ligne droite. Imprévisible.",
+    [ENEMY_HEALER]      = "Soin de zone continue. Éliminez-le en premier.",
+    [ENEMY_HUNTER]      = "Traque les unités. Très vulnérable aux armes physiques.",
+    [ENEMY_ARTILLERY]   = "Siège : bombarde les tours. Très sensible à l'électricité.",
 };
 
 /* ════════════════════════════════════════════════════
@@ -128,7 +128,7 @@ void enemy_spawn(EnemyPool *pool, EnemyType type,
     e->type        = type;
     /* Slot réutilisé : jamais d'itinéraire hérité de l'occupant précédent */
     memset(&g_enemy_nav[e - pool->enemies], 0, sizeof(MoveNav));
-    e->max_hp      = base->hp * wave_scale;
+    e->max_hp      = base->hp * wave_scale * g_run_mods.enemy_hp;   // clé Géomancien
     e->hp          = e->max_hp;
     e->speed       = base->speed * speed_mult;
     e->size        = base->size;
@@ -391,7 +391,9 @@ void enemy_pool_update(EnemyPool *pool, const PathSet *paths,
                 e->ability_timer -= dt;
                 if (e->ability_timer <= 0.0f) {
                     e->telegraph_timer = BOSS_TELEGRAPH_TIME;   // démarre le préavis
-                    audio_play_sfx(AUDIO_SFX_ENEMY_SPAWN);
+                    /* Alerte grave, distincte d'une simple apparition : la
+                       capacité du boss arrive, il faut réagir. */
+                    audio_play_sfx_pitch(AUDIO_SFX_WAVE_START, BOSS_TELEGRAPH_SFX_PITCH);
                 }
             }
         }

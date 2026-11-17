@@ -6,6 +6,10 @@
 
 #include "game_state.h"
 #include "achievements.h"
+#include "hazard.h"
+#include "hints.h"
+
+#define BASE_HIT_SFX_PITCH  0.55f   /* impact grave quand une base encaisse */
 #include "../engine/audio.h"
 #include "../combat/fx.h"
 #include "../map/pathfinding.h"
@@ -113,7 +117,15 @@ void game_damage_base(GameState *gs, int base_id, int dmg) {
     if (base_id < 0 || base_id >= gs->map.base_count) return;
     BaseInfo *b = &gs->map.bases[base_id];
     if (!b->active) return;
+    /* Dégât RÉELLEMENT encaissé : une base à 3 PV frappée pour 5 n'en perd
+       que 3. Retirer les 5 des vies désynchronisait `lives` de la somme des
+       PV (vies affichées à 0 alors qu'une autre base tient encore — et en
+       multijoueur, défaite déclarée sur `lives <= 0`). */
+    if (dmg > b->hp) dmg = b->hp;
     b->hp -= dmg;
+    /* Impact sourd : le joueur ENTEND qu'une fuite touche la base (le son
+       est limité en cadence par audio.c, pas de mitraillage). */
+    if (dmg > 0) audio_play_sfx_pitch(AUDIO_SFX_ENEMY_HIT, BASE_HIT_SFX_PITCH);
     if (b->hp <= 0) {
         b->hp     = 0;
         b->active = 0;
@@ -124,6 +136,36 @@ void game_damage_base(GameState *gs, int base_id, int dmg) {
     }
     gs->lives -= dmg;
     if (gs->lives < 0) gs->lives = 0;
+}
+
+/* ── Réserve de vie : SOURCE UNIQUE ───────────────────────────────
+   Les vies SONT la somme des PV des bases : la défaite se décide sur les
+   bases (game_all_bases_fallen), jamais sur `lives`. Tout bonus ou malus
+   de vies (doctrines, perk Garnison, ordre du jour) doit donc passer par
+   les PV de la base principale — sinon il ne fait que maquiller le
+   compteur : « +15 vies » affichées, base qui tombe quand même à 20. */
+void game_adjust_lives(GameState *gs, int delta) {
+    BaseInfo *main_base = 0;   /* base principale vivante */
+    for (int i = 0; i < gs->map.base_count; i++) {
+        BaseInfo *b = &gs->map.bases[i];
+        if (!b->active || b->hp <= 0) continue;
+        if (!main_base || b->is_primary) main_base = b;
+        if (b->is_primary) break;
+    }
+    if (main_base && delta != 0) {
+        /* Bonus : vrai renfort (PV ET plafond, la barre reste pleine).
+           Malus : la base est plus fragile pour l'acte, sans jamais
+           pouvoir être tuée par une décision (plancher 1 PV). */
+        main_base->max_hp += delta;
+        if (main_base->max_hp < 1) main_base->max_hp = 1;
+        main_base->hp += delta;
+        if (main_base->hp < 1) main_base->hp = 1;
+        if (main_base->hp > main_base->max_hp) main_base->hp = main_base->max_hp;
+    }
+    int total = 0;
+    for (int i = 0; i < gs->map.base_count; i++)
+        if (gs->map.bases[i].active) total += gs->map.bases[i].hp;
+    gs->lives = total;
 }
 
 void game_state_init(GameState *gs) {
@@ -193,7 +235,8 @@ void game_state_update(GameState *gs, float dt) {
             dt = campaign_doctrine_slots(gs->campaign_flags, 0);
             du = campaign_doctrine_slots(gs->campaign_flags, 1);
         }
-        int tl = tower_active_limit(&gs->bonuses) + gs->slots_tower_bought + dt;
+        int tl = tower_active_limit(&gs->bonuses) + gs->slots_tower_bought + dt
+               + g_run_mods.tower_slots;   /* clé de voûte Forteresse (neutre hors campagne) */
         if (tl > MAX_TOWERS_HARD) tl = MAX_TOWERS_HARD;
         if (tl < 1) tl = 1;
         gs->towers.tower_limit = tl;
@@ -275,12 +318,14 @@ void game_state_update(GameState *gs, float dt) {
             gs->map.tiles[tw->tile_y][tw->tile_x].buildable = 1;
             tw->active = 0;
             if (gs->towers.tower_count > 0) gs->towers.tower_count--;
-            ui_push_notif(&gs->ui, "Tour detruite par l'artillerie !",
+            ui_push_notif(&gs->ui, "Tour détruite par l'artillerie !",
                           (Color){231, 76, 60, 255});
         }
     }
 
     tower_pool_update(&gs->towers, &gs->enemies, effective_dt);
+    hazard_update(gs, effective_dt);   // tronçons piégés (mêmes règles que les tours)
+    hints_update(gs, dt);              // indices contextuels (temps RÉEL : lisibilité)
     int _inv_before = gs->inventory_count;
     unit_pool_update(&gs->units, &gs->enemies, &gs->map,
                      effective_dt, gs->inventory, &gs->inventory_count,

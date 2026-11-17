@@ -130,6 +130,10 @@ typedef struct {
        surcouche (bulle du tutoriel) occupe le haut de l'écran. 0 = libre.
        Recalculé chaque frame par app.c (non sauvegardé). */
     int           top_reserved_y;
+    /* Indice contextuel affiché (game/hints.c) : texte statique + temps
+       restant (0 = aucun). Non sauvegardé, comme tout UIState. */
+    const char   *hint_text;
+    float         hint_t;
 } UIState;
 
 /* Duree totale d'affichage du bandeau de fin de vague (s) */

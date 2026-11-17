@@ -154,6 +154,7 @@ typedef enum {
 } BossAbility;
 #define BOSS_ABILITY_PERIOD   9.0f  /* intervalle entre deux capacités (s)      */
 #define BOSS_TELEGRAPH_TIME   1.3f  /* préavis avant l'effet (s)                */
+#define BOSS_TELEGRAPH_SFX_PITCH 0.70f  /* alerte de vague, en grave : capacité imminente */
 #define BOSS_STUN_RADIUS      3.0f  /* portée de l'onde EMP (tiles)             */
 #define BOSS_STUN_DURATION    3.0f  /* durée d'étourdissement des tours (s)     */
 #define BOSS_SHIELD_DURATION  3.5f  /* durée d'invulnérabilité (s)              */

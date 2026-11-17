@@ -17,10 +17,6 @@
 #include <math.h>
 #include <stdio.h>   // snprintf
 
-static const char *rar_name(PerkRarity r) {
-    return (r == RAR_EPIC) ? "EPIQUE" : (r == RAR_RARE) ? "RARE" : "COMMUN";
-}
-
 // ── Réglages de la mise en scène (butin / boutique) ───────────
 #define IL_OPEN_DUR    0.25f   // slide-up + fondu du panneau (s)
 #define IL_OPEN_RISE   20.0f   // hauteur du slide-up (px)
@@ -99,265 +95,6 @@ static void txt_c(const char *s, int cx, int y, int fs, Color col) {
     dtxt(s, cx - mtxt(s, fs)/2, y, fs, col);
 }
 
-static void draw_stars(int cx, int y, int stars, int max_stars) {
-    int sw = 20, gap = 6;
-    int total = max_stars * sw + (max_stars-1) * gap;
-    int sx = cx - total/2;
-    for (int i = 0; i < max_stars; i++) {
-        Color c = (i < stars) ? (Color){232,200,32,255}
-                               : (Color){50,40,20,255};
-        ui_draw_star((float)(sx + i*(sw+gap) + sw/2), (float)(y + sw/2),
-                     (float)sw / 2.0f, c);
-    }
-}
-
-// ════════════════════════════════════════════════════
-// DIALOGUE AVANT L'ACTE
-// ════════════════════════════════════════════════════
-void interlude_render_dialog_before(const ActData *act, int node_id, int flags,
-                                    int vw, int vh) {
-    int cx = vw/2, cy = vh/2;
-
-    DrawRectangle(0, 0, vw, vh, (Color){0,0,0,220});
-
-    const char *echo = campaign_echo(node_id, flags);   // rappel d'un choix passé
-    /* Doctrines actives : la trace PERMANENTE des décisions passées. */
-    const DoctrineDef *doc[CAMPAIGN_DOCTRINES];
-    int ndoc = campaign_doctrines_active(flags, doc, CAMPAIGN_DOCTRINES);
-    /* En-tête + une ligne par doctrine : le panneau grandit avec le nombre
-       de décisions prises (4 max), sinon le dialogue serait rogné. */
-    int doc_h = ndoc ? (fh(9) + 2 + ndoc * (fh(9) + 3) + 3) : 0;
-    int pw = 580, ph = (echo ? 350 : 300) + doc_h;
-    DrawRectangleRounded(
-        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        6.0f/ph, 8, UI_PANEL_BG);
-    DrawRectangleRoundedLinesEx(
-        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        6.0f/ph, 8, 2.0f, (Color){80,55,20,255});
-
-    int px = cx - pw/2 + M;
-    int py = cy - ph/2 + M;
-    int iw = pw - M*2;
-
-    // Sous-titre chapitre/acte
-    txt_c(act->subtitle, cx, py, 9, (Color){100,80,50,255});
-    py += 14;
-
-    // Titre de l'acte
-    txt_c(act->title, cx, py, 18, UI_ACCENT);
-    /* 27 px : valeur RÉGLÉE À L'OEIL sur l'encre réelle du glyphe, pas sur
-       fh(18)=29 (la boîte em inclut le jambage, plus haute que l'encre).
-       Ne pas « corriger » vers fh() sans revoir le rendu. */
-    py += 27;
-
-    // Séparateur
-    DrawLine(px, py, px+iw, py, (Color){60,40,12,160});
-    py += M_S;
-
-    // Objectif
-    dtxt("OBJECTIF :", px, py, 10, (Color){80,160,80,255});
-    py += 14;
-    char obj_buf[80];
-    clip_text(act->objective.description, iw, 12, obj_buf, sizeof(obj_buf));
-    dtxt(obj_buf, px + M_S, py, 12, (Color){150,220,150,255});
-    py += 20;
-
-    /* DOCTRINE — ce que vos choix passés coûtent et rapportent, RAPPELÉ à
-       chaque acte. Sans le détail de l'effet, « Arsenal » ne veut plus rien
-       dire cinq actes plus tard : le joueur doit pouvoir relier en
-       permanence sa décision à la partie qu'il est en train de jouer. */
-    if (ndoc > 0) {
-        dtxt("DOCTRINE", px, py, 9, (Color){150, 120, 50, 220});
-        py += fh(9) + 2;
-        for (int i = 0; i < ndoc; i++) {
-            /* Méthodique = bleu acier (structure) ; imprévisible = ambre (tempo) */
-            Color tc = doc[i]->methodical ? (Color){120, 175, 215, 240}
-                                          : (Color){225, 165,  70, 240};
-            int nw = mtxt(doc[i]->name, 9);
-            dtxt(doc[i]->name, px + M_S, py, 9, tc);
-            char ebuf[128];
-            clip_text(doc[i]->effect, iw - M_S * 2 - nw - 10, 9,
-                      ebuf, sizeof(ebuf));
-            dtxt(ebuf, px + M_S + nw + 10, py, 9, (Color){140, 125, 95, 225});
-            py += fh(9) + 3;
-        }
-        py += 3;
-    }
-
-    // Séparateur
-    DrawLine(px, py, px+iw, py, (Color){60,40,12,160});
-    py += M_S;
-
-    // Dialogue (texte multi-ligne)
-    // On affiche le dialogue ligne par ligne
-    {
-        /* Source unique du texte d'intro : dynamique pour l'acte NEXUS
-           (il annonce l'indice de prédiction RÉELLEMENT calculé). */
-        const char *d = campaign_dialog_before(node_id, flags);
-        char line[96];
-        int li = 0, di = 0;
-        int dy = py;
-        int dlim = cy + ph/2 - (echo ? 80 : 40);   // réserve la place du rappel
-        while (d[di] && dy < dlim) {
-            li = 0;
-            while (d[di] && d[di] != '\n' && li < 95)
-                line[li++] = d[di++];
-            if (d[di] == '\n') di++;
-            line[li] = '\0';
-            if (li > 0) {
-                char tbuf[96];
-                clip_text(line, iw, 10, tbuf, sizeof(tbuf));
-                dtxt(tbuf, px, dy, 10, UI_TEXT_SEC);
-            }
-            dy += 16; // fh(10)=14 + 2px marge
-        }
-    }
-
-    // Rappel narratif (callback d'un choix/défaite passé)
-    if (echo) {
-        int ey = cy + ph/2 - M - 50;
-        DrawLine(px, ey - 6, px + iw, ey - 6, (Color){90, 70, 26, 150});
-        dtxt("» RAPPEL", px, ey - 4, 10, (Color){150, 120, 50, 220});
-        ey += 11;
-        const char *e = echo; char el[96]; int ei;
-        while (*e) {
-            ei = 0;
-            while (*e && *e != '\n' && ei < 95) el[ei++] = *e++;
-            if (*e == '\n') e++;
-            el[ei] = '\0';
-            char ec[96]; clip_text(el, iw, 10, ec, sizeof(ec));
-            dtxt(ec, px, ey, 10, (Color){205, 175, 95, 235});
-            ey += 13;
-        }
-    }
-
-    // Hint
-    txt_c("ESPACE -- Commencer l'acte", cx, cy + ph/2 - M - 12, 10,
-          UI_BORDER);
-}
-
-// ════════════════════════════════════════════════════
-// DIALOGUE APRÈS L'ACTE
-// ════════════════════════════════════════════════════
-void interlude_render_dialog_after(const ActData *act, int stars,
-                                   int scrap_earned, int vw, int vh,
-                                   int node_id, int flags)
-{
-    int cx = vw/2, cy = vh/2;
-    int is_last = (act->chapter == CAMPAIGN_CHAPTERS-1 &&
-                   act->act == CAMPAIGN_ACTS-1);
-    int has_choice = campaign_has_choice(node_id);
-
-    DrawRectangle(0, 0, vw, vh, (Color){0,0,0,200});
-
-    /* Le bloc de choix porte 2 lignes par option (libellé + conséquence) :
-       le panneau s'agrandit d'autant, sinon le texte déborde par le bas. */
-    int pw = 580, ph = has_choice ? 424 : 330;
-    Color border_col = is_last ? UI_ACCENT
-                               : UI_SUCCESS;
-    DrawRectangleRounded(
-        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        6.0f/ph, 8, UI_PANEL_BG);
-    DrawRectangleRoundedLinesEx(
-        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        6.0f/ph, 8, 2.0f, border_col);
-
-    int px = cx - pw/2 + M;
-    int py = cy - ph/2 + M;
-    int iw = pw - M*2;
-
-    // Titre
-    const char *title = is_last ? "CAMPAGNE TERMINEE !" : "ACTE TERMINE !";
-    txt_c(title, cx, py, 20, border_col);
-    py += 28;
-
-    // Étoiles
-    draw_stars(cx, py, stars, 2);
-    py += 28;
-
-    DrawLine(px, py, px+iw, py, (Color){50,35,10,160});
-    py += M_S;
-
-    // Stats
-    dtxt(TextFormat("Ferraille gagnee : +%d", scrap_earned),
-             px, py, 12, (Color){118,188,45,255}); py += 16;
-
-    // Message de débloquage éventuel
-    if (act->unlock_msg) {
-        dtxt(act->unlock_msg, px, py, 11,
-                 (Color){140,200,240,255}); py += 16;
-    }
-
-    DrawLine(px, py, px+iw, py, (Color){50,35,10,160});
-    py += M_S;
-
-    // Dialogue après (épilogue variant selon le parcours pour le dernier acte)
-    {
-        const char *d = is_last ? campaign_epilogue(flags) : act->dialog_after;
-        char line[96];
-        int li = 0, di = 0;
-        int dy = py;
-        /* Réserve la zone basse pour le bloc de choix (sinon chevauchement).
-           Doit suivre la hauteur RÉELLE du bloc : séparateur + question +
-           2 options de 2 lignes chacune. */
-        int dlimit = cy + ph/2
-                   - (has_choice ? (M + fh(11) + 4 + (fh(11) + 2 + fh(9) + 6) * 2 + 10)
-                                 : 44);
-        while (d[di] && dy < dlimit) {
-            li = 0;
-            while (d[di] && d[di] != '\n' && li < 95)
-                line[li++] = d[di++];
-            if (d[di] == '\n') di++;
-            line[li] = '\0';
-            if (li > 0) {
-                char tbuf[96];
-                clip_text(line, iw, 10, tbuf, sizeof(tbuf));
-                dtxt(tbuf, px, dy, 10, UI_TEXT_SEC);
-            }
-            dy += 16; // fh(10)=14 + 2px marge
-        }
-    }
-
-    if (has_choice) {
-        /* Bifurcation : question + 2 options portant CHACUNE sa conséquence
-           chiffrée. Le joueur tranche en connaissance de cause — c'est ce qui
-           sépare une décision d'un simple embranchement de couloir.
-           Hauteurs dérivées de fh() (jamais de la taille brute). */
-        const int OPT_H = fh(11) + 2 + fh(9) + 6;
-        int by = cy + ph/2 - M - (fh(11) + 4 + OPT_H * 2);
-        DrawLine(px, by - 6, px + iw, by - 6, (Color){50,35,10,160});
-        const char *prompt = campaign_choice_prompt(node_id);
-        if (prompt) {
-            char pbuf[96];
-            clip_text(prompt, iw, 11, pbuf, sizeof(pbuf));
-            txt_c(pbuf, cx, by, 11, (Color){232,200,120,255});
-        }
-        by += fh(11) + 4;
-        for (int o = 0; o < 2; o++) {
-            const char *lbl = campaign_choice_label(node_id, o);
-            if (!lbl) continue;
-            char obuf[110], cbuf[120];
-            snprintf(obuf, sizeof(obuf), "[%d]  %s", o + 1, lbl);
-            clip_text(obuf, iw - M_S, 11, cbuf, sizeof(cbuf));
-            dtxt(cbuf, px + M_S, by, 11, (Color){120,210,120,255});
-
-            /* Conséquence permanente de la doctrine installée. */
-            const char *eff = campaign_choice_effect(node_id, o);
-            if (eff) {
-                char ebuf[120];
-                clip_text(eff, iw - M_S * 3, 9, ebuf, sizeof(ebuf));
-                dtxt(ebuf, px + M_S * 3, by + fh(11) + 2, 9,
-                     (Color){190, 165, 105, 235});
-            }
-            by += OPT_H;
-        }
-    } else {
-        const char *hint = is_last ? "ESPACE -- Retour au menu"
-                                    : "ESPACE -- Acte suivant";
-        txt_c(hint, cx, cy + ph/2 - M - 12, 10, UI_BORDER);
-    }
-}
-
 // ════════════════════════════════════════════════════
 // GAME OVER
 // ════════════════════════════════════════════════════
@@ -389,7 +126,7 @@ int interlude_render_gameover(const GameState *gs, Vector2 vm,
 
     int py = cy - ph/2 + M;
 
-    txt_c(diverge ? "POSITION PERDUE" : "BASTION TOMBE", cx, py, 22, border);
+    txt_c(diverge ? "POSITION PERDUE" : "BASTION TOMBÉ", cx, py, 22, border);
     py += fh(22) + 4;   /* (ancien « +32 » < fh(22) : la ligne suivante mordait le titre) */
 
     if (gs->is_campaign) {
@@ -401,7 +138,7 @@ int interlude_render_gameover(const GameState *gs, Vector2 vm,
     }
 
     if (diverge) {
-        txt_c(TextFormat("Vague %d  |  Ennemis elimines : %d",
+        txt_c(TextFormat("Vague %d  |  Ennemis éliminés : %d",
                          gs->wave_manager.number, gs->kills),
               cx, py, 11, (Color){120,80,60,255});
         py += 22;
@@ -422,7 +159,7 @@ int interlude_render_gameover(const GameState *gs, Vector2 vm,
         il_keycap((int)cb.x, (int)cb.y, bw2, bh2, opt1, (Color){120, 210, 90, 255}, hc);
         il_keycap((int)ab.x, (int)ab.y, bw2, bh2, "ABANDONNER LA RUN",
                   (Color){185, 95, 70, 255}, ha);
-        txt_c("ESPACE : continuer    ECHAP : abandonner (sauvegarde effacee)",
+        txt_c("ESPACE : continuer    ÉCHAP : abandonner (sauvegarde effacée)",
               cx, byb + bh2 + 4, 9, (Color){130, 110, 80, 255});
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             if (hc)      choice = GO_CHOICE_CONTINUE;
@@ -447,7 +184,7 @@ int interlude_render_gameover(const GameState *gs, Vector2 vm,
             py += fh(12) + 6;
         }
 
-        txt_c(TextFormat("Ennemis elimines : %d", gs->kills),
+        txt_c(TextFormat("Ennemis éliminés : %d", gs->kills),
               cx, py, 11, UI_TEXT_SEC);
         py += fh(11) + 3;
 
@@ -489,7 +226,7 @@ int interlude_render_gameover(const GameState *gs, Vector2 vm,
                 else if (hm) choice = GO_CHOICE_MENU;
             }
         } else {
-            const char *lbl = gs->is_campaign ? "RETOUR A LA CARTE" : "MENU";
+            const char *lbl = gs->is_campaign ? "RETOUR À LA CARTE" : "MENU";
             int bwl = 230;
             Rectangle mb = {(float)(cx - bwl/2), (float)byb,
                             (float)bwl, (float)bh2};
@@ -530,7 +267,7 @@ void interlude_render_extract(const GameState *gs, int vw, int vh,
     DrawLine(px, py, px+iw, py, (Color){60,40,12,180}); py += 10;
 
     /* Infos */
-    dtxt(TextFormat("Serie          : %d",  gs->endless_series+1),
+    dtxt(TextFormat("Série          : %d",  gs->endless_series+1),
              px, py, 12, UI_TEXT_SEC); py += 16;
     dtxt(TextFormat("Vague          : %d",  gs->wave_manager.number),
              px, py, 12, UI_TEXT_SEC); py += 16;
@@ -644,7 +381,7 @@ void interlude_render_draft(const RunBuild *rb, Vector2 vm, int vw, int vh) {
         il_crate(L.px+14, hy+18 + pdy, accent);
         txt_c("BUTIN DE GUERRE", L.cx, hy+9, 18, accent);
         il_brackets(pr, accent, 12);
-        txt_c("Recupere un renfort  —  clic ou touches 1-3",
+        txt_c("Récupère un renfort  —  clic ou touches 1-3",
               L.cx, hy+38, 10,
               (Color){175,150,100,(unsigned char)(235.0f * ha)});
     }
@@ -680,7 +417,7 @@ void interlude_render_draft(const RunBuild *rb, Vector2 vm, int vw, int vh) {
             (Color){rc.r, rc.g, rc.b, (unsigned char)(255.0f * fa)});
         /* Liseré de rareté : grandit du haut vers le bas */
         DrawRectangle(L.px+2, ry+2, 4, (int)((float)(ch-4) * kc), cc);
-        if (pd->rarity == RAR_EPIC)   // shimmer épique (remplace le pulse)
+        if (pd->rarity >= RAR_EPIC)   // reflet épique / clé de voûte (remplace le pulse)
             il_shimmer(r, open_t);
 
         if (kc > 0.0f) {
@@ -690,7 +427,7 @@ void interlude_render_draft(const RunBuild *rb, Vector2 vm, int vw, int vh) {
             perk_art_draw(id, L.px+52 + cdx, ry+ch/2, psz, cc);
             dtxt(pd->name, L.px+70 + cdx, ry+6, 13, cc);
 
-            const char *rn = rar_name(pd->rarity);
+            const char *rn = runperk_rarity_name(pd->rarity);
             int rw = mtxt(rn, 10) + 10;
             DrawRectangleRounded(
                 (Rectangle){(float)(L.px+L.iw-rw-6 + cdx), (float)(ry+5),
@@ -712,7 +449,7 @@ void interlude_render_draft(const RunBuild *rb, Vector2 vm, int vw, int vh) {
         }
     }
 
-    txt_c("La rarete depend de la voie choisie.", L.cx, L.cy+L.ph/2-M-16, 10,
+    txt_c("La rareté dépend de la voie choisie.", L.cx, L.cy+L.ph/2-M-16, 10,
           (Color){115,98,62,(unsigned char)(235.0f * pa)});
 }
 
@@ -836,7 +573,7 @@ void interlude_render_shop(const RunBuild *rb, int reroll_cost, Vector2 vm, int 
                    : (Color){70,70,70,(unsigned char)(210.0f * fa)});
         DrawRectangle(L.px+2, ry+2, 4, (int)((float)(ch-4) * kc),
                       afford ? cc : (Color){80,80,80,(unsigned char)(200.0f * kc)});
-        if (afford && pd->rarity == RAR_EPIC)
+        if (afford && pd->rarity >= RAR_EPIC)
             il_shimmer(r, open_t);
 
         if (kc <= 0.0f) continue;

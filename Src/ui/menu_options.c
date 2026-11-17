@@ -38,7 +38,7 @@
 
 // ── Choix des listes déroulantes ─────────────────────────────────
 static const int   FPS_OPTS[5] = {30, 60, 120, 165, 0};
-static const char *FPS_LBL [5] = {"30 FPS","60 FPS","120 FPS","165 FPS","Illimite"};
+static const char *FPS_LBL [5] = {"30 FPS","60 FPS","120 FPS","165 FPS","Illimité"};
 
 static const int RES[5][2] = {
     {1120,770},{1400,962},{1680,1154},{1960,1346},{2240,1540}
@@ -78,7 +78,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
     int ui_locked = (m->opt_dropdown_open >= 0) || (m->opt_rebind > 0);
 
     // ── Onglets horizontaux ────────────────────────────────────
-    const char *tabs[4] = {"General", "Audio", "Graphismes", "Commandes"};
+    const char *tabs[4] = {"Général", "Audio", "Graphismes", "Commandes"};
     int tab_w = 120, tab_h = 24, tab_gap = 10;
     int tabs_total = tab_w * 4 + tab_gap * 3;
     int tab_start_x = cx - tabs_total/2;
@@ -122,12 +122,12 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
         {
             int y = content_y;
 
-            draw_text_boxed("Plein ecran", content_x, y, 11, C_GOLD);
+            draw_text_boxed("Plein écran", content_x, y, 11, C_GOLD);
             y += OPT_LABEL_STEP;
             /* Utilise l'état réel de la fenêtre comme source de vérité */
             int _is_fs = IsWindowFullscreen();
             m->opts.fullscreen = _is_fs; /* sync systématique */
-            const char *fsl = _is_fs ? "[*] Active" : "[ ] Desactive";
+            const char *fsl = _is_fs ? "[*] Activé" : "[ ] Désactivé";
             if (draw_btn(fsl, content_x, y, content_w, BTN_H, C_BLUE, _is_fs)
                 && !ui_locked)
                 act.toggle_fs = 1;
@@ -137,7 +137,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             y += OPT_LABEL_STEP;
             char fps_display[32];
             if (m->opts.target_fps == 0)
-                snprintf(fps_display, sizeof(fps_display), "Illimite");
+                snprintf(fps_display, sizeof(fps_display), "Illimité");
             else
                 snprintf(fps_display, sizeof(fps_display), "%d FPS",
                          m->opts.target_fps);
@@ -155,7 +155,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             y += OPT_LABEL_STEP;
             {
                 const char *fps_lbl = m->opts.show_fps
-                    ? "[*] Active" : "[ ] Desactive";
+                    ? "[*] Activé" : "[ ] Désactivé";
                 if (draw_btn(fps_lbl, content_x, y, content_w, BTN_H,
                              C_BLUE, m->opts.show_fps) && !ui_locked)
                     m->opts.show_fps ^= 1;
@@ -166,7 +166,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
     case 1: // Audio
         {
             int y = content_y;
-            draw_text_boxed("Parametres Audio", content_x, y, 11, C_GOLD);
+            draw_text_boxed("Paramètres Audio", content_x, y, 11, C_GOLD);
             y += 22;
 
             const char *music_toggle = m->opts.music_volume > 0
@@ -200,7 +200,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             y += 42;
 
             const char *master_toggle = m->opts.master_volume > 0
-                ? "[*] Volume general" : "[ ] Volume general";
+                ? "[*] Volume général" : "[ ] Volume général";
             if (draw_btn(master_toggle, content_x, y, content_w, BTN_H, C_BLUE,
                          m->opts.master_volume > 0) && !ui_locked) {
                 m->opts.master_volume = (m->opts.master_volume > 0) ? 0 : 80;
@@ -209,7 +209,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             }
             y += BTN_H + 14;
 
-            if (draw_volume_slider("Volume general", content_x, y, content_w,
+            if (draw_volume_slider("Volume général", content_x, y, content_w,
                                    m->opts.master_volume, &m->opts.master_volume))
                 audio_set_master_volume(m->opts.master_volume / 100.0f);
         }
@@ -219,7 +219,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
         {
             int y = content_y;
 
-            draw_text_boxed("Resolution", content_x, y, 11, C_GOLD);
+            draw_text_boxed("Résolution", content_x, y, 11, C_GOLD);
             y += OPT_LABEL_STEP;
             char res_display[64];
             snprintf(res_display, sizeof(res_display), "%d x %d",
@@ -257,7 +257,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             }
             y += BTN_H + OPT_GAP;
 
-            draw_text_boxed("Accessibilite", content_x, y, 11, C_GOLD);
+            draw_text_boxed("Accessibilité", content_x, y, 11, C_GOLD);
             y += OPT_LABEL_STEP;
             {
                 const char *cb_lbl = m->opts.colorblind
@@ -292,10 +292,10 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
                     draw_text_boxed("Installez/activez un pilote graphique.",
                                     content_x, y, 9, (Color){168, 148, 102, 235});
                 } else {
-                    draw_text_boxed("Rendu materiel actif (carte dedie demandee au pilote).",
+                    draw_text_boxed("Rendu matériel actif (carte dédiée demandée au pilote).",
                                     content_x, y, 9, (Color){168, 148, 102, 235});
                     y += fh(9) + 2;
-                    draw_text_boxed("Pour imposer une autre carte : reglages GPU du systeme.",
+                    draw_text_boxed("Pour imposer une autre carte : réglages GPU du système.",
                                     content_x, y, 9, (Color){120, 110, 90, 220});
                 }
             }
@@ -311,7 +311,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             {
                 const char *cm_lbl = m->opts.hero_mouse_native
                     ? "Souris : BRUTE (Windows natif)  -  clic : STANDARD"
-                    : "Souris : STANDARD (recommande)  -  clic : brute";
+                    : "Souris : STANDARD (recommandé)  -  clic : brute";
                 if (draw_btn(cm_lbl, content_x, y, content_w, 24,
                              C_BLUE, !m->opts.hero_mouse_native) && !ui_locked)
                     m->opts.hero_mouse_native ^= 1;
@@ -342,7 +342,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
                 }
             }
             y += 32;
-            if (draw_volume_slider("Acceleration (50 = x1.0, lineaire)",
+            if (draw_volume_slider("Accélération (50 = x1.0, linéaire)",
                                    content_x, y, content_w,
                                    m->opts.hero_accel, &m->opts.hero_accel)) {
                 if (m->opts.hero_accel < 5) m->opts.hero_accel = 5;
@@ -350,7 +350,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
             y += 32;
 
             static const char *KLBL[HK_COUNT] = {
-                "Avancer", "Reculer", "Pas a gauche", "Pas a droite",
+                "Avancer", "Reculer", "Pas à gauche", "Pas à droite",
                 "Saut", "Sprint (maintenu)", "Interagir (ouvrier)",
                 "Lancer la vague", "Changer d'arme", "Vue 1re / 3e",
             };
@@ -375,7 +375,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
 
     // ── Capture d'une touche (réassignation) ───────────────────
     if (m->opt_rebind > 0) {
-        txt_c_boxed("Appuyez sur une touche  (ECHAP : annuler)",
+        txt_c_boxed("Appuyez sur une touche  (ÉCHAP : annuler)",
                     cx, cy + ph/2 - M_PAD - BTN_H - 30, 11, C_GOLD);
         int k = GetKeyPressed();
         if (k == KEY_ESCAPE) {
@@ -395,7 +395,7 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
     // Info résolution actuelle — au-dessus du bouton RETOUR (avant : le
     // texte était dessiné PAR-DESSUS le bouton, cy+208 dans cy+198..234)
     char info[48];
-    snprintf(info, sizeof(info), "Fenetre actuelle : %dx%d",
+    snprintf(info, sizeof(info), "Fenêtre actuelle : %dx%d",
              GetScreenWidth(), GetScreenHeight());
     txt_c(info, cx, cy + ph/2 - M_PAD - BTN_H - fh(9) - 6, 9, C_DIM);
 

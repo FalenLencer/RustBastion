@@ -21,8 +21,6 @@
 #define WM_STAR_T0       0.25f   // début de la chute des étoiles (s)
 #define WM_STAR_STEP     0.03f   // délai par acte (s)
 #define WM_STAR_DUR      0.20f   // durée de la chute d'une étoile (s)
-#define WM_INFO_DUR      0.15f   // crossfade du panneau d'info (s)
-#define WM_INFO_SLIDE    8.0f    // glissement du contenu info (px)
 #define WM_PULSE_DUR     0.8f    // pulse d'attention du bouton LANCER (s)
 #define WM_CHEV_SPEED    18.0f   // vitesse de défilement des chevrons (px/s)
 #define WM_CHEV_GAP      12.0f   // espacement des chevrons (px)
@@ -31,14 +29,6 @@
 static Color wm_fade(Color c, float k) {
     c.a = (unsigned char)((float)c.a * k);
     return c;
-}
-
-// ── Crossfade du panneau d'info droit : offset + alpha partagés ──
-static int   g_wm_dx = 0;
-static float g_wm_al = 1.0f;
-static void wm_txt(const char *s, int x, int y, int fs, Color c) {
-    c.a = (unsigned char)((float)c.a * g_wm_al);
-    dtxt(s, x + g_wm_dx, y, fs, c);
 }
 
 // ════════════════════════════════════════════════════
@@ -63,18 +53,10 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
 
     draw_bg(m, vw, vh);
     draw_header("CAMPAGNE", vw);
-    txt_c_boxed("Cliquez sur un acte ou un chapitre pour le selectionner.",
+    txt_c_boxed("Cliquez sur un acte ou un chapitre pour le sélectionner.",
                 vw/2, M_PAD + 86, 10, C_TEXT);
 
     const Color *CHAPTER_COLS = CHAPTER_COLORS;   // source unique (menu.c)
-
-    static const char *CHAPTER_NAMES[CAMPAIGN_CHAPTERS] = {
-        "Les Terres Brulees",
-        "Le Marais Toxique",
-        "Le Desert Irradie",
-        "La Ville en Ruine",
-        "L'Usine Abandonnee",
-    };
 
     // ── Layout deux colonnes ──────────────────────────────────────
     int content_y = M_PAD + 110;
@@ -299,100 +281,9 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
     int ry     = content_y;
     int has_sel = (m->selected_campaign_act >= 0);
 
-    // ── Panneau de l'acte sélectionné ────────────────────────────
-    // Crossfade du contenu quand la sélection change (offset x + alpha).
-    {
-        static int   prev_sel_act = -999;
-        static float info_t       = 1e9f;
-        if (m->selected_campaign_act != prev_sel_act) {
-            prev_sel_act = m->selected_campaign_act;
-            info_t = 0.0f;
-        }
-        info_t += ui_dt();
-        float ik = info_t / WM_INFO_DUR;
-        if (ik > 1.0f) ik = 1.0f;
-        g_wm_dx = (int)(WM_INFO_SLIDE * (1.0f - ea_out_cubic(ik)));
-        g_wm_al = ik;
-    }
-
-    int info_h = 112;
-    {
-        Rectangle info_r = {(float)right_x, (float)ry,
-                            (float)right_w, (float)info_h};
-        Color info_col = has_sel
-            ? CHAPTER_COLS[m->selected_campaign_act / CAMPAIGN_ACTS]
-            : C_BORDER;
-        DrawRectangleRounded(info_r, (float)PANEL_R/info_h, 5, C_PANEL);
-        DrawRectangleRoundedLinesEx(info_r, (float)PANEL_R/info_h, 5,
-                                    has_sel ? 1.8f : 1.2f, info_col);
-
-        if (has_sel) {
-            int sel    = m->selected_campaign_act;
-            int sch    = sel / CAMPAIGN_ACTS;
-            Color col  = CHAPTER_COLS[sch];
-            const ActData *sel_ad = campaign_act_get(sel);
-            int px    = right_x + M_IN + 2;
-            int py    = ry + M_IN;
-            int avail = right_w - M_IN*2 - 2;   // largeur de texte dispo
-
-            // Tout s'enchaîne en flux vertical : pas d'ancrage en bas
-            // (sinon le bas chevauche le texte qui descend du haut).
-
-            // Chapitre
-            char chbuf[64];
-            snprintf(chbuf, sizeof(chbuf), "Ch.%d — %s", sch+1, CHAPTER_NAMES[sch]);
-            char chclip[64];
-            clip_text(chbuf, avail, 10, chclip, sizeof(chclip));
-            wm_txt(chclip, px, py, 10,
-                 (Color){(unsigned char)(col.r/2+20), (unsigned char)(col.g/2+20),
-                         (unsigned char)(col.b/2+20), 200});
-            py += fh(10) + 2;
-
-            // Numéro d'acte (gauche) + étoiles gagnées (droite, même ligne)
-            wm_txt(TextFormat("Acte %d", sel + 1), px, py, 10, C_DIM);
-            int stars_earned = meta->act_stars[sel];
-            for (int s = 0; s < stars_earned; s++) {   /* étoiles dessinées, calées à droite */
-                Color stc = {232, 200, 32, (unsigned char)(255.0f * g_wm_al)};
-                ui_draw_star((float)(right_x + right_w - M_IN - 6 - s * 14 + g_wm_dx),
-                             (float)(py + fh(10) / 2), 6.0f, stc);
-            }
-            py += fh(10) + 2;
-
-            if (sel_ad) {
-                // Titre
-                char tclip[64];
-                clip_text(sel_ad->title, avail, 15, tclip, sizeof(tclip));
-                wm_txt(tclip, px, py, 15, col);
-                py += fh(15) + 2;
-                // Sous-titre
-                char sclip[64];
-                clip_text(sel_ad->subtitle, avail, 10, sclip, sizeof(sclip));
-                wm_txt(sclip, px, py, 9, C_DIM);
-                py += fh(10) + 3;
-            }
-
-            // Aperçu du routage de graphe (sous le sous-titre)
-            {
-                const char *rt =
-                    campaign_has_choice(sel)    ? "Bifurcation : choix en fin d'acte"
-                  : (sel >= CAMPAIGN_TOTAL - 1) ? "Defaite ici : fin de campagne"
-                  : (campaign_defeat_mode(sel) == DEFEAT_RETREAT)
-                                                ? "Defaite ici : repli vers une autre voie"
-                                                : "Defaite ici : reprise affaiblie";
-                char rclip[72];
-                clip_text(rt, avail, 8, rclip, sizeof(rclip));
-                wm_txt(rclip, px, py, 8, (Color){150, 130, 95, 220});
-            }
-        } else {
-            txt_c("Selectionnez un acte ou un chapitre",
-                  right_x + right_w/2,
-                  ry + info_h/2 - fh(10)/2, 10, C_DIM);
-        }
-    }
-    /* Fin du panneau d'info : helpers redevenus neutres */
-    g_wm_dx = 0;
-    g_wm_al = 1.0f;
-    ry += info_h + M_IN;
+    // ── Panneau de l'acte sélectionné : vignette + adversaire + route ──
+    wm_draw_act_info(m, meta, right_x, ry, right_w, wm_t);
+    ry += WM_INFO_VIG_H + WM_INFO_TXT_H + M_IN;
 
     // ── Bouton LANCER ─────────────────────────────────────────────
     {
@@ -518,6 +409,15 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
                   right_x + right_w/2, ry + slot_h/2 - fh(10)/2, 10, C_DIM);
         }
         ry += slot_h + slot_gap;
+    }
+
+    // ── Journal : relire le récit des actes terminés ─────────────────
+    if (draw_btn("JOURNAL — RELIRE LE RÉCIT", right_x, ry + M_IN, right_w, BTN_H - 6,
+                 C_TEXT, 0)) {
+        journal_open(m, meta, m->selected_campaign_act);
+        push_back_screen(m);
+        m->back_screen = MENU_WORLD_MAP;
+        m->screen      = MENU_JOURNAL;
     }
 
     // ── Bouton retour ─────────────────────────────────────────────

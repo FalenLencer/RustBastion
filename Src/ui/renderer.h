@@ -70,6 +70,10 @@ void render_units        (const UnitPool *up);
 void render_tower_preview(const Map *map, const TowerPool *tp,
                           TowerType type, int tile_x, int tile_y);
 void render_hud          (const GameState *gs);
+// Interne aux renderer*.c : texture centrée dans une box, ratio conservé
+// (1 = dessinée, 0 = texture absente). Défini dans renderer_entities.c.
+int  renderer_sprite_fit (Texture2D tex, float cx, float cy,
+                          float box_w, float box_h, Color tint);
 // tp (peut être NULL) : une tour sur une roche minée déblaie le cratère.
 /* hover_tx/ty : tuile survolée (-1 = aucune) → info-bulle des filons verrouillés ;
    wave_num : vague courante (compte à rebours d'ouverture). */

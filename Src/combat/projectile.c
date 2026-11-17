@@ -63,7 +63,7 @@ static void apply_damage(Enemy *e, float dmg, DamageType dtype) {
     if (g_fx.enabled && e->hit_flash <= 0.0f &&
         !(e->is_boss && e->boss_shield > 0.0f)) {
         if      (mult >= 1.30f) fx_popup(e->x, e->y - e->size, "EFFICACE", (Color){120, 240, 130, 255});
-        else if (mult <= 0.70f) fx_popup(e->x, e->y - e->size, "RESISTE",  (Color){235, 110,  90, 255});
+        else if (mult <= 0.70f) fx_popup(e->x, e->y - e->size, "RÉSISTE",  (Color){235, 110,  90, 255});
         else if (syn)           fx_popup(e->x, e->y - e->size, "SYNERGIE", (Color){120, 210, 245, 255});
     }
 

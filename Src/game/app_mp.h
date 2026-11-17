@@ -6,7 +6,7 @@
 
 /*  app_mp.h ─ Sous-système MULTIJOUEUR (extrait de app.c).
  *  Boucle réseau en jeu, rendus d'overlay, écran envahisseur, lobby→partie.
- *  app.c (handle_menu / app_update / game_do_render) appelle ces fonctions.
+ *  app.c (app_update), app_menu.c (app_handle_menu) et app_render.c (app_game_render) appelle ces fonctions.
  */
 #pragma once
 #include "app.h"

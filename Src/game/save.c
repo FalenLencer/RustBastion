@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <stddef.h>   /* offsetof (migration du build de run) */
 
 /* ════════════════════════════════════════════════════════════════
    SÉRIALISATION ROBUSTE — sections préfixées par leur taille.
@@ -42,6 +43,29 @@ static void rsec(FILE *f, void *p, size_t n) {
 /* Scalaire à lecture TOLÉRANTE : champ absent (anciennes saves) → défaut. */
 static void rscalar(FILE *f, void *p, size_t n) {
     if (fread(p, n, 1, f) != 1) memset(p, 0, n);
+}
+
+/* Build de run : seule MIGRATION du format. Les perks s'ajoutent toujours EN
+   FIN d'énumération (runperks.h) → seul count[] grandit, la suite (renfort,
+   offres) est identique. Un build plus ancien (count[] plus court) est donc
+   relu sans perte — sinon rsec remettrait toute la run à zéro (perks,
+   Renfort, offres) dès l'ajout d'un perk. */
+_Static_assert(offsetof(RunBuild, renfort) == sizeof(((RunBuild *)0)->count),
+               "RunBuild : count[] doit rester le PREMIER champ");
+static void rsec_run(FILE *f, RunBuild *rb) {
+    const size_t full = sizeof(*rb), cnt = sizeof(rb->count), tail = full - cnt;
+    uint32_t len = 0;
+    memset(rb, 0, full);
+    if (fread(&len, sizeof(len), 1, f) != 1) return;
+    if (len == (uint32_t)full) {
+        if (fread(rb, full, 1, f) != 1) memset(rb, 0, full);
+    } else if (len > tail && len < full && (len - tail) % sizeof(int) == 0) {
+        if (fread(rb->count, len - tail, 1, f) != 1 ||       /* anciens perks */
+            fread(&rb->renfort, tail, 1, f) != 1)            /* renfort, offres */
+            memset(rb, 0, full);
+    } else {
+        fseek(f, (long)len, SEEK_CUR);                        /* format inconnu */
+    }
 }
 
 /* ── Entête de fichier ──────────────────────────────────────── */
@@ -214,6 +238,7 @@ int save_read(GameState *gs, int slot) {
     fclose(f);
 
     meta_compute(&gs->meta, &gs->bonuses);   /* bonus autoritaires (recalcul depuis meta) */
+    game_adjust_lives(gs, 0);                /* vies = somme des PV des bases */
     ui_init(&gs->ui);
     return 1;
 }
@@ -412,7 +437,7 @@ int campaign_save_read(GameState *gs, int slot,
     rsec(f, &gs->towers,       sizeof(gs->towers));
     rsec(f, &gs->units,        sizeof(gs->units));
     rsec(f, &gs->inventory,    sizeof(gs->inventory));
-    rsec(f, &gs->run,          sizeof(gs->run));
+    rsec_run(f, &gs->run);   /* migre un build d'une version précédente */
     rscalar(f, &gs->inventory_count,         sizeof(gs->inventory_count));
     rscalar(f, &gs->phase,                   sizeof(gs->phase));
     rscalar(f, &gs->gold,                    sizeof(gs->gold));
@@ -432,6 +457,10 @@ int campaign_save_read(GameState *gs, int slot,
 
     meta_compute(&gs->meta, &gs->bonuses);   /* bonus autoritaires (recalcul depuis meta) */
     gs->is_campaign = 1;
+    /* Vies = somme des PV des bases. Une sauvegarde écrite avant la
+       correction des bonus de vies (Garnison, doctrines) peut porter un
+       compteur gonflé : on le réaligne sur les PV réels dès le chargement. */
+    game_adjust_lives(gs, 0);
     /* Restitution de l'état interlude pour éviter le bug double-ferraille */
     if (out_interlude) *out_interlude = hdr.interlude;
     if (out_scrap)     *out_scrap     = hdr.interlude_scrap;

@@ -112,3 +112,8 @@ void app_save_on_exit(const AppContext *ctx);
 
 /* Libère les ressources haut niveau (menu, options). */
 void app_cleanup     (AppContext *ctx);
+
+// ── Interne : app_update() répartit la frame entre ces modules ──────
+// (extraits d'app.c, règle projet < 500 lignes). Retournent 1 = continuer.
+int  app_handle_menu (AppContext *ctx);   // app_menu.c   — écran menu
+int  app_game_render (AppContext *ctx);   // app_render.c — rendu de la partie

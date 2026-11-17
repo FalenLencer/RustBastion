@@ -74,48 +74,48 @@ static Rectangle tutorial_target_upgrade(AppContext *ctx);
 
 static const TutStep TUT_STEPS[] = {
     { TUT_INFO,  "Bienvenue, Commandant",
-      "Defends ta base contre des vagues d'ennemis.",
+      "Défends ta base contre des vagues d'ennemis.",
       "Suis les indications. Clique SUIVANT pour commencer.",
       NULL, NULL, 0, NULL },
-    { TUT_ACTION, "1. Selectionne une tour",
-      "Clique sur une tour en bas de l'ecran pour l'armer.",
-      "La cible est mise en valeur, et le reste est verrouille.",
+    { TUT_ACTION, "1. Sélectionne une tour",
+      "Clique sur une tour en bas de l'écran pour l'armer.",
+      "La cible est mise en valeur, et le reste est verrouillé.",
       tutorial_is_select_tower, tutorial_target_tool_button, 1,
       "Clique sur une tour en bas" },
-    { TUT_ACTION, "2. Pose-la pres du chemin",
-      "Clique une case libre A COTE du chemin des ennemis.",
-      "Pas dessus : ils doivent passer a portee de la tour.",
+    { TUT_ACTION, "2. Pose-la près du chemin",
+      "Clique une case libre À CÔTÉ du chemin des ennemis.",
+      "Pas dessus : ils doivent passer à portée de la tour.",
       tutorial_is_place_tower, tutorial_target_map, 1,
       "Clique sur la carte" },
     { TUT_ACTION, "3. Lance la vague",
-      "Clique le bouton LANCER quand tu es pret.",
+      "Clique le bouton LANCER quand tu es prêt.",
       "Tes tours tirent automatiquement sur les ennemis.",
       tutorial_is_wave, tutorial_target_wave, 1,
       "Clique sur le bouton vague" },
-    { TUT_ACTION, "4. Elimine un ennemi",
+    { TUT_ACTION, "4. Élimine un ennemi",
       "Tes tours tirent seules : observe le combat et laisse-les agir.",
-      "Le premier ennemi elimine fait avancer l'etape.",
+      "Le premier ennemi éliminé fait avancer l'étape.",
       tutorial_is_kill, NULL, 0, NULL },
-    { TUT_ACTION, "5. Ameliore une tour",
-      "Clique ta tour, puis degats, portee ou cadence.",
-      "Une amelioration quelconque valide l'etape.",
+    { TUT_ACTION, "5. Améliore une tour",
+      "Clique ta tour, puis dégâts, portée ou cadence.",
+      "Une amélioration quelconque valide l'étape.",
       tutorial_is_upgrade, tutorial_target_upgrade, 1,
-      "Clique sur une tour ou ses boutons d'amelioration" },
+      "Clique sur une tour ou ses boutons d'amélioration" },
     { TUT_ACTION, "6. Pause tactique",
-      "Appuie sur ESPACE pour figer le jeu et reflechir.",
-      "La pause tactique valide cette etape.",
+      "Appuie sur ESPACE pour figer le jeu et réfléchir.",
+      "La pause tactique valide cette étape.",
       tutorial_is_pause, NULL, 0, NULL },
     { TUT_ACTION, "7. Zoom",
       "Utilise la molette pour zoomer la carte.",
-      "Un changement de zoom valide cette etape.",
+      "Un changement de zoom valide cette étape.",
       tutorial_is_zoom, NULL, 0, NULL },
     { TUT_INFO,  "Astuce : minerais",
       "Les ouvriers collectent des minerais (compteur Mat).",
-      "Applique un minerai a une tour : enorme bonus de degats !",
+      "Applique un minerai à une tour : énorme bonus de dégâts !",
       NULL, NULL, 0, NULL },
-    { TUT_INFO,  "Tu es pret !",
-      "Place a la vraie bataille : lance la CAMPAGNE.",
-      "TERMINER te ramene au menu de jeu.",
+    { TUT_INFO,  "Tu es prêt !",
+      "Place à la vraie bataille : lance la CAMPAGNE.",
+      "TERMINER te ramène au menu de jeu.",
       NULL, NULL, 0, NULL },
 };
 
@@ -123,7 +123,7 @@ static const TutStep TUT_STEPS[] = {
    terminée SANS kill (tour trop loin du chemin…) — sinon le joueur attend
    devant une étape qui ne peut plus avancer. */
 static const char *TUT_KILL_RETRY_L1 =
-    "Aucun ennemi elimine : rapproche une tour du chemin.";
+    "Aucun ennemi éliminé : rapproche une tour du chemin.";
 static const char *TUT_KILL_RETRY_L2 =
     "Puis relance une vague avec le bouton LANCER.";
 
@@ -413,7 +413,7 @@ static void tutorial_draw_spotlight(AppContext *ctx, const TutStep *st, Rectangl
     }
 
     if (hint_k >= 1.0f) {
-        const char *hint = "Le repere reste visible : clique ici !";
+        const char *hint = "Le repère reste visible : clique ici !";
         int hint_w = mtxt(hint, 9);
         int hy = (pr.y <= (float)TUT_Y) ? (int)pr_bottom + 10          /* bulle en haut */
                                         : (int)pr.y - fh(9) - 10;      /* bulle en bas  */

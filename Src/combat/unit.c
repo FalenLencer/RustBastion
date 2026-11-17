@@ -32,7 +32,7 @@ const UnitStats UNIT_BASE_STATS[UNIT_TYPE_COUNT] = {
         .atk_rate        = 1.2f,
         .intercept_range = 7.0f,   /* détecte les ennemis plus tôt */
         .size            = 5.0f,
-        .description     = "Infanterie longue portee. Tire depuis la distance.",
+        .description     = "Infanterie longue portée. Tire depuis la distance.",
     },
     [UNIT_HEAVY] = {
         .name            = "Lourd",
@@ -44,7 +44,7 @@ const UnitStats UNIT_BASE_STATS[UNIT_TYPE_COUNT] = {
         .atk_rate        = 0.6f,
         .intercept_range = 4.0f,
         .size            = 7.0f,
-        .description     = "Tank corps a corps. Bouclier vivant pour les allies.",
+        .description     = "Tank corps à corps. Bouclier vivant pour les alliés.",
     },
     [UNIT_MEDIC] = {
         .name            = "Medic",
@@ -56,7 +56,7 @@ const UnitStats UNIT_BASE_STATS[UNIT_TYPE_COUNT] = {
         .atk_rate        = 0.5f,
         .intercept_range = 3.0f,
         .size            = 5.0f,
-        .description     = "Soigne les allies. N'attaque qu'en dernier recours.",
+        .description     = "Soigne les alliés. N'attaque qu'en dernier recours.",
     },
     [UNIT_DOG] = {
         .name            = "Chien",
@@ -80,37 +80,37 @@ const UnitStats UNIT_BASE_STATS[UNIT_TYPE_COUNT] = {
         .atk_rate        = 0.5f,
         .intercept_range = 0.0f, // ne combat pas spontanément
         .size            = 5.0f,
-        .description     = "Collecte les materiaux sur la carte.",
+        .description     = "Collecte les matériaux sur la carte.",
     },
 };
 
 const char *UNIT_LORE[UNIT_TYPE_COUNT] = {
     [UNIT_SOLDIER] =
-        "Infanterie equipee de fusils de recuperation.\n"
+        "Infanterie équipée de fusils de récupération.\n"
         "Engage les ennemis depuis la distance (4-5 tiles) sans\n"
-        "prendre de degats en retour. Efficace en nombre sur les couloirs\n"
-        "ouverts. Fragile au corps a corps — gardez-les derriere un Lourd.",
+        "prendre de dégâts en retour. Efficace en nombre sur les couloirs\n"
+        "ouverts. Fragile au corps à corps — gardez-les derrière un Lourd.",
 
     [UNIT_HEAVY] =
-        "Combattant blinde en armure de recuperation. Tres lent mais\n"
+        "Combattant blindé en armure de récupération. Très lent mais\n"
         "capable d'absorber de nombreux coups. Fait office de bouclier\n"
-        "pour les unites plus fragiles positionnees derriere lui.",
+        "pour les unités plus fragiles positionnées derrière lui.",
 
     [UNIT_MEDIC] =
         "Ancien infirmier militaire reconverti. Soigne automatiquement\n"
-        "les allies proches. Ne combat pas tant que d'autres unites\n"
-        "de combat sont presentes — mais se defend au corps a corps\n"
+        "les alliés proches. Ne combat pas tant que d'autres unités\n"
+        "de combat sont présentes — mais se défend au corps à corps\n"
         "s'il se retrouve seul face aux ennemis.",
 
     [UNIT_DOG] =
-        "Chien de combat mutant eleve dans les ruines. Extremement rapide\n"
-        "et agile. Detecte les ennemis a grande distance et s'y precipite\n"
+        "Chien de combat mutant élevé dans les ruines. Extrêmement rapide\n"
+        "et agile. Détecte les ennemis à grande distance et s'y précipite\n"
         "pour les harceler. Fragile — ne le laissez pas seul.",
 
     [UNIT_WORKER] =
-        "Non combatif. L'ouvrier se rend sur les depots de materiaux\n"
-        "reperes sur la carte, collecte leur contenu et le rapporte a la\n"
-        "base. Les materiaux amplifieront vos tours au combat. Protegez-le.",
+        "Non combatif. L'ouvrier se rend sur les dépôts de matériaux\n"
+        "repérés sur la carte, collecte leur contenu et le rapporte à la\n"
+        "base. Les matériaux amplifieront vos tours au combat. Protégez-le.",
 };
 
 /* ════════════════════════════════════════════════════

@@ -186,7 +186,7 @@ MenuAction draw_title(MenuState *m, int vw, int vh) {
         float st   = at - TITLE_SUB_DELAY;
         float fall = ea_out_back(st / TITLE_FALL_DUR);
         int   sy   = vh/2 - 114 - (int)((1.0f - fall) * TITLE_FALL_H);
-        boxed_txt_fade("Tower Defense Post-Apocalyptique", cx, sy, 13, C_DIM,
+        boxed_txt_fade("Tower Défense Post-Apocalyptique", cx, sy, 13, C_DIM,
                        st / TITLE_FADE_DUR);
     }
     /* ── Séparateur : s'étire du centre ─────────────────────────── */
@@ -294,7 +294,7 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
             (Rectangle){(float)px2, (float)py2, (float)pw2, (float)ph2},
             0.08f, 6, 1.6f, C_GOLD);
 
-        const char *q = "PREMIERE FOIS ?";
+        const char *q = "PREMIÈRE FOIS ?";
         dtxt(q, cx - mtxt(q, 16)/2, py2 + 18, 16, C_GOLD);
         const char *l1 = "Apprends les bases en 2 minutes :";
         const char *l2 = "tours, vagues, minerais, pause tactique.";
@@ -384,7 +384,7 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     by += bh2 + gap;
 
     if (fade_nav_btn("X", "PARTIE PERSO",
-                     "Carte, spawns, bases, terrain et difficulte sur mesure.",
+                     "Carte, spawns, bases, terrain et difficulté sur mesure.",
                      C_ORANGE, bx, by, bw, bh2, t, 3*HUB_BTN_STEP)) {
         push_back_screen(m);
         m->screen = MENU_CUSTOM;
@@ -392,8 +392,8 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
     }
     by += bh2 + gap;
 
-    if (fade_nav_btn("H", "MODE HEROS 3D (beta)",
-                     "Incarnez un heros sur le terrain : tirez, recrutez, batissez.",
+    if (fade_nav_btn("H", "MODE HÉROS 3D (beta)",
+                     "Incarnez un héros sur le terrain : tirez, recrutez, bâtissez.",
                      (Color){235, 130, 60, 255}, bx, by, bw, bh2,
                      t, 4*HUB_BTN_STEP)) {
         act.start_hero = 1;       // lancé par app.c
@@ -427,9 +427,9 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
         }
         char upg_desc[80];
         snprintf(upg_desc, sizeof(upg_desc),
-                 "Depensez vos %d ferrailles pour ameliorer vos defenses.",
+                 "Dépensez vos %d ferrailles pour améliorer vos défenses.",
                  (int)(disp_scrap + 0.5f));
-        if (fade_nav_btn("*", "AMELIORATIONS", upg_desc,
+        if (fade_nav_btn("*", "AMÉLIORATIONS", upg_desc,
                          C_ORANGE, bx, by, bw, bh2, t, 6*HUB_BTN_STEP)) {
             push_back_screen(m);
             m->screen = MENU_UPGRADES;
@@ -443,7 +443,7 @@ MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
         if (meta->bestiary_discovered[i]) nb_disc++;
     char best_desc[80];
     snprintf(best_desc, sizeof(best_desc),
-             "%d/%d ennemis identifies. Resistances et faiblesses.",
+             "%d/%d ennemis identifies. Résistances et faiblesses.",
              nb_disc, ENEMY_TYPE_COUNT);
     if (fade_nav_btn("B", "BESTIAIRE", best_desc,
                      C_RED, bx, by, bw, bh2, t, 7*HUB_BTN_STEP)) {
@@ -496,7 +496,7 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
     draw_header(is_campaign ? "CAMPAGNE" : "ARCADE", vw);
 
     const char *sub = is_campaign
-        ? "15 actes en sequence — 5 chapitres — la ferraille se gagne ici"
+        ? "15 actes en séquence — 5 chapitres — la ferraille se gagne ici"
         : "Mode libre — choisissez votre terrain";
     txt_c_boxed(sub, cx, M_PAD + 86, 10, C_TEXT);
 
@@ -650,14 +650,7 @@ MenuAction draw_new_campaign(MenuState *m, const MetaProgress *meta,
     draw_bg(m, vw, vh);
     draw_header("NOUVELLE CAMPAGNE", vw);
 
-    const Color *CHAPTER_COLS = CHAPTER_COLORS;   // source unique (menu.c)
-    static const char *CHAPTER_NAMES[CAMPAIGN_CHAPTERS] = {
-        "Les Terres Brulees",
-        "Le Marais Toxique",
-        "Le Desert Irradie",
-        "La Ville en Ruine",
-        "L'Usine Abandonnee",
-    };
+    const Color *CHAPTER_COLS = CHAPTER_COLORS;   // sources uniques (menu.c)
 
     int pw = 480, ph = 310;
     draw_panel(cx, cy, pw, ph, C_GOLD);
@@ -676,14 +669,14 @@ MenuAction draw_new_campaign(MenuState *m, const MetaProgress *meta,
         const ActData *sel_ad = campaign_act_get(m->selected_campaign_act);
         if (sel_ad && m->selected_campaign_act > 0) {
             char dbuf[80];
-            snprintf(dbuf, sizeof(dbuf), "Depart : Acte %d — %s",
+            snprintf(dbuf, sizeof(dbuf), "Départ : Acte %d — %s",
                      m->selected_campaign_act + 1, sel_ad->title);
             char dclip[80];
             clip_text(dbuf, pw - M_PAD*2, 11, dclip, sizeof(dclip));
             dtxt(dclip, px, py, 11, C_GREEN);
             py += M_LINE + 2;
         } else {
-            dtxt("Depart : Acte 1 — Premier contact", px, py, 11, C_GREEN);
+            dtxt("Départ : Acte 1 — Premier contact", px, py, 11, C_GREEN);
             py += M_LINE + 2;
         }
     }
@@ -722,8 +715,8 @@ MenuAction draw_new_campaign(MenuState *m, const MetaProgress *meta,
 // NOUVELLE ARCADE
 // ════════════════════════════════════════════════════
 static const char *THEME_LABELS[THEME_COUNT+1] = {
-    "Terres devastees","Marais toxique","Desert irradie",
-    "Ville en ruine","Usine abandonnee","Aleatoire",
+    "Terres dévastées","Marais toxique","Désert irradié",
+    "Ville en ruine","Usine abandonnée","Aléatoire",
 };
 
 MenuAction draw_new_arcade(MenuState *m, int vw, int vh) {
@@ -793,7 +786,7 @@ MenuAction draw_confirm_del(MenuState *m, int vw, int vh) {
 
     txt_c(TextFormat("Effacer la partie %d ?", m->confirm_del_slot+1),
           cx, cy - ph/2 + M_PAD, 14, C_RED);
-    txt_c("Cette action est irreversible.",
+    txt_c("Cette action est irréversible.",
           cx, cy - ph/2 + M_PAD + 22, 10, C_DIM);
 
     int bw2 = 110, bh2 = BTN_H;
@@ -810,7 +803,7 @@ MenuAction draw_confirm_del(MenuState *m, int vw, int vh) {
                      m->back_screen == MENU_ARCADE   ||
                      m->back_screen == MENU_WORLD_MAP)
                     ? m->back_screen : MENU_PLAY_HUB;
-        set_msg(m, "Partie effacee.");
+        set_msg(m, "Partie effacée.");
     }
     if (draw_btn("ANNULER", cx + M_IN/2, by2, bw2, bh2, C_TEXT, 0) ||
         IsKeyPressed(KEY_ESCAPE))
@@ -860,23 +853,7 @@ MenuAction draw_pause(MenuState *m, int vw, int vh) {
     int py = cy - (int)(ph * sc)/2 + M_PAD;   // le titre suit le panneau
 
     /* Titre "PAUSE" : tracking animé — les lettres se resserrent */
-    {
-        const char *word = "PAUSE";
-        int   fs      = 22;
-        float spacing = 4.0f + (1.0f - k) * 10.0f;
-        float total   = 0.0f;
-        for (int i = 0; word[i]; i++) {
-            char one[2] = {word[i], '\0'};
-            total += (float)mtxt(one, fs);
-            if (word[i+1]) total += spacing;
-        }
-        float lx = (float)cx - total * 0.5f;
-        for (int i = 0; word[i]; i++) {
-            char one[2] = {word[i], '\0'};
-            dtxt(one, (int)lx, py, fs, C_GOLD);
-            lx += (float)mtxt(one, fs) + spacing;
-        }
-    }
+    ui_draw_tracked("PAUSE", (float)cx, py, 22, 4.0f + (1.0f - k) * 10.0f, C_GOLD);
 
     /* Contenu : positions FINALES (hitbox stables dès la 1re frame) */
     py = cy - ph/2 + M_PAD + fh(22) + 3;
@@ -923,7 +900,7 @@ MenuAction draw_pause(MenuState *m, int vw, int vh) {
             char sz[48];
             snprintf(sz, sizeof(sz), "%dx%d  %s",
                      GetScreenWidth(), GetScreenHeight(),
-                     IsWindowFullscreen() ? "Plein ecran" : "Fenetre");
+                     IsWindowFullscreen() ? "Plein écran" : "Fenêtre");
             txt_c(sz, cx, cy + ph/2 - M_PAD - 12, 10,
                   (Color){C_DIM.r, C_DIM.g, C_DIM.b,
                           (unsigned char)(255.0f * ra)});

@@ -25,10 +25,16 @@ typedef enum {
 // ════════════════════════════════════════════════════
 // ÉCRANS DE RENDU
 // ════════════════════════════════════════════════════
-void interlude_render_dialog_before(const ActData *act, int node_id, int flags,
+// Briefing / bilan de campagne (interlude_story.c). input_ok = 0 sur la
+// frame d'entrée (anti-rebond d'input entre deux écrans).
+// Briefing : retourne 1 quand le joueur lance l'acte ; la consigne retenue
+// se lit avec story_scene_pick() (-1 = aucune).
+int  interlude_render_dialog_before(const GameState *gs, Vector2 vmouse,
+                                    int input_ok, int vw, int vh);
+// Bilan : la carte de doctrine cliquée se lit avec story_scene_take_pick().
+void interlude_render_dialog_after (const GameState *gs, int stars, int scrap_earned,
+                                    int last, Vector2 vmouse, int input_ok,
                                     int vw, int vh);
-void interlude_render_dialog_after(const ActData *act, int stars, int scrap_earned,
-                                   int vw, int vh, int node_id, int flags);
 /* P0.2 — écran de fin de partie. Retourne le choix cliqué (GoChoice).
    L'action est exécutée par l'appelant (app.c, game_handle_gameover). */
 typedef enum {

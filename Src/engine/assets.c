@@ -47,6 +47,8 @@ void assets_load(void) {
         for (int c = 32;    c <= 126;  c++) cps[n++] = c;  // ASCII imprimable (32-126)
         for (int c = 0xA0;  c <= 0xFF; c++) cps[n++] = c;  // Latin-1 Supplément COMPLET
                                                              //  (accents FR, ×, °, ±…)
+        cps[n++] = 0x0152;  // Œ  (hors Latin-1 : « Cœur », « manœuvre »)
+        cps[n++] = 0x0153;  // œ
         cps[n++] = 0x2013;  // –  tiret demi-cadratin
         cps[n++] = 0x2014;  // —  tiret cadratin
         cps[n++] = 0x2019;  // '  apostrophe typographique

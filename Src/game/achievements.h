@@ -34,8 +34,15 @@ typedef enum {
     ACH_HERO_MODE,        /* jouer une partie en mode Heros           */
     ACH_MULTI,            /* jouer une partie multijoueur             */
     ACH_ENDLESS_15,       /* endless : atteindre la vague 15          */
+    ACH_TERRAIN,          /* hasards de terrain : N ennemis achevés   */
+    ACH_FLAWLESS,         /* campagne : un acte sans perdre une vie   */
+    ACH_UNPREDICTABLE,    /* campagne finie, NEXUS déjoué             */
     ACH_COUNT
 } AchID;
+
+/* Seuils des succès ÉVÉNEMENTIELS (vérifiés hors de ach_poll_game). */
+#define ACH_TERRAIN_KILLS  20   /* ennemis achevés par un hasard, en une partie */
+#define ACH_NEXUS_LOW      30   /* concordance NEXUS (%) max en fin de campagne  */
 
 typedef struct {
     const char *name;    /* nom court (affiche menus + notif)         */

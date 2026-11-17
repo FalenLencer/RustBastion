@@ -80,7 +80,7 @@ static void draw_res_bar(const char *label, float mult,
     dtxt(label, x + 3, y + bar_h/2 - fh(fs)/2, fs, (Color){200, 180, 120, 255});
     char muls[20];
     if      (mult >= 1.25f) snprintf(muls, sizeof(muls), "x%.1f FAIBLE",  mult);
-    else if (mult <= 0.75f) snprintf(muls, sizeof(muls), "x%.1f RESISTE", mult);
+    else if (mult <= 0.75f) snprintf(muls, sizeof(muls), "x%.1f RÉSISTE", mult);
     else                    snprintf(muls, sizeof(muls), "x%.1f",          mult);
     int tw = mtxt(muls, fs);
     dtxt(muls, x + bar_w - tw - 3, y + bar_h/2 - fh(fs)/2, fs, (Color){200, 180, 120, 255});
@@ -130,9 +130,9 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             case 0: snprintf(lbuf, sizeof(lbuf), "ENNEMIS %d/%d",  nb_enemy_disc, ENEMY_TYPE_COUNT); break;
             case 1: snprintf(lbuf, sizeof(lbuf), "MINERAIS %d/%d", nb_mat_disc,   MAT_COUNT);        break;
             case 2: snprintf(lbuf, sizeof(lbuf), "TOURS %d/%d",    nb_tower_disc, META_TOWER_COUNT); break;
-            case 3: snprintf(lbuf, sizeof(lbuf), "UNITES");                                           break;
+            case 3: snprintf(lbuf, sizeof(lbuf), "UNITÉS");                                           break;
             case 4: snprintf(lbuf, sizeof(lbuf), "BUTIN %d", PERK_COUNT);                             break;
-            default:snprintf(lbuf, sizeof(lbuf), "SUCCES %d/%d",
+            default:snprintf(lbuf, sizeof(lbuf), "SUCCÈS %d/%d",
                              ach_unlocked_count(), ACH_COUNT);                                        break;
         }
         int tw2 = mtxt(lbuf, 11);
@@ -275,14 +275,14 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
 
                 py += M_IN;
                 draw_sep(px, py, sep_w, C_BORDER); py += M_IN + 2;
-                dtxt("Specialite :", px, py, 10, C_GOLD); py += fh(10) + 3;
+                dtxt("Spécialité :", px, py, 10, C_GOLD); py += fh(10) + 3;
                 if (ENEMY_SPEC[si])
                     draw_multiline(ENEMY_SPEC[si], px, &py, 10,
                                    (Color){160, 145, 100, 255}, fh(10) + 3);
 
                 py += M_IN;
                 draw_sep(px, py, sep_w, C_BORDER); py += M_IN + 2;
-                dtxt("Resistances :", px, py, 10, C_GOLD); py += fh(10) + 4;
+                dtxt("Résistances :", px, py, 10, C_GOLD); py += fh(10) + 4;
 
                 /* Nom = source unique DAMAGE_NAMES ; seule la provenance
                    (où le joueur obtient ce type) est locale. Initialiseurs
@@ -372,7 +372,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                                    (Color){160,145,100,255}, fh(10)+3);
                 py += M_IN;
                 draw_sep(px,py,pw,C_BORDER); py += M_IN+2;
-                dtxt("Type de degats :", px, py, 10, C_GOLD); py += fh(10)+3;
+                dtxt("Type de dégâts :", px, py, 10, C_GOLD); py += fh(10)+3;
                 if (si < 5) dtxt(DAMAGE_NAMES[si], px+M_IN, py, 11, (Color){mc.r,mc.g,mc.b,220});
             }
         }
@@ -417,7 +417,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             Color tc = TOWER_COLORS[si];
             if (!disc) {
                 txt_c("???", detail_x+detail_w/2, detail_y+detail_h/2-20, 24, C_DIM);
-                txt_c("Posez cette tour en campagne pour la decouvrir.",
+                txt_c("Posez cette tour en campagne pour la découvrir.",
                       detail_x+detail_w/2, detail_y+detail_h/2+10, 10, C_DIM);
             } else {
                 int splash_sz = 180;
@@ -438,17 +438,17 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
 
                 dtxt(TOWER_BASE_STATS[si].name, px, py, 20, tc);
                 py += fh(20) + 2;
-                dtxt("Tour de defense", px, py, 10, C_DIM);
+                dtxt("Tour de défense", px, py, 10, C_DIM);
                 py += fh(10) + M_IN;
                 draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
 
                 int cx2 = px + sep_w/2;
-                dtxt("Cout :", px, py, 10, C_DIM);
+                dtxt("Coût :", px, py, 10, C_DIM);
                 dtxt(TextFormat("%d or", TOWER_BASE_STATS[si].cost), px+50, py, 10, tc);
-                dtxt("Degats :", cx2, py, 10, C_DIM);
+                dtxt("Dégâts :", cx2, py, 10, C_DIM);
                 dtxt(TextFormat("%.0f", TOWER_BASE_STATS[si].damage), cx2+56, py, 10, tc);
                 py += fh(10)+3;
-                dtxt("Portee :", px, py, 10, C_DIM);
+                dtxt("Portée :", px, py, 10, C_DIM);
                 dtxt(TextFormat("%.1f cases", TOWER_BASE_STATS[si].range), px+50, py, 10, tc);
                 dtxt("Cadence :", cx2, py, 10, C_DIM);
                 dtxt(TextFormat("%.1f/s", TOWER_BASE_STATS[si].fire_rate), cx2+60, py, 10, tc);
@@ -520,29 +520,29 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
 
             dtxt(UNIT_BASE_STATS[si].name, px, py, 20, uc);
             py += fh(20) + 2;
-            dtxt("Unite de combat", px, py, 10, C_DIM);
+            dtxt("Unité de combat", px, py, 10, C_DIM);
             py += fh(10) + M_IN;
             draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
 
             int cx2 = px + sep_w/2;
-            dtxt("Cout :", px, py, 10, C_DIM);
+            dtxt("Coût :", px, py, 10, C_DIM);
             dtxt(TextFormat("%d or", UNIT_BASE_STATS[si].cost), px+50, py, 10, uc);
             dtxt("PV :", cx2, py, 10, C_DIM);
             dtxt(TextFormat("%.0f", UNIT_BASE_STATS[si].hp), cx2+32, py, 10, uc);
             py += fh(10)+3;
-            dtxt("Degats :", px, py, 10, C_DIM);
+            dtxt("Dégâts :", px, py, 10, C_DIM);
             dtxt(TextFormat("%.0f", UNIT_BASE_STATS[si].damage), px+50, py, 10, uc);
             dtxt("Vitesse :", cx2, py, 10, C_DIM);
             dtxt(TextFormat("%.1f", UNIT_BASE_STATS[si].speed), cx2+56, py, 10, uc);
             py += fh(10)+3;
-            dtxt("Portee att. :", px, py, 10, C_DIM);
+            dtxt("Portée att. :", px, py, 10, C_DIM);
             dtxt(TextFormat("%.1f", UNIT_BASE_STATS[si].atk_range), px+76, py, 10, uc);
             dtxt("Cadence :", cx2, py, 10, C_DIM);
             dtxt(TextFormat("%.1f/s", UNIT_BASE_STATS[si].atk_rate), cx2+56, py, 10, uc);
             py += fh(10)+M_IN;
             draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
 
-            dtxt("Role :", px, py, 10, C_GOLD); py += fh(10)+3;
+            dtxt("Rôle :", px, py, 10, C_GOLD); py += fh(10)+3;
             dtxt(UNIT_BASE_STATS[si].description, px+M_IN, py, 10,
                  (Color){uc.r,uc.g,uc.b,220});
             py += fh(10)+M_IN+2;
@@ -556,12 +556,15 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
 
     } else if (m->bestiary_tab == 4) {
     // ── Onglet BUTIN (perks de run & boutique) ───────────────────
-        static const char *RAR_NAMES[3] = {"Commune", "Rare", "Epique"};
-        static const char *CAT_NAMES[4] = {"Tour", "Economie", "Unite", "Survie"};
+        static const char *CAT_NAMES[4] = {"Tour", "Économie", "Unité", "Survie"};
 
-        // Liste gauche — les 19 perks, teintés par rareté
+        // Liste gauche — TOUS les perks, teintés par rareté. Hauteur de ligne
+        // ajustée pour que la liste tienne quel que soit PERK_COUNT (à 28 px
+        // fixes, les 2 derniers perks débordaient et n'étaient plus visibles).
         {
-            int entry_h = 28, gap = 2;
+            const int BEST_PERK_ROW_MAX = 28, gap = 2;
+            int entry_h = (list_h - 2 * M_IN) / PERK_COUNT - gap;
+            if (entry_h > BEST_PERK_ROW_MAX) entry_h = BEST_PERK_ROW_MAX;
             int ey = list_y + M_IN;
             for (int i = 0; i < PERK_COUNT; i++) {
                 const PerkDef *pd = &RUN_PERKS[i];
@@ -576,10 +579,10 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                 DrawRectangleRounded(r, 3.0f/entry_h, 4, bg);
                 DrawRectangleRoundedLinesEx(r, 3.0f/entry_h, 4, sel ? 2.0f : 1.0f, brd);
                 int tx = (int)r.x + M_IN, ty = (int)r.y + entry_h/2 - fh(10)/2;
-                perk_art_draw(i, tx + 8, (int)r.y + entry_h/2, 9, rc);
+                perk_art_draw(i, tx + 10, (int)r.y + entry_h/2, 12, rc);   // 24 px : net (1:1)
                 char nb[40];
-                clip_text(pd->name, list_w - 52, 10, nb, sizeof(nb));
-                dtxt(nb, tx+22, ty, 10, sel ? rc : C_TEXT);
+                clip_text(pd->name, list_w - 56, 10, nb, sizeof(nb));
+                dtxt(nb, tx+26, ty, 10, sel ? rc : C_TEXT);
                 if (vclick_r(r)) { m->sel_perk = i; audio_play_sfx(AUDIO_SFX_MENU_CLICK); }
                 ey += entry_h + gap;
                 if (ey + entry_h > list_y + list_h - M_IN) break;
@@ -609,7 +612,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             perk_art_draw(si, ex + em/2, ey0 + em/2 - 8, 40, rc);
             int gtw = mtxt(pd->tag, 12);
             dtxt(pd->tag, ex + em/2 - gtw/2, ey0 + em/2 + 34, 12, rc);
-            const char *rn = RAR_NAMES[pd->rarity];
+            const char *rn = runperk_rarity_name(pd->rarity);   /* source unique */
             int rnw = mtxt(rn, 10);
             dtxt(rn, ex + em/2 - rnw/2, ey0 + em - fh(10) - 8, 10,
                  (Color){rc.r, rc.g, rc.b, 200});
@@ -630,17 +633,20 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             dtxt("Exemplaires max :", px, py, 10, C_DIM);
             dtxt(TextFormat("x%d", pd->max_stack), px+138, py, 10, rc);
             py += fh(10)+3;
-            dtxt("Cout boutique :", px, py, 10, C_DIM);
+            dtxt("Coût boutique :", px, py, 10, C_DIM);
             dtxt(TextFormat("%d Renfort", pd->shop_cost), px+138, py, 10,
                  (Color){232, 200, 90, 255});
             py += fh(10)+M_IN;
             draw_sep(px, py, sep_w, C_BORDER); py += M_IN+2;
 
             dtxt("Acquisition :", px, py, 10, C_GOLD); py += fh(10)+3;
-            draw_multiline(
-                "Butin apres chaque acte : 1 choix gratuit parmi 3.\n"
-                "Boutique entre chaque chapitre : achat en Renfort.\n"
-                "Empiler les perks d'un meme cluster cree des combos.",
+            draw_multiline(pd->rarity == RAR_KEYSTONE
+                ? "Boutique entre chaque chapitre seulement.\n"
+                  "UNE clé de voûte par run : elle change une règle,\n"
+                  "avec un revers. Bâtissez votre build autour."
+                : "Butin après chaque acte : 1 choix gratuit parmi 3.\n"
+                  "Boutique entre chaque chapitre : achat en Renfort.\n"
+                  "Empiler les perks d'un même cluster crée des combos.",
                 px+M_IN, &py, 10, (Color){160,145,100,255}, fh(10)+3);
         }
 
@@ -656,7 +662,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             int cw = mtxt(cb, 28);
             dtxt(cb, list_x + list_w/2 - cw/2, py, 28, C_GOLD);
             py += fh(28) + 4;
-            const char *sub = "succes debloques";
+            const char *sub = "succès débloqués";
             int sw = mtxt(sub, 10);
             dtxt(sub, list_x + list_w/2 - sw/2, py, 10, C_DIM);
             py += fh(10) + M_IN;
@@ -668,7 +674,7 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
                 scrap_total += ACH_DEFS[i].scrap;
                 if (ach_unlocked(i)) scrap_won += ACH_DEFS[i].scrap;
             }
-            dtxt("Ferraille gagnee :", px, py, 10, C_DIM); py += fh(10)+3;
+            dtxt("Ferraille gagnée :", px, py, 10, C_DIM); py += fh(10)+3;
             char sb[32];
             snprintf(sb, sizeof(sb), "%d / %d", scrap_won, scrap_total);
             draw_icon(g_icon_scrap, px, py, fh(12), WHITE);
@@ -678,10 +684,10 @@ MenuAction draw_bestiary(MenuState *m, const MetaProgress *meta,
             py += M_IN + 2;
 
             draw_multiline(
-                "Chaque succes verse sa\n"
-                "ferraille UNE fois, a\n"
-                "depenser dans les\n"
-                "AMELIORATIONS.",
+                "Chaque succès verse sa\n"
+                "ferraille UNE fois, à\n"
+                "dépenser dans les\n"
+                "AMÉLIORATIONS.",
                 px, &py, 10, (Color){160,145,100,255}, fh(10)+3);
         }
 

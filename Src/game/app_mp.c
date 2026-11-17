@@ -55,7 +55,7 @@ static const MpSend DUEL_SENDS[DUEL_SEND_COUNT] = {
     { ENEMY_RAIDER,   3, "Raider" },
     { ENEMY_RUNNER,   6, "Runner" },
     { ENEMY_BRUTE,   14, "Brute"  },
-    { ENEMY_VEHICLE, 30, "Blinde" },
+    { ENEMY_VEHICLE, 30, "Blindé" },
 };
 // Asym envahisseur : roster COMPLET (tous les types) + budget par vague.
 // Coûts croissants selon la dangerosité ; l'envahisseur compose librement.
@@ -70,7 +70,7 @@ static const MpSend INV_ROSTER[INV_ROSTER_COUNT] = {
     { ENEMY_HEALER,      18, "Soigneur"},
     { ENEMY_HUNTER,      20, "Chasseur"},
     { ENEMY_ARTILLERY,   24, "Artilleur"},
-    { ENEMY_VEHICLE,     30, "Blinde"  },
+    { ENEMY_VEHICLE,     30, "Blindé"  },
 };
 #define INV_WAVE_BUDGET_BASE 80
 #define INV_WAVE_BUDGET_STEP 30
@@ -181,7 +181,7 @@ void mp_duel_send_input(AppContext *ctx) {
                 ctx->mp_sabotage -= DUEL_SENDS[i].cost;
                 uint8_t t = (uint8_t)DUEL_SENDS[i].type;
                 net_session_send(&ctx->session, NMSG_SEND_ENEMY, &t, 1);
-                ui_push_notif(&ctx->gs.ui, TextFormat("%s envoye !", DUEL_SENDS[i].name),
+                ui_push_notif(&ctx->gs.ui, TextFormat("%s envoyé !", DUEL_SENDS[i].name),
                               (Color){200, 90, 200, 255});
             } else {
                 ui_push_notif(&ctx->gs.ui, "Sabotage insuffisant", (Color){231, 76, 60, 255});
@@ -262,7 +262,7 @@ void mp_game_tick(AppContext *ctx, float dt) {
             int32_t g; memcpy(&g, pl, 4);
             if (g > 0 && g < 100000) {       // co-op : or reçu du partenaire
                 ctx->gs.gold += g;
-                ui_push_notif(&ctx->gs.ui, "Or recu du partenaire !", (Color){120,210,120,255});
+                ui_push_notif(&ctx->gs.ui, "Or reçu du partenaire !", (Color){120,210,120,255});
             }
         } else if (h.type == NMSG_BOARD && inv) {
             // Asym : snapshot du plateau du défenseur (tours + unités).
@@ -314,7 +314,7 @@ void mp_game_tick(AppContext *ctx, float dt) {
             ctx->gs.gold -= COOP_AID_GOLD;
             int32_t g = COOP_AID_GOLD;
             net_session_send(s, NMSG_AID, &g, 4);
-            ui_push_notif(&ctx->gs.ui, "+50 or envoye au partenaire", (Color){120,210,120,255});
+            ui_push_notif(&ctx->gs.ui, "+50 or envoyé au partenaire", (Color){120,210,120,255});
         }
     }
 
@@ -412,7 +412,7 @@ static void mp_draw_result(AppContext *ctx) {
     if (ctx->mp_result == 0) return;
     int cx = g_canvas_virt_w / 2, cy = g_canvas_virt_h / 2;
     DrawRectangle(0, 0, g_canvas_virt_w, g_canvas_virt_h, (Color){0, 0, 0, 188});
-    const char *t = (ctx->mp_result == 1) ? "VICTOIRE" : "DEFAITE";
+    const char *t = (ctx->mp_result == 1) ? "VICTOIRE" : "DÉFAITE";
     Color tc = (ctx->mp_result == 1) ? (Color){240, 200, 60, 255}
                                      : (Color){220, 70, 60, 255};
     int tw = mtxt(t, 40);
@@ -438,7 +438,7 @@ static void mp_draw_result(AppContext *ctx) {
     dtxt("MENU", (int)mb.x + 100 - mw/2, (int)mb.y + 23 - fh(14)/2, 14, (Color){230,200,140,255});
 
     const char *hint = can_rematch ? "REMATCH : rejouer ensemble  -  MENU : quitter"
-                                   : "Adversaire deconnecte  -  MENU pour revenir";
+                                   : "Adversaire déconnecté  -  MENU pour revenir";
     int hw = mtxt(hint, 9);
     dtxt(hint, cx - hw/2, (int)rb.y + 56, 9, (Color){150, 130, 90, 230});
 }
@@ -573,7 +573,6 @@ void mp_invader_render(AppContext *ctx) {
     cam.zoom   = g_map_render_scale;
     BeginMode2D(cam);
         render_map(&gs->map, NULL, 0);   // carte de référence figée (marqueurs séparés)
-        tile_art_draw_paths(&gs->map);
         tile_art_draw_spawns(&gs->map);
         render_spawn_exclusion_zones(&gs->map);
         render_bases(&gs->map);
@@ -606,15 +605,15 @@ void mp_invader_render(AppContext *ctx) {
     if (ctx->mp_peer_valid) {
         int rem = ctx->mp_peer.wave;   // Asym : `wave` = secondes restantes (cf. STATUS)
         if (rem < 0) rem = 0;
-        snprintf(ds, sizeof(ds), "Defenseur %s : tient encore %d:%02d     PV %d  -  perce-le !",
+        snprintf(ds, sizeof(ds), "Défenseur %s : tient encore %d:%02d     PV %d  -  perce-le !",
                  ctx->session.peer_name[0] ? ctx->session.peer_name : "?",
                  rem / 60, rem % 60, ctx->mp_peer.lives);
     } else {
-        snprintf(ds, sizeof(ds), "Connexion au defenseur...");
+        snprintf(ds, sizeof(ds), "Connexion au défenseur...");
     }
     int dw = mtxt(ds, 11);
     dtxt(ds, cx - dw/2, 6 + fh(13) + 4, 11, (Color){200, 180, 120, 255});
-    const char *leg = "Carte LIVE  -  carres = tours, points = unites du defenseur";
+    const char *leg = "Carte LIVE  -  carrés = tours, points = unités du défenseur";
     int lw = mtxt(leg, 8);
     dtxt(leg, cx - lw/2, 6 + fh(13) + 4 + fh(11) + 3, 8, (Color){150, 130, 160, 255});
 

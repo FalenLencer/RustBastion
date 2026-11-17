@@ -53,40 +53,40 @@ static void hero_tower_upgrades(AppContext *ctx, Tower *tw) {
     if (IsKeyPressed(KEY_O)) {
         int c = tower_upg_next_cost_dmg(tw);
         if (c < 0) {
-            hero_toast(h, "Degats deja au maximum", (Color){180, 180, 190, 255});
+            hero_toast(h, "Dégâts déjà au maximum", (Color){180, 180, 190, 255});
         } else if (gs->gold < c) {
             hero_toast(h, "Or insuffisant !", (Color){243, 156, 18, 255});
         } else {
             gs->gold -= c;
             tower_upgrade_dmg(tw);
             audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
-            hero_toast(h, "Tour : degats ameliores !", (Color){120, 220, 130, 255});
+            hero_toast(h, "Tour : dégâts améliorés !", (Color){120, 220, 130, 255});
         }
     }
     if (IsKeyPressed(KEY_P)) {
         int c = tower_upg_next_cost_rate(tw);
         if (c < 0) {
-            hero_toast(h, "Cadence deja au maximum", (Color){180, 180, 190, 255});
+            hero_toast(h, "Cadence déjà au maximum", (Color){180, 180, 190, 255});
         } else if (gs->gold < c) {
             hero_toast(h, "Or insuffisant !", (Color){243, 156, 18, 255});
         } else {
             gs->gold -= c;
             tower_upgrade_rate(tw);
             audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
-            hero_toast(h, "Tour : cadence amelioree !", (Color){120, 220, 130, 255});
+            hero_toast(h, "Tour : cadence améliorée !", (Color){120, 220, 130, 255});
         }
     }
     if (IsKeyPressed(KEY_L)) {
         int c = tower_upg_next_cost_range(tw);
         if (c < 0) {
-            hero_toast(h, "Portee deja au maximum", (Color){180, 180, 190, 255});
+            hero_toast(h, "Portée déjà au maximum", (Color){180, 180, 190, 255});
         } else if (gs->gold < c) {
             hero_toast(h, "Or insuffisant !", (Color){243, 156, 18, 255});
         } else {
             gs->gold -= c;
             tower_upgrade_range(tw);
             audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
-            hero_toast(h, "Tour : portee amelioree !", (Color){120, 220, 130, 255});
+            hero_toast(h, "Tour : portée améliorée !", (Color){120, 220, 130, 255});
         }
     }
 }
@@ -113,7 +113,7 @@ static void hero_tower_materials(AppContext *ctx, Tower *tw) {
         if (h->mat_sel >= gs->inventory_count) h->mat_sel = 0;
         audio_play_sfx(AUDIO_SFX_MATERIAL_APPLY);
         char nb[64];
-        snprintf(nb, sizeof(nb), "Materiau applique : %s", MATERIAL_NAMES[mt]);
+        snprintf(nb, sizeof(nb), "Matériau appliqué : %s", MATERIAL_NAMES[mt]);
         hero_toast(h, nb, (Color){120, 210, 245, 255});
     }
 }
@@ -127,7 +127,7 @@ int hero_tower_update(AppContext *ctx) {
     Tower *tw = &gs->towers.towers[h->control_tower];
     if (!tw->active) {                     /* détruite sous nos pieds */
         hero_tower_release(h);
-        hero_toast(h, "Tour detruite !", (Color){231, 76, 60, 255});
+        hero_toast(h, "Tour détruite !", (Color){231, 76, 60, 255});
         return 0;
     }
 
@@ -138,7 +138,7 @@ int hero_tower_update(AppContext *ctx) {
     /* [E] relâche le contrôle */
     if (IsKeyPressed(ctx->menu.opts.hero_keys[HK_INTERACT])) {
         hero_tower_release(h);
-        hero_toast(h, "Controle relache", (Color){170, 215, 255, 255});
+        hero_toast(h, "Contrôle relâché", (Color){170, 215, 255, 255});
         return 1;
     }
 
@@ -174,7 +174,7 @@ void hero_tower_interact_near(AppContext *ctx, int tower_idx) {
         h->ctrl_px             = tw->cx;
         h->ctrl_py             = tw->cy;
         g_tower_manual_control = tower_idx;
-        hero_toast(h, "Controle de la tour - CLIC G pour tirer",
+        hero_toast(h, "Contrôle de la tour - CLIC G pour tirer",
                    (Color){170, 215, 255, 255});
         return;
     }
@@ -192,12 +192,12 @@ int hero_tower_prompts(AppContext *ctx, char out[][64], int max, int n) {
     if (h->control_tower >= 0) {
         Tower *tw = &gs->towers.towers[h->control_tower];
         if (n < max)
-            snprintf(out[n++], 64, "TOUR : [CLIC G] tirer   [%s] relacher", ke);
+            snprintf(out[n++], 64, "TOUR : [CLIC G] tirer   [%s] relâcher", ke);
         if (n < max) {
             int cd = tower_upg_next_cost_dmg(tw);
             int cr = tower_upg_next_cost_rate(tw);
             int cp = tower_upg_next_cost_range(tw);
-            snprintf(out[n++], 64, "[O]+dgts %s   [P]+cadence %s   [L]+portee %s",
+            snprintf(out[n++], 64, "[O]+dgts %s   [P]+cadence %s   [L]+portée %s",
                      cd < 0 ? "MAX" : TextFormat("%dor", cd),
                      cr < 0 ? "MAX" : TextFormat("%dor", cr),
                      cp < 0 ? "MAX" : TextFormat("%dor", cp));
@@ -208,7 +208,7 @@ int hero_tower_prompts(AppContext *ctx, char out[][64], int max, int n) {
     int ti = hero_tower_near(ctx);
     if (ti >= 0 && !h->place_mode) {
         if (n < max)
-            snprintf(out[n++], 64, "[%s] CONTROLER la tour   [O/P/L] ameliorer", ke);
+            snprintf(out[n++], 64, "[%.12s] CONTRÔLER la tour   [O/P/L] améliorer", ke);
         if (gs->inventory_count > 0 && n < max) {
             int sel = (h->mat_sel < gs->inventory_count) ? h->mat_sel : 0;
             snprintf(out[n++], 64, "[M] appliquer %s (%d/%d)   [N] suivant",

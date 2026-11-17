@@ -13,13 +13,13 @@
 #include <string.h>
 
 static const char *MP_MODE_NAMES[MP_MODE_COUNT] = {
-    "", "COURSE", "DUEL", "BATISSEUR vs ENVAHISSEUR", "CO-OP",
+    "", "COURSE", "DUEL", "BÂTISSEUR vs ENVAHISSEUR", "CO-OP",
 };
 static const char *MP_MODE_DESC[MP_MODE_COUNT] = {
     "",
-    "Course : memes vagues, plateaux separes. Dernier debout / meilleur score.",
+    "Course : mêmes vagues, plateaux separes. Dernier debout / meilleur score.",
     "Duel : survivez ET envoyez des ennemis chez l'adversaire (touches Z/C/V).",
-    "Asymetrique : l'hote defend, l'invite commande la horde.",
+    "Asymétrique : l'hôte défend, l'invité commande la horde.",
     "Co-op : tenez ensemble, l'un tombe = tous perdent. Entraide [G].",
 };
 static const int MP_MODE_ENABLED[MP_MODE_COUNT] = { 0, 1, 1, 1, 1 };
@@ -104,7 +104,7 @@ MenuAction draw_mp_hub(MenuState *m, int vw, int vh) {
         int en   = MP_MODE_ENABLED[mode];
         int seld = (m->mp_mode == mode);
         char lbl[72];
-        snprintf(lbl, sizeof(lbl), "%s%s", MP_MODE_NAMES[mode], en ? "" : "   (a venir)");
+        snprintf(lbl, sizeof(lbl), "%s%s", MP_MODE_NAMES[mode], en ? "" : "   (à venir)");
         Color c = en ? (seld ? C_GOLD : C_TEXT) : C_DIM;
         if (draw_btn(lbl, bx, py, bw, bh, c, seld) && en) { m->mp_mode = mode; m->mp_edit_field = 0; }
         py += bh + gap;
@@ -114,7 +114,7 @@ MenuAction draw_mp_hub(MenuState *m, int vw, int vh) {
     py += fh(9) + 14;
 
     int abw = 256, agap = M_IN, ax = cx - abw - agap/2;
-    if (draw_btn("HEBERGER", ax, py, abw, BTN_H + 6, C_GREEN, 0)) {
+    if (draw_btn("HÉBERGER", ax, py, abw, BTN_H + 6, C_GREEN, 0)) {
         m->mp_edit_field = 0;
         // Réglages PAR DÉFAUT (ajustables sur l'écran simple, ou avancé).
         m->mp_cfg = (CustomConfig){0};
@@ -159,14 +159,14 @@ MenuAction draw_mp_config(MenuState *m, int vw, int vh) {
     int py = M_PAD + 96;
     txt_c(TextFormat("Mode : %s", MP_MODE_NAMES[m->mp_mode]), cx, py, 12, C_GOLD);
     py += fh(12) + 8;
-    txt_c("Reglages rapides — le reste est aleatoire/equilibre par defaut.",
+    txt_c("Réglages rapides — le reste est aléatoire/équilibré par défaut.",
           cx, py, 9, C_DIM);
     py += fh(9) + 22;
 
     int bw = 170, gap = 10, x0 = cx - (3*bw + 2*gap)/2;
 
     // ── Difficulté ──
-    txt_c("Difficulte", cx, py, 11, C_TEXT);
+    txt_c("Difficulté", cx, py, 11, C_TEXT);
     py += fh(11) + 6;
     {
         const char *labels[3] = { "Facile", "Normal", "Difficile" };
@@ -187,7 +187,7 @@ MenuAction draw_mp_config(MenuState *m, int vw, int vh) {
     txt_c("Taille de la carte", cx, py, 11, C_TEXT);
     py += fh(11) + 6;
     {
-        const char *labels[3] = { "Standard", "Grande", "Enorme" };
+        const char *labels[3] = { "Standard", "Grande", "Énorme" };
         const int ws[3] = { 0, 38, 48 };
         const int hs[3] = { 0, 22, 28 };
         int sel = (c->map_w <= 0) ? 0 : (c->map_w <= 40) ? 1 : 2;
@@ -202,13 +202,13 @@ MenuAction draw_mp_config(MenuState *m, int vw, int vh) {
     py += BTN_H + 30;
 
     // ── Héberger (gros) + accès aux réglages avancés ──
-    if (draw_btn("HEBERGER LA PARTIE", cx - 165, py, 330, BTN_H + 8, C_GREEN, 0)) {
+    if (draw_btn("HÉBERGER LA PARTIE", cx - 165, py, 330, BTN_H + 8, C_GREEN, 0)) {
         m->mp_role  = 1;  m->mp_edit_field = 0;
         m->screen   = MENU_MP_LOBBY;
         act.mp_host = 1;  act.mp_mode = m->mp_mode;
     }
     py += BTN_H + 8 + 12;
-    if (draw_btn("Reglages avances...", cx - 125, py, 250, BTN_H, C_BLUE, 0))
+    if (draw_btn("Réglages avances...", cx - 125, py, 250, BTN_H, C_BLUE, 0))
         m->screen = MENU_MP_CONFIG_ADV;
 
     if (draw_back_btn(vw, vh))
@@ -223,7 +223,7 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
     MenuAction act = {0};
     int cx = vw/2, cy = vh/2;
     draw_bg(m, vw, vh);
-    draw_header(m->mp_role == 1 ? "HEBERGER" : "REJOINDRE", vw);
+    draw_header(m->mp_role == 1 ? "HÉBERGER" : "REJOINDRE", vw);
     const MpLobbyView *v = &m->mp_view;
 
     int pw = 560, ph = (m->mp_mode == MP_ASYM) ? 400 : 340;  // +place pour le rôle Asym
@@ -234,7 +234,7 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
     txt_c(TextFormat("Mode : %s", MP_MODE_NAMES[m->mp_mode]), cx, py, 12, C_GOLD);
     py += fh(12) + 6;
     if (m->mp_mode == MP_ASYM) {
-        txt_c(m->mp_role == 1 ? "Votre role : DEFENSEUR" : "Votre role : ENVAHISSEUR",
+        txt_c(m->mp_role == 1 ? "Votre rôle : DÉFENSEUR" : "Votre rôle : ENVAHISSEUR",
               cx, py, 9, (Color){180, 140, 200, 255});
         py += fh(9) + 4;
     } else {
@@ -247,9 +247,9 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
         // ════════ PRÉ-CONNEXION ════════
         if (m->mp_role == 1 && v->via_relay) {
             // ── HÔTE via SERVEUR RELAIS : juste le code (pas d'IP/UPnP) ──
-            txt_c("Connecte au serveur relais.", cx, py, 10, (Color){140, 200, 160, 255});
+            txt_c("Connecté au serveur relais.", cx, py, 10, (Color){140, 200, 160, 255});
             py += fh(10) + 8;
-            txt_c("Code a transmettre :", cx, py, 10, C_TEXT);
+            txt_c("Code à transmettre :", cx, py, 10, C_TEXT);
             py += fh(10) + 4;
             txt_c(v->code[0] ? v->code : "...", cx, py, 24, C_GOLD);
             py += fh(24) + 8;
@@ -259,12 +259,12 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
             txt_c("En attente d'un joueur (via serveur)...", cx, py, 11, C_DIM);
         } else if (m->mp_role == 1) {
             // ── HÔTE direct : IP + code + copier + UPnP + attente ──
-            txt_c("Votre IP (LAN par defaut) :", cx, py, 9, C_TEXT);
+            txt_c("Votre IP (LAN par défaut) :", cx, py, 9, C_TEXT);
             py += fh(9) + 4;
             text_field(m, 3, (Rectangle){(float)(cx - 100), (float)py, 200.0f, 30.0f},
                        m->mp_host_ip, (int)sizeof(m->mp_host_ip), 2);
             py += 38;
-            txt_c("Code a transmettre :", cx, py, 10, C_TEXT);
+            txt_c("Code à transmettre :", cx, py, 10, C_TEXT);
             py += fh(10) + 4;
             txt_c(v->code[0] ? v->code : "...", cx, py, 24, C_GOLD);
             py += fh(24) + 6;
@@ -279,11 +279,11 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
             if (m->mp_upnp_msg[0])
                 txt_c(m->mp_upnp_msg, cx, py, 8, m->mp_upnp_ok ? C_GREEN : C_RED);
             else
-                txt_c("LAN : gardez l'IP.  A distance : Tailscale, ou bouton UPnP.",
+                txt_c("LAN : gardez l'IP.  À distance : Tailscale, ou bouton UPnP.",
                       cx, py, 8, (Color){110, 92, 58, 255});
         } else if (!v->active || v->failed) {
             // ── INVITÉ : saisie du code ──
-            txt_c("Code transmis par l'hote :", cx, py, 10, C_TEXT);
+            txt_c("Code transmis par l'hôte :", cx, py, 10, C_TEXT);
             py += fh(10) + 6;
             text_field(m, 2, (Rectangle){(float)(cx - 150), (float)py, 224.0f, 34.0f},
                        m->mp_code_input, (int)sizeof(m->mp_code_input), 1);
@@ -291,7 +291,7 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
                 paste_code(m->mp_code_input, (int)sizeof(m->mp_code_input));
             py += 42;
             if (v->failed) {
-                txt_c("Echec : code invalide ou hote injoignable (meme LAN requis).",
+                txt_c("Échec : code invalide ou hôte injoignable (même LAN requis).",
                       cx, py, 9, C_RED);
                 py += fh(9) + 6;
             }
@@ -303,7 +303,7 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
             }
         } else {
             // ── INVITÉ : connexion en cours ──
-            txt_c("Connexion a l'hote...", cx, py + 14, 13, C_DIM);
+            txt_c("Connexion à l'hôte...", cx, py + 14, 13, C_DIM);
         }
     } else {
         // ════════ CONNECTÉ : adversaire + ready + lancement ════════
@@ -311,12 +311,12 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
               cx, py, 14, C_TEXT);
         py += fh(14) + 12;
         txt_c(TextFormat("Vous : %s        Lui : %s",
-                         v->my_ready ? "PRET" : "en attente",
-                         v->peer_ready ? "PRET" : "en attente"),
+                         v->my_ready ? "PRÊT" : "en attente",
+                         v->peer_ready ? "PRÊT" : "en attente"),
               cx, py, 11, v->my_ready && v->peer_ready ? C_GREEN : C_TEXT);
         py += fh(11) + 18;
 
-        if (draw_btn(v->my_ready ? "ANNULER PRET" : "JE SUIS PRET",
+        if (draw_btn(v->my_ready ? "ANNULER PRÊT" : "JE SUIS PRÊT",
                      cx - 130, py, 260, BTN_H, v->my_ready ? C_ORANGE : C_GREEN, 0))
             act.mp_ready = 1;
         py += BTN_H + 12;
@@ -327,9 +327,9 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
             py += fh(10) + 4;
             int bw3 = 150, gap3 = 10, x0 = cx - (2*bw3 + gap3)/2;
             int hi = m->mp_host_invader;
-            if (draw_btn("VOUS (hote)", x0, py, bw3, 30, hi ? C_GOLD : C_TEXT, hi))
+            if (draw_btn("VOUS (hôte)", x0, py, bw3, 30, hi ? C_GOLD : C_TEXT, hi))
                 m->mp_host_invader = 1;
-            if (draw_btn("L'INVITE", x0 + bw3 + gap3, py, bw3, 30, hi ? C_TEXT : C_GOLD, !hi))
+            if (draw_btn("L'INVITÉ", x0 + bw3 + gap3, py, bw3, 30, hi ? C_TEXT : C_GOLD, !hi))
                 m->mp_host_invader = 0;
             py += 30 + 12;
         }
@@ -341,10 +341,10 @@ MenuAction draw_mp_lobby(MenuState *m, int vw, int vh) {
                 act.mp_start = 1;
             if (!can) {
                 py += BTN_H + 6;
-                txt_c("(les deux joueurs doivent etre prets)", cx, py, 8, C_DIM);
+                txt_c("(les deux joueurs doivent être prêts)", cx, py, 8, C_DIM);
             }
         } else {
-            txt_c("En attente du lancement par l'hote...", cx, py + 8, 10, C_DIM);
+            txt_c("En attente du lancement par l'hôte...", cx, py + 8, 10, C_DIM);
         }
     }
 

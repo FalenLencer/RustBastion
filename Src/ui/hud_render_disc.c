@@ -149,7 +149,7 @@ void hud_render_discovery(const UIState *ui, const GameState *gs) {
         const char *cat_lbl =
             de->type == DISC_ENEMY    ? "ENNEMI"  :
             de->type == DISC_TOWER    ? "TOUR"    :
-            de->type == DISC_MATERIAL ? "MINERAI" : "UNITE";
+            de->type == DISC_MATERIAL ? "MINERAI" : "UNITÉ";
         int cl = mtxt(cat_lbl, 10);
         int badge_w = cl + 12, badge_h = 18;
         int bx = card_x + 12, by = card_y + hdr_h/2 - badge_h/2;
@@ -172,24 +172,11 @@ void hud_render_discovery(const UIState *ui, const GameState *gs) {
 
         // Titre "DÉCOUVERTE !" — tracking qui se resserre (8 → 2 px)
         {
-            const char *disc_title = "DECOUVERTE !";
             int   fs      = 16;
             float spacing = 2.0f + (1.0f - k2) * 6.0f;
-            float total   = 0.0f;
-            for (int i = 0; disc_title[i]; i++) {
-                char one[2] = {disc_title[i], '\0'};
-                total += (float)mtxt(one, fs);
-                if (disc_title[i+1]) total += spacing;
-            }
-            float lx = (float)cx - total * 0.5f;
-            int   ly = card_y + hdr_h/2 - fh(fs)/2;
             unsigned char ta = (unsigned char)(255.0f * k2);
-            for (int i = 0; disc_title[i]; i++) {
-                char one[2] = {disc_title[i], '\0'};
-                dtxt(one, (int)lx, ly, fs,
-                     (Color){cat_col.r, cat_col.g, cat_col.b, ta});
-                lx += (float)mtxt(one, fs) + spacing;
-            }
+            ui_draw_tracked("DÉCOUVERTE !", (float)cx, card_y + hdr_h/2 - fh(fs)/2, fs,
+                            spacing, (Color){cat_col.r, cat_col.g, cat_col.b, ta});
         }
 
         // Bouton [✕]
@@ -304,10 +291,10 @@ void hud_render_discovery(const UIState *ui, const GameState *gs) {
 
         // Sous-titre type
         const char *sub =
-            de->type == DISC_ENEMY    ? "Ennemi rencontre" :
-            de->type == DISC_TOWER    ? "Tour de defense"  :
-            de->type == DISC_MATERIAL ? "Minerai - a appliquer sur une tour" :
-                                        "Unite alliee";
+            de->type == DISC_ENEMY    ? "Ennemi rencontré" :
+            de->type == DISC_TOWER    ? "Tour de défense"  :
+            de->type == DISC_MATERIAL ? "Minerai - à appliquer sur une tour" :
+                                        "Unité alliée";
         disc_txt(sub, txt_x, txt_y, 9, (Color){100,85,60,220},
                  dt_open, DISC_TXT_T0 + DISC_TXT_STEP);
         txt_y += fh(10) + 8;
@@ -338,26 +325,26 @@ void hud_render_discovery(const UIState *ui, const GameState *gs) {
                                     wn++ ? ", " : "", DAMAGE_NAMES[d]);
             }
             if (wn) snprintf(stat_b, sizeof(stat_b), "Faible : %s", wk);
-            else    snprintf(stat_b, sizeof(stat_b), "Peu de faiblesse elementaire");
+            else    snprintf(stat_b, sizeof(stat_b), "Peu de faiblesse élémentaire");
         } else if (de->type == DISC_TOWER) {
-            snprintf(stat_a, sizeof(stat_a), "Cout : %d or   Degats : %.0f",
+            snprintf(stat_a, sizeof(stat_a), "Coût : %d or   Dégâts : %.0f",
                      TOWER_BASE_STATS[de->idx].cost,
                      TOWER_BASE_STATS[de->idx].damage);
-            snprintf(stat_b, sizeof(stat_b), "Portee : %.1f   Cadence : %.1f/s",
+            snprintf(stat_b, sizeof(stat_b), "Portée : %.1f   Cadence : %.1f/s",
                      TOWER_BASE_STATS[de->idx].range,
                      TOWER_BASE_STATS[de->idx].fire_rate);
         } else if (de->type == DISC_MATERIAL) {
-            snprintf(stat_a, sizeof(stat_a), "Applique a une tour : gros bonus");
-            snprintf(stat_b, sizeof(stat_b), "Change son type de degats");
+            snprintf(stat_a, sizeof(stat_a), "Applique à une tour : gros bonus");
+            snprintf(stat_b, sizeof(stat_b), "Change son type de dégâts");
         } else {
-            snprintf(stat_a, sizeof(stat_a), "Cout : %d or   PV : %.0f",
+            snprintf(stat_a, sizeof(stat_a), "Coût : %d or   PV : %.0f",
                      UNIT_BASE_STATS[de->idx].cost,
                      UNIT_BASE_STATS[de->idx].hp);
             if (de->idx == UNIT_WORKER)   /* ne combat jamais (unit.c) : pas de dégâts affichés */
                 snprintf(stat_b, sizeof(stat_b), "Non combatif   Vitesse : %.1f",
                          UNIT_BASE_STATS[de->idx].speed);
             else
-                snprintf(stat_b, sizeof(stat_b), "Degats : %.0f   Vitesse : %.1f",
+                snprintf(stat_b, sizeof(stat_b), "Dégâts : %.0f   Vitesse : %.1f",
                          UNIT_BASE_STATS[de->idx].damage,
                          UNIT_BASE_STATS[de->idx].speed);
         }

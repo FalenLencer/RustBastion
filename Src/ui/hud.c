@@ -77,9 +77,9 @@ void overlay_avoid_marks(Vector2 *pos, int ow, int oh,
 // ════════════════════════════════════════════════════
 const ToolInfo TOOL_INFO[TOOL_COUNT] = {
     [TOOL_TOWER_GUN]    = {"TOURELLE",  "Tourelle",     "T", "Polyvalente.",   15,  20, 3.5f, 1.5f, 0},
-    [TOOL_TOWER_SNIPER] = {"SNIPER",    "Sniper",  "S", "Longue portee.", 25,  90, 6.5f, 0.4f, 0},
+    [TOOL_TOWER_SNIPER] = {"SNIPER",    "Sniper",  "S", "Longue portée.", 25,  90, 6.5f, 0.4f, 0},
     [TOOL_TOWER_FLAME]  = {"FLAMMES",   "Flamme",   "F", "Zone courte.",   30,  12, 2.0f, 3.0f, 0},
-    [TOOL_TOWER_TESLA]  = {"TESLA",     "Tesla",   "E", "Chaine x2.",     50,  31, 4.0f, 0.8f, 0},
+    [TOOL_TOWER_TESLA]  = {"TESLA",     "Tesla",   "E", "Chaîne x2.",     50,  31, 4.0f, 0.8f, 0},
     [TOOL_UNIT_SOLDIER] = {"SOLDAT",    "Soldat",  "o", "Polyvalent.",    20,  25, 1.2f, 1.2f, 1},
     [TOOL_UNIT_HEAVY]   = {"LOURD",     "Lourd",   "H", "Tank.",          35,  50, 1.0f, 0.6f, 1},
     [TOOL_UNIT_MEDIC]   = {"MEDIC",     "Medic",   "+", "Soigneur.",      25,   8, 3.0f, 0.5f, 1},
@@ -232,6 +232,7 @@ void ui_push_notif(UIState *ui, const char *text, Color col) {
     FloatNotif *n = &ui->notifs[ui->notif_count++];
     strncpy(n->text, text, sizeof(n->text) - 1);
     n->text[sizeof(n->text) - 1] = '\0';
+    ui_utf8_fix_tail(n->text);   /* tronqué au milieu d'un accent ? */
     n->timer = 2.2f;
     n->y_off = 0.0f;
     n->col   = col;
@@ -395,14 +396,15 @@ int hud_counter_advice(const GameState *gs, char *out, int out_sz) {
     }
 
     if (has_best && has_worst)
-        snprintf(out, (size_t)out_sz, "V%d %s : %s efficace, %s resiste",
+        snprintf(out, (size_t)out_sz, "V%d %s : %s efficace, %s résiste",
                  gs->wave_manager.number + 1, names,
                  DAMAGE_NAMES[best], DAMAGE_NAMES[worst]);
     else if (has_best)
-        snprintf(out, (size_t)out_sz, "V%d %s : %s tres efficace",
+        snprintf(out, (size_t)out_sz, "V%d %s : %s très efficace",
                  gs->wave_manager.number + 1, names, DAMAGE_NAMES[best]);
     else
-        snprintf(out, (size_t)out_sz, "V%d %s : evitez %s",
+        snprintf(out, (size_t)out_sz, "V%d %s : évitez %s",
                  gs->wave_manager.number + 1, names, DAMAGE_NAMES[worst]);
+    ui_utf8_fix_tail(out);   /* tronqué au milieu d'un accent ? */
     return 1;
 }

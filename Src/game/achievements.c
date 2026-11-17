@@ -14,25 +14,31 @@
 #include "meta.h"
 #include "../engine/paths.h"
 #include "../ui/ui_palette.h"
+#include "../engine/audio.h"
 #include <stdio.h>
+
+#define ACH_SFX_PITCH  1.30f   /* confirmation aiguë = « tintement » de succès */
 #include <string.h>
 
 /* ── Catalogue ──────────────────────────────────────────────────── */
 const AchDef ACH_DEFS[ACH_COUNT] = {
-    [ACH_FIRST_BLOOD]   = { "Premier sang",     "Detruire votre premier ennemi",          10 },
-    [ACH_KILLS_100]     = { "Exterminateur",    "Detruire 100 ennemis en une partie",     20 },
+    [ACH_FIRST_BLOOD]   = { "Premier sang",     "Détruire votre premier ennemi",          10 },
+    [ACH_KILLS_100]     = { "Exterminateur",    "Détruire 100 ennemis en une partie",     20 },
     [ACH_WAVE_10]       = { "Tenace",           "Atteindre la vague 10",                  15 },
-    [ACH_WAVE_20]       = { "Inebranlable",     "Atteindre la vague 20",                  30 },
-    [ACH_TOWERS_8]      = { "Architecte",       "Avoir 8 tours en meme temps",            15 },
+    [ACH_WAVE_20]       = { "Inébranlable",     "Atteindre la vague 20",                  30 },
+    [ACH_TOWERS_8]      = { "Architecte",       "Avoir 8 tours en même temps",            15 },
     [ACH_ALL_TOWERS]    = { "Arsenal complet",  "Les 4 types de tours dans une partie",   20 },
     [ACH_RICH]          = { "Fortune de guerre","Amasser 1000 or en une partie",          20 },
-    [ACH_FIRST_ACT]     = { "Premiers pas",     "Campagne : completer un acte",           15 },
-    [ACH_PERFECT_ACT]   = { "Sans faute",       "Campagne : reussir un objectif bonus",   25 },
-    [ACH_CAMPAIGN_DONE] = { "Conquerant",       "Terminer une campagne complete",         60 },
+    [ACH_FIRST_ACT]     = { "Premiers pas",     "Campagne : compléter un acte",           15 },
+    [ACH_PERFECT_ACT]   = { "Sans faute",       "Campagne : réussir un objectif bonus",   25 },
+    [ACH_CAMPAIGN_DONE] = { "Conquérant",       "Terminer une campagne complète",         60 },
     [ACH_BOSS_DOWN]     = { "Tueur de titans",  "Vaincre un boss de chapitre",            30 },
-    [ACH_HERO_MODE]     = { "Sur le terrain",   "Jouer une partie en mode Heros",         15 },
+    [ACH_HERO_MODE]     = { "Sur le terrain",   "Jouer une partie en mode Héros",         15 },
     [ACH_MULTI]         = { "Camaraderie",      "Jouer une partie multijoueur",           15 },
     [ACH_ENDLESS_15]    = { "Marathon",         "Endless : atteindre la vague 15",        25 },
+    [ACH_TERRAIN]       = { "Le terrain pour allié", "Achever 20 ennemis grâce au terrain", 20 },
+    [ACH_FLAWLESS]      = { "Rempart intact",   "Finir un acte de campagne sans perte",   25 },
+    [ACH_UNPREDICTABLE] = { "Hors du modèle",   "Finir la campagne, NEXUS au plus 30 %",  40 },
 };
 
 /* ── Seuils des conditions pollables ────────────────────────────── */
@@ -120,9 +126,10 @@ void ach_unlock(int id, struct GameState *gs) {
         gs->meta.total_scrap_earned += ACH_DEFS[id].scrap;
         meta_save(&gs->meta);
         char buf[52];
-        snprintf(buf, sizeof(buf), "SUCCES : %s (+%d ferraille)",
+        snprintf(buf, sizeof(buf), "SUCCÈS : %s (+%d ferraille)",
                  ACH_DEFS[id].name, ACH_DEFS[id].scrap);
         ui_push_notif(&gs->ui, buf, UI_ACCENT);
+        audio_play_sfx_pitch(AUDIO_SFX_MENU_CONFIRM, ACH_SFX_PITCH);   // tintement
     }
 }
 

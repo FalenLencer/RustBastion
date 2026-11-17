@@ -112,6 +112,11 @@ typedef struct {
 
 extern const DoctrineDef CAMPAIGN_DOCTRINE[CAMPAIGN_DOCTRINES];
 
+/* Planchers de la dotation d'acte : aucune décision (doctrine, ordre du
+   jour) ne doit produire un acte impossible à démarrer. SOURCE UNIQUE. */
+#define CAMPAIGN_MIN_GOLD    40
+#define CAMPAIGN_MIN_LIVES   10
+
 // Doctrine correspondant à un drapeau (NULL si aucune).
 const DoctrineDef *campaign_doctrine_by_flag(int flag);
 // Remplit `out` avec les doctrines actives dans `flags`. Retourne le nombre.
@@ -127,12 +132,47 @@ int  campaign_doctrine_slots(int flags, int kind);
 // (le pourcentage annoncé est CALCULÉ) et l'épilogue.
 int         campaign_nexus_prediction(int flags);
 
+// ── ORDRE DU JOUR (campaign_orders.c) ───────────────────────────
+// Deux consignes facultatives au briefing de chaque acte. Toujours un
+// ÉCHANGE (un axe gagné, un autre payé) ; appliquées au lancement de
+// l'acte par game_apply_order (game_init.c).
+#define CAMPAIGN_ORDER_CHOICES 2
+typedef struct {
+    const char *title;      // "Murer le portail"
+    int         gold;       // ± or à l'entrée de l'acte
+    int         lives;      // ± vies (PV de la base principale)
+    int         renfort;    // ± Renfort (monnaie de run)
+    const char *speaker;    // qui exécute l'ordre (portrait de la réplique)
+    const char *reply;      // sa réponse, jouée dans la scène
+} CampaignOrder;
+
+// Consigne idx (0/1) du briefing de ce nœud ; NULL si aucune.
+const CampaignOrder *campaign_order(int node_id, int idx);
+// 1 si la consigne ne ferait pas descendre sous les planchers.
+int  campaign_order_affordable(const CampaignOrder *o,
+                               int gold, int lives, int renfort);
+// Texte d'effet tiré des chiffres ("+40 or   -3 vies") → buf.
+const char *campaign_order_effect(const CampaignOrder *o, char *buf, int n);
+
 // Drapeau posé par un choix (stage, branche 0/1) ; 0 = aucun.
 int         campaign_choice_flag(int stage_index, int choice_idx);
 // Conséquence mécanique d'une option, affichée SOUS son libellé (NULL = aucune).
 const char *campaign_choice_effect(int stage_index, int idx);
-// Dialogue d'introduction d'un acte — dynamique pour NEXUS (indice calculé).
+// ── Scènes dialoguées (format : « NOM : » + texte, répliques séparées
+//    par une ligne vide — lu par ui/story_scene.c) ──
+// Scripts bruts d'un nœud (campaign_story.c ; NULL si aucun).
+const char *campaign_story_before(int node_id);
+const char *campaign_story_after (int node_id);
+// Variante d'ÉCHEC du bilan, pour les nœuds dont l'objectif oriente la
+// suite (NULL si l'issue ne change pas le récit).
+const char *campaign_story_after_failed(int node_id);
+// Interne (campaign_story*.c) : scène d'un nœud de BRANCHE (after 0/1).
+const char *campaign_story_branch(int node_id, int after);
+// Scène d'introduction d'un acte — NEXUS y annonce l'indice calculé.
 const char *campaign_dialog_before(int node_id, int flags);
+// Scène de fin d'acte ; last = fin de campagne → épilogue selon le parcours ;
+// obj_ok = 0 → variante d'échec si le récit bifurque sur l'objectif.
+const char *campaign_dialog_after (int node_id, int flags, int last, int obj_ok);
 // Ligne de rappel narratif pour l'intro d'un acte selon les drapeaux (NULL = aucune).
 const char *campaign_echo(int stage_index, int flags);
 // Épilogue de fin de campagne, variant selon le parcours (drapeaux).
@@ -151,9 +191,7 @@ typedef struct {
     int         act;             // 0-2
     const char *title;           // ex: "Premier contact"
     const char *subtitle;        // ex: "Chapitre 1 — Acte 1"
-    Objective   objective;
-    const char *dialog_before;   // dialogue affiché AVANT l'acte
-    const char *dialog_after;    // dialogue affiché APRÈS l'acte (victoire)
+    Objective   objective;       // (les scènes dialoguées : campaign_story.c)
     ThemeID     theme;           // thème de carte imposé
     int         min_waves;       // vagues minimum pour valider l'acte
     const char *unlock_msg;      // message de débloquage si acte terminé (peut être NULL)

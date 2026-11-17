@@ -121,7 +121,7 @@ static void hotbar_card(int x, int y, char key, const char *name, int cost,
     dtxt(name, x + HB_CARD_W / 2 - nw / 2, y + 15, 10, nc);
 
     if (locked) {
-        dtxt("VERROUILLE", x + 6, y + HB_CARD_H - fh(10) - 4, 10,
+        dtxt("VERROUILLÉ", x + 6, y + HB_CARD_H - fh(10) - 4, 10,
              (Color){220, 90, 70, 255});
     } else {
         /* Coût : icône or + nombre (alignés sur la hauteur du texte) */
@@ -242,7 +242,7 @@ void hero_hud(AppContext *ctx) {
         /* Recap P1.1 : sous la banniere « repoussee », les stats de vague */
         if (gs->phase == PHASE_PREP && gs->ui.wave_banner_t > 0.0f) {
             char st[64];
-            snprintf(st, sizeof(st), "%d ennemis detruits   +%d or",
+            snprintf(st, sizeof(st), "%d ennemis détruits   +%d or",
                      gs->ui.wave_banner_kills, gs->ui.wave_banner_gold);
             int sw = mtxt(st, 12);
             Color sc2 = {235, 225, 205, (unsigned char)(220.0f * a)};
@@ -311,7 +311,7 @@ void hero_hud(AppContext *ctx) {
         }
 
         const char *hint = (h->radial_sel >= 0)
-            ? "Relachez la molette pour valider"
+            ? "Relâchez la molette pour valider"
             : "Poussez la souris vers un choix";
         int hw2 = mtxt(hint, 10);
         dtxt(hint, cx - hw2 / 2, cy + rr + 58, 10, (Color){190, 175, 145, 220});
@@ -391,7 +391,7 @@ void hero_hud(AppContext *ctx) {
         opts_key_name(ctx->menu.opts.hero_keys[HK_INTERACT], kn, sizeof(kn));
         char ob[96];
         snprintf(ob, sizeof(ob),
-                 "OBJECTIF : rejoins l'OUVRIER (repere vert) puis [%s] pour batir une tour",
+                 "OBJECTIF : rejoins l'OUVRIER (repère vert) puis [%s] pour bâtir une tour",
                  kn);
         int ow = mtxt(ob, 11);
         float pulse = (sinf((float)GetTime() * 3.0f) + 1.0f) * 0.5f;
@@ -504,14 +504,14 @@ void hero_hud(AppContext *ctx) {
     /* Aide (H) */
     if (h->show_help) {
         static const char *HL[] = {
-            "Deplacement / SAUT / sprint / interactions :",
+            "Déplacement / SAUT / sprint / interactions :",
             "  touches configurables dans OPTIONS > COMMANDES",
             "SOURIS     viser            CLIC G tirer (x1.4 si cible <30% PV)",
             "MOLETTE    (maintenir) MENU RADIAL : armes + tours au geste",
             "C          vue TACTIQUE (drone) pour planifier",
-            "E          ouvrier: batir / tour: en prendre le CONTROLE",
-            "O / P / L  (tour) ameliorer   M / N  appliquer un materiau",
-            "1-5        (pres d'une BASE) recruter une unite",
+            "E          ouvrier: bâtir / tour: en prendre le CONTRÔLE",
+            "O / P / L  (tour) améliorer   M / N  appliquer un matériau",
+            "1-5        (près d'une BASE) recruter une unité",
             "ESC        pause    H  fermer l'aide",
         };
         int n = (int)(sizeof(HL) / sizeof(HL[0]));

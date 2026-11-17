@@ -135,7 +135,7 @@ void hero_survival_update(AppContext *ctx, float dt) {
         h->control_tower       = -1;
         g_tower_manual_control = -1;
         h->place_mode          = 0;
-        hero_toast(h, "A TERRE ! Retour a la base...",
+        hero_toast(h, "À TERRE ! Retour à la base...",
                    (Color){231, 76, 60, 255});
         audio_play_sfx(AUDIO_SFX_GAME_OVER);
     }
@@ -154,9 +154,9 @@ void hero_down_frame(AppContext *ctx, float dt) {
     Camera3D kcam = hero_camera(h);
     render3d_world_render(ctx, kcam);
     hero_draw_world_popups(ctx, kcam);
-    int y = hero_overlay_panel("A TERRE", (Color){231, 76, 60, 255});
+    int y = hero_overlay_panel("À TERRE", (Color){231, 76, 60, 255});
     char kb[48];
-    snprintf(kb, sizeof(kb), "Retour a la base dans %.0f s...",
+    snprintf(kb, sizeof(kb), "Retour à la base dans %.0f s...",
              (double)(h->ko_t > 0.0f ? h->ko_t : 0.0f));
     dtxt(kb, g_canvas_virt_w / 2 - mtxt(kb, 12) / 2, y, 12,
          (Color){220, 200, 180, 255});

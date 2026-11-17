@@ -8,29 +8,33 @@ SRC = Src/main.c                                                              \
       Src/engine/audio.c       Src/engine/canvas.c    Src/engine/window.c   \
       Src/engine/assets.c      Src/engine/paths.c                            \
       Src/game/game_state.c    Src/game/game_init.c   Src/game/save.c       \
-      Src/game/meta.c          Src/game/app.c         Src/game/runperks.c   \
+      Src/game/meta.c          Src/game/app.c Src/game/hazard.c Src/game/hints.c Src/game/app_menu.c Src/game/app_render.c         Src/game/runperks.c   \
       Src/game/app_tutorial.c  Src/game/app_mp.c Src/game/app_flow.c                            \
       Src/game/hero.c          Src/game/hero_actions.c Src/game/hero_hud.c  \
       Src/game/hero_tower.c    Src/game/hero_survival.c                     \
       Src/game/campaign_data.c Src/game/achievements.c                      \
+      Src/game/campaign_story.c Src/game/campaign_orders.c                  \
+      Src/game/campaign_story_branches.c                                    \
       Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c       \
       Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c    \
       Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
       Src/combat/fx.c          Src/combat/move.c                             \
-      Src/ui/renderer.c        Src/ui/ui_utils.c      Src/ui/tile_art.c     \
+      Src/ui/renderer.c Src/ui/terrain_bake.c Src/ui/terrain_ground.c Src/ui/terrain_ruins.c Src/ui/pixel_paint.c Src/ui/hazard_art.c Src/ui/renderer_entities.c Src/ui/renderer_towers.c        Src/ui/ui_utils.c      Src/ui/tile_art.c     \
       Src/ui/tile_art_decor.c  Src/ui/ambient.c                              \
       Src/ui/ui_anim.c                                                       \
       Src/ui/render3d.c        Src/ui/render3d_units.c Src/ui/render3d_enemies.c \
       Src/ui/render3d_world.c  Src/ui/render3d_terrain.c Src/ui/render3d_fx.c \
       Src/ui/perk_art.c                                                     \
-      Src/ui/hud.c             Src/ui/hud_input.c     Src/ui/hud_render.c Src/ui/hud_render_disc.c   \
-      Src/ui/menu.c            Src/ui/menu_screens.c  Src/ui/menu_campaign.c \
+      Src/ui/hud.c             Src/ui/hud_input.c Src/ui/hud_input_layout.c Src/ui/hud_input_click.c Src/ui/hud_input_map.c     Src/ui/hud_render.c Src/ui/hud_render_info.c Src/ui/hud_render_wave.c Src/ui/hud_render_sel.c Src/ui/hud_render_sel_tower.c Src/ui/hud_render_ovl.c Src/ui/hud_render_world.c Src/ui/hud_render_disc.c   \
+      Src/ui/menu.c            Src/ui/menu_screens.c  Src/ui/menu_campaign.c Src/ui/menu_campaign_info.c Src/ui/menu_journal.c \
       Src/ui/menu_anim.c                                                     \
       Src/ui/menu_options.c    Src/ui/menu_upgrades.c Src/ui/menu_bestiary.c \
       Src/ui/menu_custom_config.c                                             \
       Src/ui/menu_keys.c                                                     \
       Src/ui/menu_mp.c                                                       \
       Src/ui/interlude.c                                                     \
+      Src/ui/story_portraits.c Src/ui/story_vignettes.c                      \
+      Src/ui/story_scene.c     Src/ui/interlude_story.c                      \
       Src/net/net_transport.c  Src/net/net_session.c   Src/net/net_upnp.c     \
       Src/net/net_relay.c                                                     \
 

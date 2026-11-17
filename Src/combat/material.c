@@ -15,44 +15,44 @@ const char *MATERIAL_NAMES[MAT_COUNT] = {
 };
 
 const char *MATERIAL_DESC[MAT_COUNT] = {
-    [MAT_IRON]  = "+10% degats physiques",
-    [MAT_ACID]  = "Poison : degats sur la duree",
-    [MAT_PLASMA]= "Electrique : chain 2 cibles",
-    [MAT_CRYO]  = "Ralentit a -70% au lieu de -50%",
-    [MAT_NANO]  = "Regenere les unites proches",
+    [MAT_IRON]  = "+10% dégâts physiques",
+    [MAT_ACID]  = "Poison : dégâts sur la durée",
+    [MAT_PLASMA]= "Électrique : chain 2 cibles",
+    [MAT_CRYO]  = "Ralentit à -70% au lieu de -50%",
+    [MAT_NANO]  = "Régénère les unités proches",
 };
 
 const char *MATERIAL_LORE[MAT_COUNT] = {
     [MAT_IRON]  =
-        "Eclats de fer recuperes dans les ruines industrielles.\n"
-        "Renforce de 10% les degats physiques de toutes les tours.\n"
+        "Éclats de fer récupérés dans les ruines industrielles.\n"
+        "Renforce de 10% les dégâts physiques de toutes les tours.\n"
         "Simple et fiable — constitue la base de tout armement.",
 
     [MAT_ACID]  =
-        "Acide corrosif concentre, vestige de l'ere chimique.\n"
-        "Impregneles projectiles d'un poison qui ronge les cibles\n"
-        "sur la duree, meme apres qu'elles ont quitte la zone de tir.",
+        "Acide corrosif concentré, vestige de l'ère chimique.\n"
+        "Imprègne les projectiles d'un poison qui ronge les cibles\n"
+        "sur la durée, même après qu'elles ont quitté la zone de tir.",
 
     [MAT_PLASMA]=
-        "Plasma electrise instable recolte dans les generateurs detruits.\n"
-        "A l'impact, un arc electrique rebondit sur 2 cibles proches.\n"
-        "Devastateur dans les groupes serres.",
+        "Plasma électrisé instable récolté dans les générateurs détruits.\n"
+        "À l'impact, un arc électrique rebondit sur 2 cibles proches.\n"
+        "Dévastateur dans les groupes serrés.",
 
     [MAT_CRYO]  =
-        "Agent cryogenique haute concentration issu des silos frigorifiques.\n"
+        "Agent cryogénique haute concentration issu des silos frigorifiques.\n"
         "Amplifie le ralentissement des tours Cryo : -70% au lieu de -50%.\n"
         "Les ennemis touches deviennent quasi immobiles.",
 
     [MAT_NANO]  =
-        "Essaim nanobotique autoreplicant recupere dans les labos abandonnes.\n"
-        "Repare passivement les unites alliees dans un rayon de 3 cases.\n"
+        "Essaim nanobotique autoreplicant récupéré dans les labos abandonnés.\n"
+        "Répare passivement les unités alliées dans un rayon de 3 cases.\n"
         "Indispensable pour maintenir vos ouvriers en vie.",
 };
 
 const char *DAMAGE_NAMES[DAMAGE_TYPE_COUNT] = {
     [DMG_PHYSICAL] = "Physique",
     [DMG_POISON]   = "Poison",
-    [DMG_ELECTRIC] = "Electrique",
+    [DMG_ELECTRIC] = "Électrique",
     [DMG_CRYO]     = "Cryo",
     [DMG_NANO]     = "Nano",
     [DMG_FIRE]     = "Feu",

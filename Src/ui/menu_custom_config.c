@@ -123,30 +123,30 @@ static int draw_stepper(int *val, int min_v, int max_v,
 // DONNÉES DES PRESETS
 // ════════════════════════════════════════════════════
 static const char *THEME_LABELS_C[THEME_COUNT + 1] = {
-    "Terres devastees",
+    "Terres dévastées",
     "Marais toxique",
-    "Desert irradie",
+    "Désert irradié",
     "Ville en ruine",
-    "Usine abandonnee",
-    "Aleatoire",
+    "Usine abandonnée",
+    "Aléatoire",
 };
 
 /* Distance min spawn→base : 6 valeurs en tuiles manhattan */
 static const int MINDIST_VALUES[6] = { 4, 6, 10, 14, 18, 22 };
 static const char *MINDIST_LABELS[6] = {
-    "Tres proche", "Proche", "Normal", "Eloigne", "Tres eloigne", "Maximum"
+    "Très proche", "Proche", "Normal", "Éloigné", "Très éloigné", "Maximum"
 };
 
 /* Plafond de scaling HP (scale_cap) — 5 niveaux */
 static const float SCALECAP_VALUES[5] = { 2.0f, 4.0f, 6.0f, 9.0f, 12.0f };
 static const char *SCALECAP_LABELS[5] = {
-    "Facile", "Normal", "Difficile", "Intense", "Extreme"
+    "Facile", "Normal", "Difficile", "Intense", "Extrême"
 };
 
 /* Multiplicateur nombre d'ennemis (count_mult) — 5 niveaux */
 static const float COUNTMULT_VALUES[5] = { 0.5f, 1.0f, 1.5f, 2.0f, 3.0f };
 static const char *COUNTMULT_LABELS[5] = {
-    "Lente", "Normale", "Rapide", "Dense", "Extreme"
+    "Lente", "Normale", "Rapide", "Dense", "Extrême"
 };
 
 /* (dépôts : plus de presets, valeur libre via stepper) */
@@ -155,7 +155,7 @@ static const char *COUNTMULT_LABELS[5] = {
 static const int   MAPSIZE_W[3] = { MAP_W, 38, 48 };
 static const int   MAPSIZE_H[3] = { MAP_H, 22, 28 };
 static const char *MAPSIZE_LABELS[3] = {
-    "Standard", "Grande", "Enorme"
+    "Standard", "Grande", "Énorme"
 };
 
 // ════════════════════════════════════════════════════
@@ -257,7 +257,7 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
     MenuAction act = {0};
     int is_mp = (m->screen == MENU_MP_CONFIG_ADV);   // config avancée d'hébergement multijoueur
     draw_bg(m, vw, vh);
-    draw_header(is_mp ? "CONFIG DE LA PARTIE (HOTE)" : "PARTIE PERSO", vw);
+    draw_header(is_mp ? "CONFIG DE LA PARTIE (HÔTE)" : "PARTIE PERSO", vw);
 
     CustomConfig *cfg = is_mp ? &m->mp_cfg : &m->custom_cfg;
     ensure_defaults(cfg);
@@ -353,10 +353,10 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
         y += ROW_H + ROW_GAP;
 
         // ── Bases alliées ─────────────────────────────────────
-        dtxt("Bases alliees :",
+        dtxt("Bases alliées :",
              COL_PARAM_X, y + ROW_H/2 - fh(11)/2, 11, C_GOLD);
         dtxt(TextFormat("max %d", max_bases),
-             COL_PARAM_X + mtxt("Bases alliees :", 11) + 6,
+             COL_PARAM_X + mtxt("Bases alliées :", 11) + 6,
              y + ROW_H/2 - fh(9)/2, 9, C_DIM);
         draw_stepper(&cfg->forced_bases, 1, max_bases,
                      COL_PARAM_X + COL_PARAM_W - STEP_W, y, STEP_W, ROW_H, C_GREEN);
@@ -368,10 +368,10 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
         y += ROW_H + ROW_GAP + fh(9) + 4;
 
         // ── Dépôts de minerais ────────────────────────────────
-        dtxt("Depots de minerais :",
+        dtxt("Dépôts de minerais :",
              COL_PARAM_X, y + ROW_H/2 - fh(11)/2, 11, C_GOLD);
-        dtxt("(0 = aleatoire)",
-             COL_PARAM_X + mtxt("Depots de minerais :", 11) + 6,
+        dtxt("(0 = aléatoire)",
+             COL_PARAM_X + mtxt("Dépôts de minerais :", 11) + 6,
              y + ROW_H/2 - fh(9)/2, 9, C_DIM);
         draw_stepper(&cfg->forced_deposits, 0, MAX_MATERIAL_DEPOSITS,
                      COL_PARAM_X + COL_PARAM_W - STEP_W, y, STEP_W, ROW_H, C_ORANGE);
@@ -421,7 +421,7 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
         y += fh(12) + 4;
 
         // Puissance max
-        dtxt("Puissance max (plafond HP/degats) :", COL_PARAM_X, y, 11, C_TEXT);
+        dtxt("Puissance max (plafond HP/dégâts) :", COL_PARAM_X, y, 11, C_TEXT);
         {
             const char *v = TextFormat("x%.0f max", cfg->scale_cap);   // ligne du libellé
             dtxt(v, COL_PARAM_X + COL_PARAM_W - mtxt(v, 9), y + fh(11) - fh(9), 9, C_DIM);
@@ -458,7 +458,7 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
         draw_sep(COL_PARAM_X, y, COL_PARAM_W, C_BORDER);
         y += M_IN + 2;
         const char *th_name = (cfg->theme == THEME_COUNT)
-            ? "Aleatoire"
+            ? "Aléatoire"
             : theme_get((ThemeID)cfg->theme)->name;
         const char *dep_str = (cfg->forced_deposits <= 0) ? "dep.alea"
                             : TextFormat("%ddep.", cfg->forced_deposits);
@@ -481,7 +481,7 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
         int bx2 = vw / 2 - bw2 / 2;
 
         if (is_mp) {
-            if (draw_btn("HEBERGER LA PARTIE", bx2, by2, bw2, bh2, C_GREEN, 0)) {
+            if (draw_btn("HÉBERGER LA PARTIE", bx2, by2, bw2, bh2, C_GREEN, 0)) {
                 m->mp_role  = 1;  m->mp_edit_field = 0;
                 m->screen   = MENU_MP_LOBBY;
                 act.mp_host = 1;  act.mp_mode = m->mp_mode;

@@ -28,28 +28,28 @@ const int COST_UNIT_LIMIT [MAX_LVL_UNIT_LIMIT]  = {80, 140, 220};
 // NOMS ET DESCRIPTIONS
 // ════════════════════════════════════════════════════
 const char *UPGRADE_NAMES[UPGRADE_COUNT] = {
-    "Degats tours",
-    "Portee tours",
+    "Dégâts tours",
+    "Portée tours",
     "Cadence tir",
-    "Vie unites",
-    "Degats unites",
-    "Or de depart",
+    "Vie unités",
+    "Dégâts unités",
+    "Or de départ",
     "Vies max",
     "Ferraille bonus",
     [UPGRADE_TOWER_LIMIT] = "Slots tours",
-    [UPGRADE_UNIT_LIMIT]  = "Slots unites",
+    [UPGRADE_UNIT_LIMIT]  = "Slots unités",
 };
 const char *UPGRADE_DESC[UPGRADE_COUNT] = {
-    "+15% degats par niv",
-    "+10% portee par niv",
+    "+15% dégâts par niv",
+    "+10% portée par niv",
     "+10% cadence par niv",
-    "+20% PV unites/niv",
-    "+15% degats unites/niv",
-    "+25 or de depart/niv",
+    "+20% PV unités/niv",
+    "+15% dégâts unités/niv",
+    "+25 or de départ/niv",
     "+5 vies max/niv",
     "+20% ferraille/niv",
     [UPGRADE_TOWER_LIMIT] = "+2 tours max par niv",
-    [UPGRADE_UNIT_LIMIT]  = "+2 unites max par niv",
+    [UPGRADE_UNIT_LIMIT]  = "+2 unités max par niv",
 };
 
 // ════════════════════════════════════════════════════

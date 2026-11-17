@@ -32,45 +32,45 @@ const TowerStats TOWER_BASE_STATS[TOWER_TYPE_COUNT] = {
         .name="Sniper", .cost=25, .damage=115.0f, .range=6.5f,
         .fire_rate=0.4f, .proj_speed=18.0f, .splash=0,
         .slow_factor=0.0f, .slow_duration=0.0f, .chain_count=0,
-        .description="Longue portee. Cible l'ennemi le plus avance.",
+        .description="Longue portée. Cible l'ennemi le plus avancé.",
     },
     [TOWER_FLAME] = {
         .name="Lance-flammes", .cost=30, .damage=12.0f, .range=2.0f,
         .fire_rate=3.0f, .proj_speed=5.0f, .splash=1,
         .slow_factor=0.5f, .slow_duration=1.5f, .chain_count=0,
-        .description="Zone courte. Ralentit et brule les ennemis.",
+        .description="Zone courte. Ralentit et brûle les ennemis.",
     },
     [TOWER_TESLA] = {
         .name="Tesla", .cost=50, .damage=31.0f, .range=4.0f,
         .fire_rate=0.8f, .proj_speed=20.0f, .splash=1,
         .slow_factor=0.0f, .slow_duration=0.0f, .chain_count=2,
-        .description="Chaine sur 2 ennemis proches. Ignore l'armure.",
+        .description="Chaîne sur 2 ennemis proches. Ignore l'armure.",
     },
 };
 
 const char *TOWER_LORE[TOWER_TYPE_COUNT] = {
     [TOWER_GUN] =
-        "La tourelle automatique est l'epine dorsale de toute defense.\n"
-        "Peu couteuse, robuste, facile a upgrader. Son canon rotatif\n"
-        "vise sans relache l'ennemi le plus proche de sa zone.\n"
-        "Ideale en masse sur les couloirs droits.",
+        "La tourelle automatique est l'épine dorsale de toute défense.\n"
+        "Peu coûteuse, robuste, facile à upgrader. Son canon rotatif\n"
+        "vise sans relâche l'ennemi le plus proche de sa zone.\n"
+        "Idéale en masse sur les couloirs droits.",
 
     [TOWER_SNIPER] =
-        "Construite a partir de pieces de fusil de precision recuperees.\n"
-        "Un seul tir suffisant pour traverser un blindage leger. La balle\n"
-        "cherche toujours l'ennemi le plus avance — celui qui est\n"
-        "le plus pres de votre base.",
+        "Construite à partir de pièces de fusil de précision récupérées.\n"
+        "Un seul tir suffisant pour traverser un blindage léger. La balle\n"
+        "cherche toujours l'ennemi le plus avancé — celui qui est\n"
+        "le plus près de votre base.",
 
     [TOWER_FLAME] =
-        "Alimentee par des bonbonnes de carburant recuperees en zone industrielle.\n"
-        "Projette un cone de feu persistant qui inflige des degats sur la duree\n"
-        "et ralentit les survivants de 50%. Devastatrice sur les groupes serres.\n"
-        "Portee courte — a placer dans les goulots d'etranglement.",
+        "Alimentée par des bonbonnes de carburant récupérées en zone industrielle.\n"
+        "Projette un cône de feu persistant qui inflige des dégâts sur la durée\n"
+        "et ralentit les survivants de 50%. Dévastatrice sur les groupes serrés.\n"
+        "Portée courte — à placer dans les goulots d'étranglement.",
 
     [TOWER_TESLA] =
-        "Generateur electromagnetique assemble depuis des equipements militaires.\n"
-        "L'arc initial rebondit sur 2 cibles supplementaires dans un rayon proche.\n"
-        "Les degats electriques ignorent la resistance physique. Parfaite contre\n"
+        "Générateur électromagnétique assemblé depuis des équipements militaires.\n"
+        "L'arc initial rebondit sur 2 cibles supplémentaires dans un rayon proche.\n"
+        "Les dégâts électriques ignorent la résistance physique. Parfaite contre\n"
         "les essaims et les ennemis groupes.",
 };
 

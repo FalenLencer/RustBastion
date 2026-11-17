@@ -4,239 +4,305 @@
  * Unauthorized copying or distribution is prohibited.
  */
 
+/*  perk_art.c ─ Emblèmes des perks peints comme des mini splash arts.
+ *
+ *  Chaque perk = un OBJET de PA_N × PA_N pixels d'art (volumes ombrés sur
+ *  rampe à 6 tons, contour sombre, halo à la couleur de sa rareté,
+ *  étincelles pour les épiques et clés de voûte). Atlas peint une fois :
+ *  rangée 0 = normal, rangée 1 = grisé (achat impossible). Dessiné net :
+ *  1:1 sur les cartes, multiple entier en grand, lissé en petit.
+ */
 #include "perk_art.h"
-#include "../game/runperks.h"   // PerkId
+#include "pixel_paint.h"
+#include "terrain_internal.h"     // tb_* (rampes, tramage)
+#include "../game/runperks.h"
 #include <math.h>
 
-// Éclaircit/assombrit une couleur (facteur multiplicatif), alpha conservé.
-static Color pa_shade(Color c, float f) {
-    int r = (int)(c.r * f), g = (int)(c.g * f), b = (int)(c.b * f);
-    if (r > 255) r = 255;
-    if (g > 255) g = 255;
-    if (b > 255) b = 255;
-    if (r < 0) r = 0;
-    if (g < 0) g = 0;
-    if (b < 0) b = 0;
-    return (Color){(unsigned char)r, (unsigned char)g, (unsigned char)b, c.a};
+#define PA_N        24                       // pixels d'art par emblème
+#define PA_GLOW     2                        // rayon du halo de rareté (px d'art)
+#define PA_DIM      0.55f                    // luminosité de la version grisée
+#define PA_OUTLINE  ((Color){14, 10, 10, 255})
+
+static const Color PA_STEEL = {146, 150, 160, 255}, PA_DSTEEL = {84, 88, 100, 255};
+static const Color PA_GOLD  = {236, 188, 64, 255},  PA_RED    = {206, 54, 44, 255};
+static const Color PA_GLASS = {112, 206, 236, 255}, PA_WOOD   = {154, 106, 58, 255};
+static const Color PA_WHITE = {244, 240, 232, 255}, PA_DARK  = {20, 16, 16, 255};
+static const Color PA_GREEN = {96, 196, 92, 255},   PA_ELEC   = {126, 206, 255, 255};
+
+static Texture2D g_point, g_smooth;
+static int       g_ok;
+
+static void ellipse(PxCanvas *c, float cx, float cy, float rx, float ry, Color base, float b) {
+    Color r[TB_RAMP];
+    tb_make_ramp(base, r);
+    for (int y = (int)(cy - ry - 1); y <= (int)(cy + ry + 1); y++)
+        for (int x = (int)(cx - rx - 1); x <= (int)(cx + rx + 1); x++) {
+            float dx = (x + 0.5f - cx) / rx, dy = (y + 0.5f - cy) / ry;
+            if (dx * dx + dy * dy > 1.0f) continue;
+            pp_px(c, x, y, tb_ramp(r, b - (dx + dy) * 0.22f, c->ox + x, y));
+        }
+}
+#define POLY(base, b, ...) do { const Vector2 _p[] = {__VA_ARGS__}; \
+    pp_poly(c, _p, (int)(sizeof(_p) / sizeof(_p[0])), base, b); } while (0)
+#define V(x, y) (Vector2){(float)(x), (float)(y)}
+
+static void coin(PxCanvas *c, float cx, float cy, float rad) {
+    pp_disc(c, cx, cy, rad, PA_GOLD, 0.62f);
+    for (int a = 0; a < 24; a++) {                       // tranche gravée
+        float t = a * 0.2618f;
+        pp_px(c, (int)(cx + cosf(t) * (rad - 1.5f)), (int)(cy + sinf(t) * (rad - 1.5f)), tb_scale(PA_GOLD, 0.62f));
+    }
 }
 
-// Étincelle 4 branches (deux losanges allongés) — accents d'épiques.
-static void pa_sparkle(int cx, int cy, float rad, Color c) {
-    DrawTriangle((Vector2){cx, cy - rad}, (Vector2){cx - rad*0.32f, cy},
-                 (Vector2){cx, cy + rad}, c);
-    DrawTriangle((Vector2){cx, cy + rad}, (Vector2){cx + rad*0.32f, cy},
-                 (Vector2){cx, cy - rad}, c);
-    DrawTriangle((Vector2){cx - rad, cy}, (Vector2){cx, cy - rad*0.32f},
-                 (Vector2){cx + rad, cy}, c);
-    DrawTriangle((Vector2){cx + rad, cy}, (Vector2){cx, cy + rad*0.32f},
-                 (Vector2){cx - rad, cy}, c);
+/* Sac noué à oreilles (Capitaliste, Butin de guerre). */
+static void sack(PxCanvas *c, float cx, float cy, Color cloth) {
+    pp_disc(c, cx, cy + 2.5f, 6.4f, cloth, 0.58f);                       // panse
+    POLY(tb_scale(cloth, 0.85f), 0.55f, V(cx - 3, cy - 5), V(cx + 3, cy - 5), V(cx + 2, cy - 2), V(cx - 2, cy - 2));
+    POLY(cloth, 0.66f, V(cx - 6, cy - 8), V(cx - 1, cy - 5), V(cx - 3, cy - 3));    // oreilles
+    POLY(cloth, 0.48f, V(cx + 6, cy - 8), V(cx + 3, cy - 3), V(cx + 1, cy - 5));
+    pp_line(c, (int)cx - 3, (int)cy - 3, (int)cx + 3, (int)cy - 3, (Color){110, 70, 34, 255});   // lien
+}
+
+// ════════════════════════════════════════════════════════════════
+// PEINTURE DES 22 EMBLÈMES
+// ════════════════════════════════════════════════════════════════
+static void paint(PxCanvas *c, int id) {
+    switch (id) {
+    case PERK_GUN:                                        // tourelle blindée à double canon
+        pp_box(c, 3, 17, 15, 4, PA_DSTEEL, 0.5f);
+        pp_px(c, 5, 18, PA_WHITE); pp_px(c, 15, 18, PA_WHITE);
+        pp_disc(c, 10.0f, 11.0f, 4.6f, (Color){200, 64, 46, 255}, 0.62f);           // dôme
+        pp_box(c, 5, 11, 10, 6, (Color){178, 54, 40, 255}, 0.55f);                   // tête
+        pp_box(c, 14, 9, 8, 2, PA_STEEL, 0.62f); pp_box(c, 14, 14, 8, 2, PA_STEEL, 0.5f);
+        pp_box(c, 7, 13, 5, 1, PA_DARK, 0.2f);                                         // fente
+        pp_sparkle(c, 22, 10, 1, (Color){255, 170, 60, 255});                         // éclat de tir
+        pp_sparkle(c, 22, 15, 1, (Color){255, 170, 60, 255});
+        break;
+    case PERK_SNIPER:                                     // lunette de précision
+        POLY(PA_DSTEEL, 0.55f, V(4, 15), V(16, 6), V(19, 9), V(7, 18));
+        pp_line(c, 9, 12, 11, 15, tb_scale(PA_DSTEEL, 0.6f));
+        pp_disc(c, 18.0f, 7.0f, 3.2f, PA_GLASS, 0.66f);
+        pp_px(c, 17, 6, PA_WHITE);
+        pp_px(c, 18, 7, (Color){230, 60, 50, 255}); pp_px(c, 19, 7, (Color){230, 60, 50, 140});
+        pp_disc(c, 5.0f, 16.5f, 2.2f, PA_STEEL, 0.5f);
+        break;
+    case PERK_FLAME:                                      // flamme à cœur blanc
+        POLY(((Color){214, 64, 30, 255}), 0.55f, V(12, 3), V(16, 9), V(18, 14), V(16, 19),
+             V(12, 21), V(8, 19), V(6, 14), V(9, 9));
+        POLY(((Color){250, 150, 40, 255}), 0.6f, V(12, 8), V(15, 13), V(15, 17), V(12, 19), V(9, 17), V(9, 13));
+        pp_disc(c, 12.0f, 16.5f, 2.2f, (Color){255, 238, 170, 255}, 0.8f);
+        pp_px(c, 15, 5, (Color){250, 120, 40, 255}); pp_px(c, 8, 7, (Color){250, 120, 40, 255});
+        break;
+    case PERK_TESLA:                                      // éclair
+        POLY(PA_ELEC, 0.6f, V(15, 3), V(7, 13), V(11, 13), V(8, 21), V(18, 10), V(13, 10), V(17, 3));
+        pp_line(c, 14, 5, 10, 12, PA_WHITE); pp_line(c, 13, 12, 10, 18, PA_WHITE);
+        break;
+    case PERK_PUISSANCE:                                  // surcharge : flèche incandescente
+        POLY(((Color){240, 136, 40, 255}), 0.6f, V(12, 3), V(20, 11), V(15, 11), V(15, 20),
+             V(9, 20), V(9, 11), V(4, 11));
+        pp_line(c, 12, 6, 12, 18, (Color){255, 228, 150, 255});
+        break;
+    case PERK_PORTEE: {                                   // tourelle + flèche (cercles : paint_fx)
+        pp_disc(c, 8.0f, 15.0f, 2.6f, PA_STEEL, 0.6f);
+        pp_line(c, 9, 13, 18, 5, (Color){240, 140, 40, 255}); pp_line(c, 10, 14, 19, 6, (Color){200, 100, 30, 255});
+        POLY(((Color){240, 140, 40, 255}), 0.65f, V(15, 2), V(21, 2), V(21, 8));
+    } break;
+    case PERK_CADENCE:                                    // engrenage
+        for (int k = 0; k < 8; k++) {
+            float a = k * 0.785f;
+            pp_box(c, 11 + (int)roundf(cosf(a) * 7.5f) - 1, 11 + (int)roundf(sinf(a) * 7.5f) - 1, 3, 3, PA_STEEL, 0.55f);
+        }
+        pp_disc(c, 12.0f, 12.0f, 6.4f, PA_STEEL, 0.6f);
+        pp_disc(c, 12.0f, 12.0f, 2.8f, PA_DSTEEL, 0.45f);
+        pp_disc(c, 12.0f, 12.0f, 1.1f, PA_DARK, 0.3f);
+        break;
+    case PERK_GLASS:                                      // canon de verre : gemme fêlée
+        POLY(PA_GLASS, 0.62f, V(12, 3), V(19, 10), V(12, 21), V(5, 10));
+        pp_line(c, 5, 10, 19, 10, tb_scale(PA_GLASS, 1.25f));
+        pp_line(c, 12, 3, 9, 10, tb_scale(PA_GLASS, 1.2f)); pp_line(c, 12, 3, 15, 10, tb_scale(PA_GLASS, 0.8f));
+        pp_line(c, 13, 6, 11, 12, PA_WHITE); pp_line(c, 11, 12, 13, 18, PA_WHITE);
+        POLY(PA_GLASS, 0.7f, V(19, 15), V(21, 14), V(20, 18));
+        break;
+    case PERK_BUTIN: {                                    // pièce frappée d'un crâne
+        coin(c, 12.0f, 12.0f, 8.0f);
+        Color bone = {72, 50, 14, 255};
+        pp_box(c, 10, 8, 5, 4, (Color){252, 230, 150, 255}, 0.7f);
+        pp_px(c, 11, 9, bone); pp_px(c, 13, 9, bone);
+        pp_line(c, 10, 13, 14, 13, (Color){252, 230, 150, 255});
+        pp_px(c, 11, 13, bone); pp_px(c, 13, 13, bone);
+        pp_line(c, 8, 15, 16, 17, tb_scale(PA_GOLD, 0.55f)); pp_line(c, 16, 15, 8, 17, tb_scale(PA_GOLD, 0.55f));
+    } break;
+    case PERK_SUBV:                                       // pile de pièces
+        for (int k = 0; k < 3; k++) {
+            int y = 16 - k * 4;
+            pp_box(c, 6 + (k & 1), y, 12, 3, tb_scale(PA_GOLD, 0.8f), 0.5f);
+            ellipse(c, 12.0f + (k & 1), (float)y, 6.0f, 1.8f, PA_GOLD, 0.68f);
+        }
+        pp_px(c, 12, 8, (Color){255, 250, 200, 255});
+        break;
+    case PERK_REVENTE:                                    // recyclage : flèches + pièce
+        for (int a = 0; a < 40; a++) {
+            float t = a * 0.157f;
+            if ((t > 1.2f && t < 1.9f) || (t > 4.3f && t < 5.0f)) continue;   // coupures
+            for (float rr = 6.4f; rr <= 8.2f; rr += 0.9f)
+                pp_px(c, 12 + (int)roundf(cosf(t) * rr), 12 + (int)roundf(sinf(t) * rr), tb_scale(PA_GREEN, 0.7f + 0.15f * (rr - 6.4f)));
+        }
+        POLY(PA_GREEN, 0.7f, V(8, 2), V(13, 5), V(8, 8));
+        POLY(PA_GREEN, 0.5f, V(16, 22), V(11, 19), V(16, 16));
+        coin(c, 12.0f, 12.0f, 3.4f);
+        break;
+    case PERK_CAPITAL:                                    // sac d'or + flèche montante
+        sack(c, 10.5f, 12.0f, (Color){182, 140, 86, 255});
+        pp_line(c, 10, 11, 10, 19, PA_GOLD);                                           // « $ »
+        pp_line(c, 8, 12, 12, 12, PA_GOLD); pp_line(c, 8, 15, 12, 15, PA_GOLD); pp_line(c, 8, 18, 12, 18, PA_GOLD);
+        pp_px(c, 8, 13, PA_GOLD); pp_px(c, 12, 17, PA_GOLD); pp_px(c, 8, 14, PA_GOLD); pp_px(c, 12, 16, PA_GOLD);
+        POLY(PA_GREEN, 0.65f, V(18, 2), V(22, 7), V(20, 7), V(20, 12), V(16, 12), V(16, 7), V(14, 7));
+        break;
+    case PERK_BLINDAGE:                                   // bouclier riveté
+        POLY(PA_STEEL, 0.62f, V(4, 4), V(20, 4), V(20, 12), V(12, 21), V(4, 12));
+        pp_box(c, 11, 5, 2, 13, (Color){190, 60, 50, 255}, 0.5f);
+        pp_line(c, 5, 5, 19, 5, PA_WHITE);
+        pp_px(c, 6, 7, PA_WHITE); pp_px(c, 17, 7, PA_WHITE); pp_px(c, 6, 11, PA_WHITE); pp_px(c, 17, 11, PA_WHITE);
+        break;
+    case PERK_FUSIL:                                      // armement lourd
+        POLY(PA_WOOD, 0.55f, V(3, 17), V(8, 13), V(10, 16), V(5, 21));
+        POLY(PA_STEEL, 0.6f, V(8, 13), V(20, 5), V(21, 7), V(10, 16));
+        POLY(PA_DSTEEL, 0.45f, V(11, 14), V(14, 12), V(16, 16), V(13, 18));
+        pp_box(c, 13, 8, 4, 2, PA_DSTEEL, 0.5f);
+        pp_px(c, 21, 5, (Color){255, 200, 90, 255});
+        break;
+    case PERK_MEDIC:                                      // trousse de soin
+        pp_box(c, 9, 5, 6, 3, PA_DSTEEL, 0.5f); pp_box(c, 11, 6, 2, 2, PA_DARK, 0.2f);
+        pp_box(c, 4, 8, 16, 12, PA_WHITE, 0.55f);
+        pp_box(c, 11, 10, 2, 8, PA_RED, 0.6f); pp_box(c, 8, 13, 8, 2, PA_RED, 0.6f);
+        pp_px(c, 5, 9, (Color){255, 255, 255, 255});
+        break;
+    case PERK_GARNISON:                                   // cœur (vies)
+        pp_disc(c, 8.5f, 9.5f, 4.4f, PA_RED, 0.62f); pp_disc(c, 15.5f, 9.5f, 4.4f, PA_RED, 0.52f);
+        POLY(PA_RED, 0.5f, V(4, 11), V(20, 11), V(12, 20));
+        pp_px(c, 7, 7, PA_WHITE); pp_px(c, 8, 7, (Color){255, 190, 180, 255});
+        break;
+    case PERK_ARSENAL:                                    // étoile-tourelle
+        POLY(PA_GOLD, 0.62f, V(12, 2), V(14, 9), V(21, 9), V(15, 13), V(18, 21), V(12, 16),
+             V(6, 21), V(9, 13), V(3, 9), V(10, 9));
+        pp_disc(c, 12.0f, 12.0f, 3.0f, (Color){196, 62, 46, 255}, 0.6f);
+        pp_box(c, 13, 11, 5, 2, PA_STEEL, 0.6f);
+        break;
+    case PERK_FORTUNE:                                    // grosse pièce sertie
+        coin(c, 12.0f, 12.0f, 9.0f);
+        POLY(((Color){255, 226, 120, 255}), 0.7f, V(12, 6), V(14, 11), V(18, 11), V(15, 14),
+             V(16, 18), V(12, 15), V(8, 18), V(9, 14), V(6, 11), V(10, 11));
+        pp_px(c, 6, 6, (Color){230, 60, 70, 255}); pp_px(c, 18, 18, (Color){80, 140, 240, 255});
+        break;
+    case PERK_LEGION:                                     // épées croisées
+        for (int s = -1; s <= 1; s += 2) {
+            int x0 = s < 0 ? 5 : 19, x1 = s < 0 ? 18 : 6;
+            pp_line(c, x0, 4, x1, 17, PA_WHITE); pp_line(c, x0 + (s < 0 ? 1 : -1), 4, x1 + (s < 0 ? 1 : -1), 17, PA_STEEL);
+            pp_box(c, (s < 0 ? 16 : 5), 16, 4, 2, PA_GOLD, 0.6f);
+            pp_disc(c, (s < 0 ? 19.5f : 4.5f), 20.0f, 1.5f, PA_GOLD, 0.6f);
+        }
+        break;
+    case PERK_K_FORTRESS:                                 // tour crénelée + bannière
+        pp_box(c, 7, 8, 10, 13, (Color){156, 146, 128, 255}, 0.56f);
+        pp_box(c, 6, 6, 3, 3, (Color){156, 146, 128, 255}, 0.6f);
+        pp_box(c, 11, 6, 3, 3, (Color){156, 146, 128, 255}, 0.6f);
+        pp_box(c, 15, 6, 3, 3, (Color){156, 146, 128, 255}, 0.6f);
+        pp_box(c, 10, 15, 4, 6, PA_DARK, 0.2f); pp_box(c, 11, 10, 2, 3, PA_DARK, 0.2f);
+        pp_line(c, 12, 1, 12, 6, PA_DSTEEL);
+        POLY(PA_RED, 0.6f, V(13, 1), V(18, 2), V(13, 4));
+        break;
+    case PERK_K_SPOILS:                                   // sac de butin qui déborde
+        sack(c, 10.0f, 12.0f, (Color){172, 140, 96, 255});
+        coin(c, 17.5f, 18.0f, 2.6f); coin(c, 19.5f, 14.0f, 2.2f); coin(c, 15.0f, 21.0f, 1.8f);
+        break;
+    case PERK_K_GEOMANCER:                                // bloc fendu de lave + cristal
+        pp_box(c, 4, 12, 16, 9, (Color){118, 90, 62, 255}, 0.55f);
+        pp_line(c, 4, 12, 19, 12, (Color){96, 150, 70, 255});
+        pp_line(c, 6, 14, 10, 18, (Color){255, 150, 50, 255}); pp_line(c, 10, 18, 14, 14, (Color){255, 190, 80, 255});
+        pp_line(c, 14, 14, 17, 19, (Color){255, 120, 40, 255});
+        POLY(((Color){120, 232, 150, 255}), 0.65f, V(12, 2), V(16, 7), V(13, 12), V(9, 8));
+        break;
+    default:
+        pp_disc(c, 12.0f, 12.0f, 6.0f, PA_STEEL, 0.5f);
+        break;
+    }
+}
+
+/* Effets peints APRÈS contour et halo (lumières, ondes) : sans contour, ils
+   restent fins et lumineux au lieu de devenir des pâtés cernés. */
+static void paint_fx(PxCanvas *c, int id) {
+    if (id == PERK_TESLA) {                               // étincelles électriques
+        pp_sparkle(c, 5, 8, 1, PA_ELEC); pp_sparkle(c, 19, 16, 1, PA_ELEC);
+        pp_px(c, 6, 19, PA_WHITE);
+    } else if (id == PERK_FLAME) {                        // braises qui s'envolent
+        pp_px(c, 16, 3, (Color){255, 170, 60, 230}); pp_px(c, 8, 5, (Color){255, 120, 40, 200});
+        pp_px(c, 17, 7, (Color){255, 220, 120, 180});
+    } else if (id == PERK_PUISSANCE) {                    // éclats d'énergie
+        pp_sparkle(c, 5, 17, 1, (Color){255, 200, 90, 255}); pp_sparkle(c, 19, 18, 1, (Color){255, 200, 90, 255});
+    } else if (id == PERK_PORTEE) {                       // cercles de portée
+        for (int k = 1; k <= 3; k++)
+            for (int a = 0; a < 40; a++) {
+                float t = -2.4f + a * 0.085f, rr = 3.3f * k + 1.0f;
+                pp_px(c, 8 + (int)roundf(cosf(t) * rr), 15 + (int)roundf(sinf(t) * rr),
+                      (Color){120, 232, 224, (unsigned char)(250 - k * 55)});
+            }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+// ATLAS
+// ════════════════════════════════════════════════════════════════
+static void bake(void) {
+    Image im = GenImageColor(PA_N * PERK_COUNT, PA_N * 2, BLANK);
+    for (int id = 0; id < PERK_COUNT; id++) {
+        PxCanvas c = {&im, id * PA_N, 0, PA_N, PA_N, 0xA27u + (unsigned)id * 97u};
+        paint(&c, id);
+        pp_outline(&c, PA_OUTLINE);
+        RunColor rc = runperk_rarity_color(RUN_PERKS[id].rarity);
+        pp_glow(&c, (Color){rc.r, rc.g, rc.b, 255}, PA_GLOW);
+        paint_fx(&c, id);
+        if (RUN_PERKS[id].rarity >= RAR_EPIC) {           // éclat des objets précieux
+            pp_sparkle(&c, 19, 4, 2, (Color){rc.r, rc.g, rc.b, 255});
+            pp_sparkle(&c, 4, 19, 1, (Color){rc.r, rc.g, rc.b, 255});
+        }
+        if (RUN_PERKS[id].rarity == RAR_KEYSTONE) {       // signature : pierre d'angle dorée
+            for (int y = 1; y <= 3; y++)
+                for (int x = 9 - (3 - y); x <= 14 + (3 - y); x++)
+                    pp_px(&c, x, y, (y == 1 || x == 9 - (3 - y) || x == 14 + (3 - y)) ? PA_OUTLINE
+                                                                                   : tb_scale(PA_GOLD, 1.0f + 0.1f * (3 - y)));
+        }
+        for (int y = 0; y < PA_N; y++)                     // rangée grisée (achat impossible)
+            for (int x = 0; x < PA_N; x++) {
+                Color p = tb_get(&im, id * PA_N + x, y);
+                unsigned char g = (unsigned char)((p.r * 0.30f + p.g * 0.59f + p.b * 0.11f) * PA_DIM);
+                tb_put(&im, id * PA_N + x, PA_N + y, (Color){g, g, g, p.a});
+            }
+    }
+    g_point  = LoadTextureFromImage(im);
+    g_smooth = LoadTextureFromImage(im);
+    SetTextureFilter(g_point, TEXTURE_FILTER_POINT);
+    SetTextureFilter(g_smooth, TEXTURE_FILTER_BILINEAR);
+    UnloadImage(im);
+    g_ok = 1;
 }
 
 void perk_art_draw(int perk_id, int cx, int cy, int r, Color col) {
-    Color sh  = pa_shade(col, 0.50f);
-    Color lt  = pa_shade(col, 1.55f);
-    Color wht = (Color){255, 255, 255, 230};
-    Color gold= (Color){236, 198,  82, 255};
-    float u   = (float)r / 8.0f;          // 1 cellule = r/8 px
+    if (perk_id < 0 || perk_id >= PERK_COUNT || r <= 0) return;
+    if (!g_ok) bake();
+    /* Gris pur (hors blanc) = carte désactivée (boutique : achat impossible). */
+    int disabled = (col.r == col.g && col.g == col.b && col.r < 255);
+    float size = 2.0f * (float)r;
+    Texture2D tex = g_smooth;
+    if (size >= 2.0f * PA_N) { size = floorf(size / PA_N) * PA_N; tex = g_point; }   // net, pixels entiers
+    else if (size >= PA_N * 0.85f) tex = g_point;                                     // ~1:1
+    Rectangle src = {(float)(perk_id * PA_N), (float)(disabled * PA_N), (float)PA_N, (float)PA_N};
+    Rectangle dst = {cx - size * 0.5f, cy - size * 0.5f, size, size};
+    DrawTexturePro(tex, src, dst, (Vector2){0, 0}, 0.0f, (Color){255, 255, 255, col.a});
+}
 
-    #define X(k)  (cx + (int)((k) * u))
-    #define Y(k)  (cy + (int)((k) * u))
-    #define S(k)  ((int)((k) * u + 0.5f))
-    #define RECT(x,y,w,h,c) DrawRectangle(X(x), Y(y), S(w), S(h), (c))
-    #define VEC(x,y) (Vector2){(float)X(x), (float)Y(y)}
-
-    switch (perk_id) {
-
-    // ── TOURS : dégâts par type ──────────────────────────────────
-    case PERK_GUN:        // tourelle à double canon
-        RECT(-6, 2, 12, 4, sh);                 // socle
-        RECT(-4,-3,  8, 6, col);                // tourelle
-        RECT(-4,-3,  8, 2, lt);                 // arête éclairée
-        RECT( 2,-2,  6, 2, sh);                 // canon haut
-        RECT( 2, 1,  6, 2, sh);                 // canon bas
-        DrawCircle(X(8), Y(-1), S(1.4f), (Color){255, 224, 120, 220});
-        DrawCircle(X(8), Y( 2), S(1.4f), (Color){255, 224, 120, 220});
-        break;
-
-    case PERK_SNIPER:     // lunette de visée
-        DrawCircle(cx, cy, S(7.2f), sh);
-        DrawCircle(cx, cy, S(6.0f), col);
-        DrawCircle(cx, cy, S(4.2f), (Color){12, 10, 8, 255});
-        DrawLine(X(-8), cy, X(8), cy, lt);
-        DrawLine(cx, Y(-8), cx, Y(8), lt);
-        DrawCircle(cx, cy, S(1.2f), (Color){255, 90, 70, 255});
-        break;
-
-    case PERK_FLAME: {    // flamme
-        Color fl = (Color){246, 150, 40, 255};
-        DrawCircle(X(0), Y(3), S(4.2f), pa_shade(col, 0.9f));
-        DrawTriangle(VEC(-4,3), VEC(4,3), VEC(0,-8), pa_shade(col, 0.9f));
-        DrawCircle(X(0), Y(4), S(2.4f), fl);
-        DrawTriangle(VEC(-2.3f,4), VEC(2.3f,4), VEC(0,-3), fl);
-        DrawCircle(X(0), Y(4), S(1.1f), (Color){255, 232, 150, 255});
-        break;
-    }
-
-    case PERK_TESLA: {    // éclair
-        Color spark = (Color){150, 210, 255, 255};
-        DrawLineEx(VEC(2,-8), VEC(-2,0), 2.4f*u, col);
-        DrawLineEx(VEC(-2,0), VEC(2,0),  2.4f*u, col);
-        DrawLineEx(VEC(2,0),  VEC(-2,8), 2.4f*u, col);
-        DrawLineEx(VEC(2,-8), VEC(-2,0), 1.0f*u, spark);
-        DrawLineEx(VEC(2,0),  VEC(-2,8), 1.0f*u, spark);
-        DrawCircle(X(4), Y(-4), S(0.9f), spark);
-        DrawCircle(X(-4),Y(5),  S(0.9f), spark);
-        break;
-    }
-
-    // ── TOURS : globaux ──────────────────────────────────────────
-    case PERK_PUISSANCE:  // surcharge : grosse flèche montante + base
-        DrawTriangle(VEC(-6,-1), VEC(6,-1), VEC(0,-8), col);
-        RECT(-2,-1, 4, 8, col);
-        RECT(-2,-1, 4, 2, lt);
-        RECT(-5, 7, 10, 2, sh);
-        break;
-
-    case PERK_PORTEE:     // portée : anneaux + flèche vers l'extérieur
-        DrawCircleLines(X(-3), cy, S(3.0f), sh);
-        DrawCircleLines(X(-3), cy, S(5.4f), col);
-        DrawLineEx(VEC(-3,0), VEC(6,0), 1.8f*u, col);
-        DrawTriangle(VEC(5,-3), VEC(5,3), VEC(9,0), lt);
-        break;
-
-    case PERK_CADENCE: {  // servomoteurs : engrenage
-        for (int i = 0; i < 8; i++) {
-            float a = (float)i * (PI / 4.0f);
-            Vector2 c = {cx + cosf(a) * 5.2f * u, cy + sinf(a) * 5.2f * u};
-            DrawRectanglePro((Rectangle){c.x, c.y, 2.6f*u, 2.6f*u},
-                             (Vector2){1.3f*u, 1.3f*u}, a * RAD2DEG, col);
-        }
-        DrawCircle(cx, cy, S(4.4f), col);
-        DrawCircle(cx, cy, S(3.4f), lt);
-        DrawCircle(cx, cy, S(1.8f), (Color){14, 11, 8, 255});
-        break;
-    }
-
-    case PERK_GLASS:      // canon de verre : gemme fendue
-        DrawPoly((Vector2){cx, cy}, 4, r * 0.9f, 45.0f, sh);
-        DrawPoly((Vector2){cx, cy}, 4, r * 0.72f, 45.0f, col);
-        DrawPoly((Vector2){(float)cx, (float)Y(-2)}, 3, r * 0.42f, 0.0f, lt);
-        DrawLine(X(0), Y(-7), X(1), Y(0), wht);
-        DrawLine(X(1), Y(0),  X(-1), Y(7), wht);
-        DrawPolyLines((Vector2){cx, cy}, 4, r * 0.9f, 45.0f, lt);
-        break;
-
-    // ── ÉCONOMIE ─────────────────────────────────────────────────
-    case PERK_BUTIN:      // pillage : pièce + réticule
-        DrawCircle(cx, cy, S(5.4f), gold);
-        DrawCircle(cx, cy, S(4.0f), pa_shade(gold, 0.7f));
-        DrawCircleLines(cx, cy, S(5.4f), pa_shade(gold, 1.3f));
-        DrawLine(X(-7), cy, X(7), cy, (Color){30, 22, 8, 200});
-        DrawLine(cx, Y(-7), cx, Y(7), (Color){30, 22, 8, 200});
-        DrawCircle(cx, cy, S(1.0f), (Color){255, 80, 60, 255});
-        break;
-
-    case PERK_SUBV:       // subvention : pile de pièces
-        DrawEllipse(cx, Y(4),  S(4.4f), S(1.8f), pa_shade(gold, 0.7f));
-        DrawEllipse(cx, Y(1),  S(4.4f), S(1.8f), gold);
-        DrawEllipse(cx, Y(-2), S(4.4f), S(1.8f), pa_shade(gold, 1.2f));
-        DrawEllipseLines(cx, Y(-2), S(4.4f), S(1.8f), pa_shade(gold, 0.6f));
-        break;
-
-    case PERK_REVENTE:    // recyclage : flèches circulaires + pièce
-        DrawRing((Vector2){cx, cy}, 4.4f*u, 6.2f*u, -30.0f, 130.0f, 18, col);
-        DrawRing((Vector2){cx, cy}, 4.4f*u, 6.2f*u, 150.0f, 310.0f, 18, col);
-        DrawTriangle(VEC(6.2f,-2), VEC(6.2f,2.4f), VEC(8.6f,0.2f), lt);
-        DrawTriangle(VEC(-6.2f,2), VEC(-6.2f,-2.4f), VEC(-8.6f,-0.2f), lt);
-        DrawCircle(cx, cy, S(2.6f), gold);
-        break;
-
-    case PERK_CAPITAL:    // capitaliste : pièce + flèche montante
-        DrawCircle(X(-3), cy, S(4.2f), gold);
-        DrawCircle(X(-3), cy, S(2.8f), pa_shade(gold, 0.7f));
-        DrawTriangle(VEC(1,-1), VEC(7,-1), VEC(4,-7), lt);
-        RECT(3, -1, 2, 7, lt);
-        break;
-
-    // ── UNITÉS ───────────────────────────────────────────────────
-    case PERK_BLINDAGE:   // blindage : bouclier riveté
-        RECT(-5, -6, 10, 7, col);
-        DrawTriangle(VEC(-5,1), VEC(5,1), VEC(0,7), col);
-        RECT(-5, -6, 10, 2, lt);
-        DrawCircle(cx, Y(-2), S(1.4f), lt);
-        DrawCircle(cx, Y(-2), S(0.6f), sh);
-        break;
-
-    case PERK_FUSIL:      // armement lourd : fusil
-        RECT(-7, -1, 13, 2.4f, col);            // canon
-        RECT(-7, -1.6f, 3, 5, sh);              // crosse
-        RECT(-1, 1.4f, 2, 3.4f, sh);            // chargeur
-        RECT(3, -2.4f, 1.6f, 1.6f, lt);         // guidon
-        break;
-
-    case PERK_MEDIC:      // trousse de soin
-        DrawRectangleRounded((Rectangle){X(-6), Y(-5), S(12), S(10)}, 0.3f, 5, col);
-        DrawRectangleRoundedLinesEx((Rectangle){X(-6), Y(-5), S(12), S(10)},
-                                    0.3f, 5, 1.5f, lt);
-        RECT(-1, -3, 2, 6, wht);
-        RECT(-3, -1, 6, 2, wht);
-        break;
-
-    // ── SURVIE ───────────────────────────────────────────────────
-    case PERK_GARNISON: {  // garnison : cœur (vies)
-        Color hb = (Color){226, 76, 72, 255};
-        DrawCircle(X(-2.4f), Y(-2), S(2.7f), hb);
-        DrawCircle(X(2.4f),  Y(-2), S(2.7f), hb);
-        DrawTriangle(VEC(-5,-1), VEC(5,-1), VEC(0,6.5f), hb);
-        DrawCircle(X(-2.4f), Y(-3), S(1.0f), (Color){255, 170, 165, 255});
-        break;
-    }
-
-    // ── ÉPIQUES ──────────────────────────────────────────────────
-    case PERK_ARSENAL: {   // arsenal : tourelle dans une étoile
-        for (int i = 0; i < 8; i++) {
-            float a = (float)i * (PI / 4.0f);
-            DrawLineEx((Vector2){cx, cy},
-                       (Vector2){cx + cosf(a)*7.4f*u, cy + sinf(a)*7.4f*u},
-                       1.2f*u, pa_shade(col, 1.2f));
-        }
-        DrawCircle(cx, cy, S(4.6f), sh);
-        RECT(-3, 1, 6, 3, col);                 // socle
-        RECT(-2,-2, 4, 4, col);                 // tourelle
-        RECT(1,-1, 4, 1.6f, lt);                // canon
-        pa_sparkle(X(5), Y(-5), 2.4f*u, wht);
-        break;
-    }
-
-    case PERK_FORTUNE:     // fortune : grosse pièce étoilée
-        DrawCircle(cx, cy, S(6.2f), gold);
-        DrawCircle(cx, cy, S(4.6f), pa_shade(gold, 0.72f));
-        DrawCircleLines(cx, cy, S(6.2f), pa_shade(gold, 1.3f));
-        RECT(-1, -3, 2, 6, pa_shade(gold, 0.5f));
-        pa_sparkle(X(4), Y(-4), 2.6f*u, wht);
-        pa_sparkle(X(-5), Y(3), 1.6f*u, wht);
-        break;
-
-    case PERK_LEGION: {    // légion : épées croisées
-        DrawLineEx(VEC(-6,6), VEC(6,-6), 2.0f*u, pa_shade(col, 1.4f));
-        DrawLineEx(VEC(6,6),  VEC(-6,-6),2.0f*u, pa_shade(col, 1.4f));
-        DrawLineEx(VEC(-6,6), VEC(6,-6), 0.7f*u, wht);
-        DrawLineEx(VEC(6,6),  VEC(-6,-6),0.7f*u, wht);
-        RECT(-4, 4, 8, 1.6f, sh);               // gardes (bas)
-        DrawCircle(X(-5), Y(6), S(1.2f), gold); // pommeaux
-        DrawCircle(X(5),  Y(6), S(1.2f), gold);
-        break;
-    }
-
-    default:               // repli : pastille générique
-        DrawCircle(cx, cy, S(5.0f), col);
-        DrawCircle(cx, cy, S(3.0f), sh);
-        break;
-    }
-
-    #undef X
-    #undef Y
-    #undef S
-    #undef RECT
-    #undef VEC
+void perk_art_unload(void) {
+    if (!g_ok) return;
+    UnloadTexture(g_point);
+    UnloadTexture(g_smooth);
+    g_ok = 0;
 }

@@ -44,6 +44,12 @@ typedef enum {
     PERK_ARSENAL,     // Arsenal complet : dégâts + portée + cadence
     PERK_FORTUNE,     // Fortune de guerre : or/kill + or/acte
     PERK_LEGION,      // Légion : PV + dégâts unités
+    // Clés de voûte : CHANGENT une règle, avec un revers. Boutique seulement,
+    // UNE par run. Toujours ajoutées EN FIN d'énumération : la lecture du
+    // build (save.c) migre un ancien count[] plus court sans rien perdre.
+    PERK_K_FORTRESS,  // Forteresse : tours bien plus fortes, 3 tours de moins
+    PERK_K_SPOILS,    // Butin de guerre : moitié d'or en début d'acte, +or/kill
+    PERK_K_GEOMANCER, // Géomancien : terrain piégé ×3, unités immunisées
     PERK_COUNT
 } PerkId;
 
@@ -51,6 +57,7 @@ typedef enum {
     RAR_COMMON = 0,
     RAR_RARE,
     RAR_EPIC,
+    RAR_KEYSTONE,     // clé de voûte (cf. ci-dessus)
 } PerkRarity;
 
 typedef struct {
@@ -91,6 +98,12 @@ typedef struct {
     int   gold_per_kill;                 // + or par ennemi tué
     int   act_gold;                      // + or au début de chaque acte
     int   act_lives;                     // + vies au début de chaque acte
+    // Clés de voûte
+    int   tower_slots;                   // + tours déployables (négatif = moins)
+    float act_gold_mult;                 // × or de début d'acte (avant les bonus)
+    float enemy_hp;                      // × PV des ennemis à l'apparition
+    float hazard_mult;                   // × dégâts des hasards de terrain
+    int   hazard_units_immune;           // 1 = vos unités ignorent le terrain
 } RunMods;
 
 // Modificateurs actifs courants (lus par tower.c / unit.c / enemy.c).
@@ -113,9 +126,12 @@ int  runbuild_roll_offers(const RunBuild *rb, int *out, int n,
 // acheté est remplacé. Retourne le nouvel id, ou -1 si rien (slot inchangé).
 int  runbuild_reroll_slot(const RunBuild *rb, int *offers, int n, int slot);
 
-// Couleur d'affichage d'une rareté.
+// Couleur et libellé d'affichage d'une rareté (sources uniques).
 typedef struct { unsigned char r, g, b, a; } RunColor;
-RunColor runperk_rarity_color(PerkRarity rar);
+RunColor    runperk_rarity_color(PerkRarity rar);
+const char *runperk_rarity_name (PerkRarity rar);   // « ÉPIQUE », « CLÉ DE VOÛTE »…
+// 1 si le build possède déjà une clé de voûte (une seule par run).
+int         runbuild_has_keystone(const RunBuild *rb);
 
 // Catégorie d'un perk (pour glyphe d'affichage) :
 //   0 = tour, 1 = économie, 2 = unité, 3 = survie.

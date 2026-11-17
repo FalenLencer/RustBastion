@@ -50,8 +50,16 @@
 #define C_DARK    ((Color){  9,   5,   2, 255})
 #define C_ORANGE  ((Color){215, 118,  28, 255})
 
-// Couleur d'identité de chaque chapitre (source unique, défini dans menu.c).
-extern const Color CHAPTER_COLORS[CAMPAIGN_CHAPTERS];
+// Couleur d'identité et nom de chaque chapitre (sources uniques, menu.c).
+extern const Color       CHAPTER_COLORS[CAMPAIGN_CHAPTERS];
+extern const char *const CHAPTER_NAMES[CAMPAIGN_CHAPTERS];
+
+// Panneau « acte sélectionné » de la carte du monde (menu_campaign_info.c) :
+// bandeau vignette + fiche de route ; hauteur totale = VIG_H + TXT_H.
+#define WM_INFO_VIG_H  112   // bandeau illustré (px)
+#define WM_INFO_TXT_H  112   // fiche texte sous la vignette (px)
+void wm_draw_act_info(const MenuState *m, const MetaProgress *meta,
+                      int x, int y, int w, float t);
 
 // ── Constantes de layout ─────────────────────────────────────────
 #define M_PAD     16    // marge extérieure des panneaux
@@ -112,6 +120,9 @@ MenuAction draw_new_arcade    (MenuState *m, int vw, int vh);
 MenuAction draw_confirm_del   (MenuState *m, int vw, int vh);
 MenuAction draw_pause         (MenuState *m, int vw, int vh);
 MenuAction draw_world_map     (MenuState *m, const MetaProgress *meta, int vw, int vh);
+MenuAction draw_journal       (MenuState *m, const MetaProgress *meta, int vw, int vh);
+// Ouvre le journal sur `act` (ou le 1er acte terminé s'il n'est pas lisible).
+void       journal_open       (MenuState *m, const MetaProgress *meta, int act);
 MenuAction draw_options       (MenuState *m, int vw, int vh);
 MenuAction draw_upgrades      (MenuState *m, const MetaProgress *meta, int vw, int vh);
 MenuAction draw_bestiary      (MenuState *m, const MetaProgress *meta, int vw, int vh);

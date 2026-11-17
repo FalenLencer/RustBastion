@@ -88,6 +88,10 @@ int  game_all_bases_fallen(const GameState *gs);
 
 // Applique des dégâts à une base spécifique
 void game_damage_base(GameState *gs, int base_id, int dmg);
+/* Bonus/malus de vies : agit sur les PV de la base principale et
+   recalcule `lives` (= somme des PV des bases). SEULE façon légitime de
+   modifier les vies hors dégâts et réparations. */
+void game_adjust_lives(GameState *gs, int delta);
 
 void game_state_init  (GameState *gs);
 void game_state_update(GameState *gs, float dt);

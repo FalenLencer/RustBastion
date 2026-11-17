@@ -10,6 +10,7 @@
  *  Extrait TEL QUEL de app.c (comportement inchangé). Voir app_flow.h.
  */
 #include "app_flow.h"
+#include "../ui/story_scene.h"   /* scène dialoguée du bilan */
 #include "game_init.h"   // inclut menu.h pour CustomConfig
 #include "save.h"
 #include "meta.h"
@@ -22,6 +23,7 @@
 #include "../ui/hud.h"
 #include "../ui/interlude.h"
 #include "campaign_data.h"
+#include "achievements.h"     // succès de fin d'acte / de campagne
 #include "../ui/ui_utils.h"   // DrawText/MeasureText → g_font (support accents)
 #include "../map/theme.h"
 #include "../combat/fx.h"     // effets de jus (particules, secousse, pops)
@@ -89,7 +91,7 @@ void game_handle_gameover(AppContext *ctx) {
                     if (stage == 8) ctx->gs.campaign_flags |= CFLAG_LOST_GENERAL;
                     int rn = campaign_defeat_node(stage);
                     game_goto_campaign_node(&ctx->gs, rn >= 0 ? rn : stage);
-                    ui_push_notif(&ctx->gs.ui, "Repli strategique...",
+                    ui_push_notif(&ctx->gs.ui, "Repli stratégique...",
                                   (Color){239, 159, 39, 255});
                 } else {   /* DEFEAT_RETRY_WEAK */
                     /* MÊME carte : le joueur rejoue en corrigeant son placement
@@ -174,6 +176,19 @@ void game_handle_campaign_end(AppContext *ctx) {
                               ctx->gs.kills, ctx->gs.gold, stage_idx);
     int stars           = meta_record_act(&ctx->gs.meta, stage_idx, obj_ok, 0);
 
+    /* Succès de fin d'acte : bases intactes (aucune vie perdue) ; fin de
+       campagne en ayant déjoué le modèle de NEXUS. */
+    {
+        int intact = 1;
+        for (int b = 0; b < ctx->gs.map.base_count && b < MAX_BASES; b++) {
+            const BaseInfo *bi = &ctx->gs.map.bases[b];
+            if (!bi->active || bi->hp < bi->max_hp) intact = 0;
+        }
+        if (intact) ach_unlock(ACH_FLAWLESS, &ctx->gs);
+        if (last && campaign_nexus_prediction(ctx->gs.campaign_flags) <= ACH_NEXUS_LOW)
+            ach_unlock(ACH_UNPREDICTABLE, &ctx->gs);
+    }
+
     audio_play_sfx(AUDIO_SFX_VICTORY);
     ctx->interlude       = INTER_DIALOG_AFTER;
     ctx->interlude_scrap = earned;
@@ -188,10 +203,20 @@ void game_handle_dialog_after(AppContext *ctx) {
     if (ctx->interlude != INTER_DIALOG_AFTER) return;
     if (ctx->interlude != ctx->interlude_prev) return;   // ignore le frame d'entrée
 
+    /* La scène dialoguée d'abord : ESPACE/clic complète la réplique ou
+       passe à la suivante, TAB saute au bout. Aucune décision ne peut être
+       prise avant d'avoir entendu la scène. */
+    int adv = IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER) ||
+              IsKeyPressed(KEY_KP_ENTER) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+    if (IsKeyPressed(KEY_TAB)) { story_scene_skip_all(); return; }
+    if (!story_scene_done()) {
+        if (adv) story_scene_advance();
+        return;
+    }
+
     /* Fin de campagne : un simple ESPACE/clic ramène à la carte. */
     if (ctx->interlude_last) {
-        if (!IsKeyPressed(KEY_SPACE) && !IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
-            return;
+        if (!adv) return;
         if (ctx->active_slot >= 0) campaign_save_delete(ctx->active_slot);
         ctx->active_slot  = -1;
         menu_refresh_slots(&ctx->menu);
@@ -207,13 +232,15 @@ void game_handle_dialog_after(AppContext *ctx) {
     int choice = 0;
 
     if (campaign_has_choice(stage)) {
-        /* Bifurcation pilotée par le joueur : touches 1 / 2. */
+        /* Bifurcation pilotée par le joueur : touches 1 / 2 ou carte cliquée
+           (posée au rendu de la frame précédente). */
+        int pk = story_scene_take_pick();
         if      (IsKeyPressed(KEY_ONE) || IsKeyPressed(KEY_KP_1)) choice = 0;
         else if (IsKeyPressed(KEY_TWO) || IsKeyPressed(KEY_KP_2)) choice = 1;
+        else if (pk == 0 || pk == 1)                              choice = pk;
         else return;   /* on attend que le joueur tranche */
     } else {
-        if (!IsKeyPressed(KEY_SPACE) && !IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
-            return;
+        if (!adv) return;
     }
 
     /* Route vers le nœud suivant selon l'issue + le choix.
@@ -290,6 +317,7 @@ void game_handle_draft(AppContext *ctx) {
 
     if (pick >= 0) {
         runbuild_add(rb, rb->draft_offer[pick]);
+        audio_play_sfx(AUDIO_SFX_MATERIAL_APPLY);   // « power-up » : le perk est acquis
         ui_push_notif(&ctx->gs.ui, "Renfort acquis !", (Color){232, 200, 80, 255});
     }
     rb->draft_n = 0;
@@ -336,9 +364,12 @@ void game_handle_shop(AppContext *ctx) {
             if (rb->count[id] < pd->max_stack && rb->renfort >= pd->shop_cost) {
                 rb->renfort -= pd->shop_cost;
                 runbuild_add(rb, id);
+                /* Clé de voûte : même son, plus grave — elle change une règle. */
+                audio_play_sfx_pitch(AUDIO_SFX_MATERIAL_APPLY,
+                                     pd->rarity == RAR_KEYSTONE ? 0.75f : 1.0f);
                 // Rachat infini : l'article acheté est REMPLACÉ par un nouveau.
                 runbuild_reroll_slot(rb, rb->shop_offer, rb->shop_n, buy);
-                ui_push_notif(&ctx->gs.ui, "Achat effectue !", (Color){120, 210, 120, 255});
+                ui_push_notif(&ctx->gs.ui, "Achat effectué !", (Color){120, 210, 120, 255});
                 campaign_save_write(&ctx->gs, ctx->active_slot, INTER_SHOP, 0, 0, 0);
             } else {
                 ui_push_notif(&ctx->gs.ui, "Indisponible (Renfort ou max)",

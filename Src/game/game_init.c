@@ -173,8 +173,6 @@ void game_init_arcade(GameState *gs, ThemeID theme, int slot) {
 // ── DOCTRINES : planchers de sécurité de la dotation d'acte ─────
 // Cumuler les doctrines coûteuses ne doit jamais produire un acte
 // impossible à démarrer (or à zéro, base déjà morte).
-#define DOCTRINE_MIN_GOLD    40
-#define DOCTRINE_MIN_LIVES   10
 
 // ── NEXUS : l'indice de prédiction module l'acte final ──────────
 // Écart à 50 divisé par ces constantes → ±18 % d'ennemis et ±15 % de PV
@@ -341,23 +339,37 @@ void game_goto_campaign_node(GameState *gs, int node_id) {
         const DoctrineDef *doc[CAMPAIGN_DOCTRINES];
         int nd = campaign_doctrines_active(gs->campaign_flags, doc,
                                            CAMPAIGN_DOCTRINES);
+        int dl = 0;
         for (int i = 0; i < nd; i++) {
-            gs->gold  += doc[i]->act_gold;
-            gs->lives += doc[i]->act_lives;
+            gs->gold += doc[i]->act_gold;
+            dl       += doc[i]->act_lives;
         }
         /* Une doctrine coûteuse ne doit jamais rendre l'acte injouable. */
-        if (gs->gold  < DOCTRINE_MIN_GOLD)  gs->gold  = DOCTRINE_MIN_GOLD;
-        if (gs->lives < DOCTRINE_MIN_LIVES) gs->lives = DOCTRINE_MIN_LIVES;
+        if (gs->gold < CAMPAIGN_MIN_GOLD) gs->gold = CAMPAIGN_MIN_GOLD;
+        if (gs->lives + dl < CAMPAIGN_MIN_LIVES) dl = CAMPAIGN_MIN_LIVES - gs->lives;
+        game_adjust_lives(gs, dl);   /* PV réels de la base, pas le compteur */
     }
 
     /* Bonus de build à l'entrée de l'acte (perks économie / survie). */
     runbuild_compute(&gs->run, &g_run_mods, gs->gold);
+    gs->gold   = (int)((float)gs->gold * g_run_mods.act_gold_mult);   /* Butin de guerre */
+    if (gs->gold < CAMPAIGN_MIN_GOLD) gs->gold = CAMPAIGN_MIN_GOLD;
     gs->gold  += g_run_mods.act_gold;
-    gs->lives += g_run_mods.act_lives;
+    game_adjust_lives(gs, g_run_mods.act_lives);   /* Garnison : vrais PV */
     runbuild_compute(&gs->run, &g_run_mods, gs->gold);   // re-calc (Capitaliste ∝ or)
 
     printf("Campagne %d noeud %d theme=%d bases=%d\n",
            camp_num, node_id, (int)theme, act->forced_base_count);
+}
+
+void game_apply_order(GameState *gs, const CampaignOrder *o) {
+    if (!o) return;
+    if (!campaign_order_affordable(o, gs->gold, gs->lives, gs->run.renfort))
+        return;
+    gs->gold        += o->gold;
+    gs->run.renfort += o->renfort;
+    game_adjust_lives(gs, o->lives);                    /* vrais PV de base */
+    runbuild_compute(&gs->run, &g_run_mods, gs->gold);  /* Capitaliste ∝ or */
 }
 
 void game_next_campaign_stage(GameState *gs) {

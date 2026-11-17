@@ -95,7 +95,7 @@ void hero_start(AppContext *ctx) {
     h->show_help = 0;
     h->toast_t = 0.0f; h->toast[0] = '\0';
     if (first_hero_ach)
-        hero_toast(h, "SUCCES : Sur le terrain (+15 ferraille)",
+        hero_toast(h, "SUCCÈS : Sur le terrain (+15 ferraille)",
                    (Color){232, 152, 32, 255});
 
     h->sprinting = 0;
@@ -130,7 +130,7 @@ void hero_start(AppContext *ctx) {
     ctx->menu.opts.fullscreen = IsWindowFullscreen();
 
     hero_mouse_capture(h, ctx->menu.opts.hero_mouse_native);
-    hero_toast(h, "Approche l'OUVRIER (repere vert) et appuie [E] pour batir",
+    hero_toast(h, "Approche l'OUVRIER (repère vert) et appuie [E] pour bâtir",
                (Color){130, 230, 140, 255});
 }
 
@@ -482,13 +482,13 @@ int hero_frame(AppContext *ctx, float dt) {
     if (gs->phase == PHASE_GAMEOVER) {
         if (!h->mouse_free) hero_mouse_release(h);
         render3d_world_render(ctx, hero_camera(h));
-        int y = hero_overlay_panel("DEFAITE", (Color){220, 70, 60, 255});
+        int y = hero_overlay_panel("DÉFAITE", (Color){220, 70, 60, 255});
         char sb[64];
-        snprintf(sb, sizeof(sb), "Vague %d  -  %d eliminations",
+        snprintf(sb, sizeof(sb), "Vague %d  -  %d éliminations",
                  gs->wave_manager.number, gs->kills);
         int sw = mtxt(sb, 12);
         dtxt(sb, g_canvas_virt_w / 2 - sw / 2, y, 12, (Color){210, 200, 180, 255});
-        const char *hint = "[ENTREE] ou [ESC]  retour au menu";
+        const char *hint = "[ENTRÉE] ou [ESC]  retour au menu";
         int hw = mtxt(hint, 11);
         dtxt(hint, g_canvas_virt_w / 2 - hw / 2, y + fh(12) + 12, 11,
              (Color){170, 190, 210, 255});
@@ -562,7 +562,7 @@ int hero_frame(AppContext *ctx, float dt) {
         } else if (gs->phase == PHASE_PREP &&
                    h->prev_phase == (int)PHASE_WAVE) {
             snprintf(h->wave_banner, sizeof(h->wave_banner),
-                     "VAGUE %d REPOUSSEE !", gs->wave_manager.number);
+                     "VAGUE %d REPOUSSÉE !", gs->wave_manager.number);
             h->wave_banner_t = HERO_BANNER_TIME;
         }
         h->prev_phase = (int)gs->phase;

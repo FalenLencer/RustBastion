@@ -95,6 +95,49 @@ int     hud_show_slot_buys  (const GameState *gs);
    ui_render, au-dessus de tout le HUD. No-op si la file est vide. */
 void    hud_render_discovery(const UIState *ui, const GameState *gs);
 
+// ── Rendu du HUD découpé (hud_render*.c) ─────────────────────────
+/* Repères communs, recalculés dans chaque morceau (ils dépendent du canvas
+   courant). (void) : chaque morceau n'en lit qu'une partie. Exige `ui` et
+   `gs` dans la portée. */
+#define HUD_FRAME_LOCALS                                         \
+    const int VIRT_W = g_canvas_virt_w;                          \
+    const int HUD_Y  = g_canvas_virt_h - UI_HUD_HEIGHT;          \
+    const int HUD_H  = UI_HUD_HEIGHT;                            \
+    const int M      = UI_MARGIN;                                \
+    const int GAP    = 6;                                        \
+    const Theme *th  = theme_get(gs->map.theme);                 \
+    (void)ui; (void)VIRT_W; (void)HUD_Y; (void)HUD_H; (void)M;   \
+    (void)GAP; (void)th
+/* Barre de progression générique (hud_render.c). */
+void  hud_draw_bar(int x, int y, int w, int h, float ratio, Color fill, Color bg);
+/* Panneau droit (hud_render_sel.c) : textes / couleurs suivant le crossfade
+   de sélection, portrait avec pop d'entrée. */
+void  hud_sel_txt(const char *s, int x, int y, int fs, Color c);
+Color hud_sel_col(Color c);
+int   hud_sel_portrait(Texture2D tex, int px, int py, int psz, Color border, float t);
+int   hud_sel_tower(const UIState *ui, const GameState *gs,       // _sel_tower.c
+                    int rx, int max_w, int py, float sel_t);
+/* Sections de ui_render, dans l'ordre de dessin. */
+void  hud_render_left_panel  (const UIState *ui, const GameState *gs);  // _info.c
+void  hud_render_wave_button (const UIState *ui, const GameState *gs);  // _wave.c
+void  hud_render_selection   (const UIState *ui, const GameState *gs);  // _sel.c
+void  hud_render_overlays    (const UIState *ui, const GameState *gs);  // _ovl.c
+void  hud_render_world_marks (const UIState *ui, const GameState *gs);  // _world.c
+void  hud_render_build_ribbon(const UIState *ui, const GameState *gs);  // _info.c
+void  hud_render_hint        (const UIState *ui, const GameState *gs);  // _info.c
+void  hud_render_wave_banner (const UIState *ui, const GameState *gs);  // _wave.c
+void  hud_render_tool_tooltip(const UIState *ui, const GameState *gs);  // _info.c
+
+// ── Entrées du HUD découpées (hud_input*.c) ──────────────────────
+/* Mise en page de la frame (boutons, overlays déplaçables, réparation). */
+void  hud_input_layout(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y);
+/* Sous-blocs du clic gauche, dans l'ordre de priorité ; 1 = clic consommé. */
+int   hud_click_overlay_drag(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y);
+int   hud_click_unit_panel  (UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y);
+int   hud_click_tower_panel (UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y);
+int   hud_click_slot_buys   (UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y);
+int   hud_click_map         (UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y);
+
 /* P0.3 — Conseil de contre : écrit dans `out` (≤ 63 chars utiles) une
    ligne du type "V7 Brutes, Raiders : Cryo efficace, Feu resiste"
    basée sur la vague SUIVANTE. Retourne 0 si rien d'utile (préview

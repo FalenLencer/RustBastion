@@ -32,6 +32,7 @@ typedef enum {
     MENU_MP_CONFIG,      // multijoueur : config RAPIDE (difficulté/taille) avant d'héberger
     MENU_MP_CONFIG_ADV,  // multijoueur : config AVANCÉE (menu complet de personnalisation)
     MENU_MP_LOBBY,       // multijoueur : salon (code, ready-up, lancement)
+    MENU_JOURNAL,        // journal de campagne : relire le récit des actes joués
 } MenuScreen;
 
 // ── Modes multijoueur (valeur = octet `mode` du protocole réseau) ──
@@ -132,6 +133,8 @@ typedef struct {
     int         campaign_order_seed;
     int         selected_campaign_act;  // acte cliqué sur la carte du monde (0 = début)
     int         campaign_challenge_sel; // case MODE CHALLENGE cochée (carte du monde)
+    int         journal_act;            // journal : acte relu (-1 = journal vide)
+    int         journal_part;           // journal : 0 = briefing, 1 = bilan
 
     CustomConfig custom_cfg;  // configuration partie personnalisée
 

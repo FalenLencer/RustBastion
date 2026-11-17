@@ -90,3 +90,12 @@ static inline void clip_text(const char *src, int max_w, int fs,
 }
 
 int adaptive_fs(int base_fs);
+
+// Titre centré sur cx, lettres espacées de `spacing` px (tracking animé qui
+// se resserre). Avance par CARACTÈRE UTF-8, jamais par octet : un « É »
+// (2 octets) découpé s'affichait « ?? ».
+void ui_draw_tracked(const char *s, float cx, int y, int fs, float spacing, Color col);
+
+// Retire un caractère UTF-8 INCOMPLET en fin de chaîne (snprintf tronqué au
+// milieu d'un accent → « ? » à l'écran). Sans effet si la fin est saine.
+void ui_utf8_fix_tail(char *s);

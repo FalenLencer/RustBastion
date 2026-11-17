@@ -145,7 +145,7 @@ static void hero_typed_hit(Enemy *e, float dmg, DamageType dt_) {
     int was_dead = e->dead;
     combat_apply_damage(e, dmg, dt_);
     if (low && !was_dead && e->dead)
-        fx_popup(e->x, e->y - e->size, "ACHEVE !", (Color){255, 150, 60, 255});
+        fx_popup(e->x, e->y - e->size, "ACHEVÉ !", (Color){255, 150, 60, 255});
 }
 
 /* ── Tir : dégâts typés via le chokepoint commun ────────────────── */
@@ -229,7 +229,7 @@ static void hero_fire(AppContext *ctx) {
             const Enemy *eb = &gs->enemies.enemies[i];
             if (eb->active && eb->is_boss && eb->dead) {
                 ach_unlock(ACH_BOSS_DOWN, gs);
-                hero_toast(h, "SUCCES : Tueur de titans (+30 ferraille)",
+                hero_toast(h, "SUCCÈS : Tueur de titans (+30 ferraille)",
                            (Color){232, 152, 32, 255});
                 break;
             }
@@ -309,7 +309,7 @@ void hero_radial_apply(AppContext *ctx) {
         /* Arme — PREP uniquement (choix de build, pas de swap en combat) ;
            contrairement a [R], pas besoin d'etre a la base (ergonomie). */
         if (gs->phase != PHASE_PREP) {
-            hero_toast(h, "Changement d'arme en PREPARATION seulement",
+            hero_toast(h, "Changement d'arme en PRÉPARATION seulement",
                        (Color){231, 76, 60, 255});
             return;
         }
@@ -325,7 +325,7 @@ void hero_radial_apply(AppContext *ctx) {
        et ouvrier a portee (c'est LUI qui batit). */
     int t = i - (int)HW_COUNT;
     if (!hero_tower_unlocked(ctx, t)) {
-        hero_toast(h, "Tour verrouillee : progressez en campagne !",
+        hero_toast(h, "Tour verrouillée : progressez en campagne !",
                    (Color){231, 76, 60, 255});
         return;
     }
@@ -377,7 +377,7 @@ void hero_actions_update(AppContext *ctx, float dt) {
             if (hero_tower_unlocked(ctx, want)) {
                 h->place_type = want;
             } else {
-                hero_toast(h, "Tour verrouillee : progressez en campagne !",
+                hero_toast(h, "Tour verrouillée : progressez en campagne !",
                            (Color){231, 76, 60, 255});
             }
         }
@@ -424,7 +424,7 @@ void hero_actions_update(AppContext *ctx, float dt) {
         wave_start(&gs->wave_manager);
         gs->phase = PHASE_WAVE;
         char nb[48];
-        snprintf(nb, sizeof(nb), "Vague lancee ! +%d or", bonus);
+        snprintf(nb, sizeof(nb), "Vague lancée ! +%d or", bonus);
         hero_toast(h, nb, (Color){230, 155, 35, 255});
     }
 
@@ -437,7 +437,7 @@ void hero_actions_update(AppContext *ctx, float dt) {
     else if (IsKeyPressed(KEY_FIVE))  buy = (int)UNIT_WORKER;
     if (buy >= 0) {
         if (gs->units.count >= gs->units.unit_limit) {
-            hero_toast(h, "Limite d'unites atteinte !", (Color){231, 76, 60, 255});
+            hero_toast(h, "Limite d'unités atteinte !", (Color){231, 76, 60, 255});
         } else if (buy == (int)UNIT_MEDIC &&
                    unit_medic_count_at_base(&gs->units, bpx, bpy)
                        >= MAX_MEDICS_PER_BASE) {
@@ -446,7 +446,7 @@ void hero_actions_update(AppContext *ctx, float dt) {
                                  &gs->bonuses, bpx, bpy)) {
             audio_play_sfx(AUDIO_SFX_UNIT_SPAWN);
             char nb[64];
-            snprintf(nb, sizeof(nb), "%s recrute !", UNIT_BASE_STATS[buy].name);
+            snprintf(nb, sizeof(nb), "%s recruté !", UNIT_BASE_STATS[buy].name);
             hero_toast(h, nb, (Color){120, 220, 130, 255});
         } else {
             hero_toast(h, "Or insuffisant !", (Color){243, 156, 18, 255});
@@ -471,7 +471,7 @@ void hero_actions_update(AppContext *ctx, float dt) {
             gs->gold -= cost;
             h->upg_dmg++;
             audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
-            hero_toast(h, "Degats de l'arme ameliores !", (Color){120, 220, 130, 255});
+            hero_toast(h, "Dégâts de l'arme améliorés !", (Color){120, 220, 130, 255});
         } else {
             hero_toast(h, "Or insuffisant !", (Color){243, 156, 18, 255});
         }
@@ -482,7 +482,7 @@ void hero_actions_update(AppContext *ctx, float dt) {
             gs->gold -= cost;
             h->upg_rate++;
             audio_play_sfx(AUDIO_SFX_MENU_CONFIRM);
-            hero_toast(h, "Cadence de l'arme amelioree !", (Color){120, 220, 130, 255});
+            hero_toast(h, "Cadence de l'arme améliorée !", (Color){120, 220, 130, 255});
         } else {
             hero_toast(h, "Or insuffisant !", (Color){243, 156, 18, 255});
         }
@@ -527,10 +527,11 @@ int hero_prompts(AppContext *ctx, char out[][64], int max) {
             snprintf(out[n++], 64,
                      "[1-5] recruter (cartes ci-dessus)");
         if (n < max) {
-            /* 30 chars max par moitié : tient toujours dans out[64] */
-            char up[30] = "";
+            /* 32 octets max par moitié (un accent UTF-8 = 2 octets) :
+               up + up2 ≤ 31 + 27 → tient toujours dans out[64] */
+            char up[32] = "";
             if (h->upg_dmg  < HERO_UPG_MAX)
-                snprintf(up, sizeof(up), "[O] +degats %d or   ",
+                snprintf(up, sizeof(up), "[O] +dégâts %d or   ",
                          HERO_UPG_COST_BASE * (h->upg_dmg + 1));
             char up2[30] = "";
             if (h->upg_rate < HERO_UPG_MAX)

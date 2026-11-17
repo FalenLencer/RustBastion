@@ -43,7 +43,7 @@ void opts_key_name(int key, char *out, int outsz) {
         return;
     }
     if (key >= KEY_KP_0 && key <= KEY_KP_9) {
-        snprintf(out, outsz, "PAVE %d", key - KEY_KP_0);
+        snprintf(out, outsz, "PAVÉ %d", key - KEY_KP_0);
         return;
     }
     const char *n = NULL;
@@ -55,7 +55,7 @@ void opts_key_name(int key, char *out, int outsz) {
         case KEY_RIGHT_CONTROL: n = "CTRL D";    break;
         case KEY_LEFT_ALT:      n = "ALT";       break;
         case KEY_TAB:           n = "TAB";       break;
-        case KEY_ENTER:         n = "ENTREE";    break;
+        case KEY_ENTER:         n = "ENTRÉE";    break;
         case KEY_BACKSPACE:     n = "RETOUR AR"; break;
         case KEY_UP:            n = "FL. HAUT";  break;
         case KEY_DOWN:          n = "FL. BAS";   break;

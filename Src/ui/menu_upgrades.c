@@ -21,9 +21,9 @@ MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
     MenuAction act = {0};
     int cx = vw/2;
     draw_bg(m, vw, vh);
-    draw_header("AMELIORATIONS", vw);
+    draw_header("AMÉLIORATIONS", vw);
 
-    txt_c_boxed("La ferraille se gagne uniquement en completant des stages de campagne.",
+    txt_c_boxed("La ferraille se gagne uniquement en complétant des stages de campagne.",
                 cx, M_PAD + 86, 10, C_TEXT);
 
     // Bandeau ferraille
@@ -49,7 +49,7 @@ MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
     int lx = M_PAD * 3;
     int rw = vw - lx * 2;
     int y  = M_PAD + 140;
-    draw_text_boxed(TextFormat("Campagnes terminees : %d     Meilleure vague : %d",
+    draw_text_boxed(TextFormat("Campagnes terminées : %d     Meilleure vague : %d",
                  meta->campaigns_completed, meta->best_wave),
              lx, y, 10, C_TEXT);
     y += fh(10) + 3 + 5;
@@ -118,7 +118,7 @@ MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
                             can ? C_GOLD : C_RED);
             if (hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                 if (meta_upgrade((MetaProgress*)meta, i))
-                    set_msg(m, "Amelioration achetee !");
+                    set_msg(m, "Amélioration achetée !");
                 else
                     set_msg(m, "Ferraille insuffisante.");
             }

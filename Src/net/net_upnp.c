@@ -520,12 +520,12 @@ static int up_fail(UpnpResult *out, const char *msg) {
 static int up_try_upnp(uint16_t port, uint32_t local_be, UpnpResult *out) {
     char location[256];
     if (!up_ssdp_discover(location, sizeof(location)))
-        return up_fail(out, "Aucun routeur UPnP detecte. Activez l'UPnP dans la box, "
+        return up_fail(out, "Aucun routeur UPnP détecté. Activez l'UPnP dans la box, "
                             "ou autorisez le jeu dans le pare-feu Windows.");
 
     uint32_t base_ip; uint16_t base_port; char desc_path[256];
     if (!up_parse_url(location, &base_ip, &base_port, desc_path, sizeof(desc_path)))
-        return up_fail(out, "Routeur UPnP detecte mais adresse illisible.");
+        return up_fail(out, "Routeur UPnP détecté mais adresse illisible.");
 
     /* Description du périphérique. */
     char host[24]; net_ip_to_str(base_ip, host);
@@ -558,9 +558,9 @@ static int up_try_upnp(uint16_t port, uint32_t local_be, UpnpResult *out) {
         (unsigned)port, (unsigned)port, localip);
     static char resp[8192];
     if (up_soap("AddPortMapping", inner, resp, sizeof(resp)) <= 0)
-        return up_fail(out, "Routeur UPnP sans reponse a la demande d'ouverture.");
+        return up_fail(out, "Routeur UPnP sans réponse à la demande d'ouverture.");
     if (!up_http_ok(resp))             /* 500 = SOAP fault → refus */
-        return up_fail(out, "Le routeur a REFUSE l'ouverture (UPnP restreint dans la box).");
+        return up_fail(out, "Le routeur a REFUSÉ l'ouverture (UPnP restreint dans la box).");
 
     /* IP externe (best effort : on garde même si ça échoue). */
     uint32_t ext_be = 0; int ext_pub = 0;
@@ -602,7 +602,7 @@ int net_upnp_map_tcp(uint16_t port, UpnpResult *out) {
         if (up_try_natpmp(gws[i], port, out)) {
             if (out->external_public)
                 snprintf(out->message, sizeof(out->message),
-                         "Port ouvert via NAT-PMP. Acces distant pret.");
+                         "Port ouvert via NAT-PMP. Accès distant prêt.");
             else
                 snprintf(out->message, sizeof(out->message),
                          "NAT-PMP OK mais IP non publique (CGNAT ?). Relais requis.");
@@ -617,7 +617,7 @@ int net_upnp_map_tcp(uint16_t port, UpnpResult *out) {
                      "Port ouvert via UPnP (IP publique inconnue).");
         else if (out->external_public)
             snprintf(out->message, sizeof(out->message),
-                     "Port ouvert via UPnP. Acces distant pret.");
+                     "Port ouvert via UPnP. Accès distant prêt.");
         else
             snprintf(out->message, sizeof(out->message),
                      "UPnP OK mais IP non publique (CGNAT ?). Relais requis.");
@@ -692,8 +692,12 @@ int net_upnp_request_firewall(uint16_t port) {
     if (tl == 0 || tl >= sizeof(tmp)) return 0;
 
     char bat[MAX_PATH], flag[MAX_PATH];
-    snprintf(bat,  sizeof(bat),  "%srb_firewall.bat", tmp);
-    snprintf(flag, sizeof(flag), "%srb_firewall.ok",  tmp);
+    int nb = snprintf(bat,  sizeof(bat),  "%srb_firewall.bat", tmp);
+    int nf = snprintf(flag, sizeof(flag), "%srb_firewall.ok",  tmp);
+    /* Dossier temporaire au chemin très long : le nom serait TRONQUÉ en
+       silence (script écrit et lancé sous un nom bancal). On renonce. */
+    if (nb < 0 || nb >= (int)sizeof(bat) || nf < 0 || nf >= (int)sizeof(flag))
+        return 0;
     DeleteFileA(flag);
 
     /* On écrit un VRAI .bat : le batch gère les quotes/chemins nativement

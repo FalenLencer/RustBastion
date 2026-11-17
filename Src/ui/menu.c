@@ -39,6 +39,16 @@ const Color CHAPTER_COLORS[CAMPAIGN_CHAPTERS] = {
     {180,  80,  80, 255},  // Ch.5 Usine Abandonnee — rouge
 };
 
+// Nom de chaque chapitre — source unique (était dupliqué à l'identique dans
+// menu_campaign.c et menu_screens.c).
+const char *const CHAPTER_NAMES[CAMPAIGN_CHAPTERS] = {
+    "Les Terres Brûlées",
+    "Le Marais Toxique",
+    "Le Désert Irradié",
+    "La Ville en Ruine",
+    "L'Usine Abandonnée",
+};
+
 // ════════════════════════════════════════════════════
 // PERSISTANCE DES OPTIONS
 // ════════════════════════════════════════════════════
@@ -621,7 +631,7 @@ MenuAction menu_update(MenuState *m, const MetaProgress *meta) {
             m->sel_upg = (m->sel_upg + 1) % UPGRADE_COUNT;
         if (IsKeyPressed(KEY_ENTER))
             if (meta_upgrade((MetaProgress*)meta, m->sel_upg))
-                set_msg(m, "Amelioration achetee !");
+                set_msg(m, "Amélioration achetée !");
     }
     return act;
 }
@@ -694,6 +704,7 @@ MenuAction menu_render_and_act(MenuState *m, const MetaProgress *meta,
             case MENU_ARCADE:       act = draw_slot_list(m, menu_w, vh, 0);       break;
             case MENU_NEW_CAMPAIGN: act = draw_new_campaign(m, meta, menu_w, vh); break;
             case MENU_WORLD_MAP:    act = draw_world_map(m, meta, menu_w, vh);    break;
+            case MENU_JOURNAL:      act = draw_journal(m, meta, menu_w, vh);      break;
             case MENU_CUSTOM:       act = draw_custom_config(m, menu_w, vh);      break;
             case MENU_NEW_ARCADE:
                 m->new_theme = (m->new_theme == (ThemeID)-1) ? THEME_COUNT : m->new_theme;

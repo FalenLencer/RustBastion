@@ -34,6 +34,10 @@ void game_next_campaign_stage(GameState *gs);
 /* Route la campagne vers un nœud arbitraire du graphe (branche / repli).
    node_id est borné à [0, CAMPAIGN_NODES-1]. */
 void game_goto_campaign_node(GameState *gs, int node_id);
+/* Ordre du jour retenu au briefing : appliqué AU LANCEMENT de l'acte
+   (jamais au clic — un rechargement pendant le briefing ne peut pas le
+   cumuler). Sans effet si la consigne n'est plus abordable. */
+void game_apply_order(GameState *gs, const CampaignOrder *o);
 
 /* La PROCHAINE génération de carte réutilise ce seed (une seule fois) :
    reprise d'un acte perdu sur la MÊME carte. 0 = aucun. */
