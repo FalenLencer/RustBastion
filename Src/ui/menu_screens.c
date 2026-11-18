@@ -17,8 +17,7 @@
 
 #include "menu_internal.h"
 #include "ui_anim.h"
-
-#define GAME_VERSION "v0.1"
+#include "ui_plate.h"   /* menu pause : plaque + boutons du style de jeu */
 
 // ════════════════════════════════════════════════════
 // ÉCRAN TITRE — animation d'entrée + braises de fond
@@ -110,24 +109,26 @@ static void boxed_txt_fade(const char *s, int cx, int y, int fs,
 
 // Bouton à entrée animée : glisse depuis la gauche en fondu, hitbox FINALE
 // (mini draw_btn local — on ne modifie pas le helper partagé). Une fois
-// installé, délègue au draw_btn normal (hover, press, reflet…).
-// click_during_anim : 1 = cliquable dès la 1re frame (écran titre),
-//                     0 = cliquable seulement après son délai (pause).
-static int fade_btn(const char *label, int x, int y, int w, int h,
-                    Color col, float t, float delay, float dur,
-                    float slide, int click_during_anim) {
-    if (t >= delay + dur)
+// installé, délègue au draw_btn normal (hover, press, reflet…) ; plate = 1
+// (menu pause, en jeu) : plaque de métal comme tout l'écran de jeu.
+// click_during_anim : 1 = cliquable dès la 1re frame (titre), 0 = après son délai (pause).
+static int fade_btn(const char *label, int x, int y, int w, int h, Color col, float t,
+                    float delay, float dur, float slide, int click_during_anim, int plate) {
+    if (t >= delay + dur && !plate)
         return draw_btn(label, x, y, w, h, col, 0);
-
-    float k = (t <= delay) ? 0.0f : ea_out_cubic((t - delay) / dur);
+    float k = (t <= delay) ? 0.0f : (t >= delay + dur) ? 1.0f : ea_out_cubic((t - delay) / dur);
     if (k > 0.0f) {
         int dx = x - (int)((1.0f - k) * slide);
         Rectangle rd  = {(float)dx, (float)y, (float)w, (float)h};
-        float     rnd = (float)BTN_R / h;
         unsigned char a = (unsigned char)(k * 255.0f);
-        DrawRectangleRounded(rd, rnd, 6, (Color){14, 9, 4, a});        // C_PANEL
-        DrawRectangleRoundedLinesEx(rd, rnd, 6, 1.2f,
-                                    (Color){55, 36, 12, a});           // C_BORDER
+        if (plate) {
+            plate_alpha(k);
+            plate_button(rd, col, k >= 1.0f && CheckCollisionPointRec(vmouse(), rd), 1);
+            plate_alpha(1.0f);
+        } else {
+            DrawRectangleRounded(rd, (float)BTN_R / h, 6, (Color){14, 9, 4, a});        // C_PANEL
+            DrawRectangleRoundedLinesEx(rd, (float)BTN_R / h, 6, 1.2f, (Color){55, 36, 12, a});
+        }
         int fs2 = 14;
         int tw2 = mtxt(label, fs2);
         dtxt(label, dx + w/2 - tw2/2, y + h/2 - fh(fs2)/2, fs2,
@@ -201,25 +202,24 @@ MenuAction draw_title(MenuState *m, int vw, int vh) {
     int by = vh/2 - 52;
 
     if (fade_btn("JOUER",   bx, by, bw, bh, C_GREEN, at, 0.45f,
-                 TITLE_BTN_DUR, TITLE_BTN_SLIDE, 1)) {
+                 TITLE_BTN_DUR, TITLE_BTN_SLIDE, 1, 0)) {
         m->screen = MENU_PLAY_HUB;
         m->back_screen = MENU_TITLE;
     }
     by += bh + M_IN;
 
     if (fade_btn("OPTIONS", bx, by, bw, bh, C_BLUE, at, 0.55f,
-                 TITLE_BTN_DUR, TITLE_BTN_SLIDE, 1)) {
+                 TITLE_BTN_DUR, TITLE_BTN_SLIDE, 1, 0)) {
         m->screen = MENU_OPTIONS;
         m->back_screen = MENU_TITLE;
     }
     by += bh + M_IN;
 
     if (fade_btn("QUITTER", bx, by, bw, bh, C_RED, at, 0.65f,
-                 TITLE_BTN_DUR, TITLE_BTN_SLIDE, 1))
+                 TITLE_BTN_DUR, TITLE_BTN_SLIDE, 1, 0))
         act.quit_app = 1;
 
-    dtxt(GAME_VERSION, vw - M_PAD - mtxt(GAME_VERSION, 10),
-         vh - M_PAD - fh(10), 10, C_DIM);
+    ui_draw_version(vw - M_PAD, vh - M_PAD, 10, C_DIM, 0);   /* version + tampon de build */
     return act;
 }
 
@@ -583,7 +583,8 @@ MenuAction draw_pause(MenuState *m, int vw, int vh) {
     /* Panneau : échelle 0.90 → 1.0 (léger dépassement) pour le DESSIN.
        Le layout du CONTENU (boutons, hitbox) reste sur pw/ph finaux. */
     float sc = 0.90f + 0.10f * k;
-    draw_panel(cx, cy, (int)(pw * sc), (int)(ph * sc), C_GOLD);
+    plate_panel((Rectangle){cx - pw * sc / 2.0f, cy - ph * sc / 2.0f, pw * sc, ph * sc},
+                PLATE_CHAMFER, C_GOLD, 0.85f);   /* plaque de métal, comme l'écran de jeu */
 
     int px = cx - pw/2 + M_PAD;
     int iw = pw - M_PAD*2;
@@ -601,32 +602,32 @@ MenuAction draw_pause(MenuState *m, int vw, int vh) {
 
     if (fade_btn("REPRENDRE",     px, py, iw, bh2, C_GREEN, t,
                  PAUSE_BTN_DELAY0 + 0*PAUSE_BTN_STEP,
-                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0))
+                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0, 1))
         { m->paused = 0; m->screen = MENU_TITLE; }
     py += bh2 + gap;
 
     if (fade_btn("SAUVEGARDER",   px, py, iw, bh2, C_GOLD, t,
                  PAUSE_BTN_DELAY0 + 1*PAUSE_BTN_STEP,
-                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0))
+                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0, 1))
         act.save_and_quit = 2;
     py += bh2 + gap;
 
     if (fade_btn("OPTIONS",        px, py, iw, bh2, C_BLUE, t,
                  PAUSE_BTN_DELAY0 + 2*PAUSE_BTN_STEP,
-                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0))
+                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0, 1))
         m->screen = MENU_OPTIONS;
     py += bh2 + gap;
 
     /* C_TEXT (et non C_DIM, la teinte « désactivé ») : le bouton est actif. */
     if (fade_btn("MENU PRINCIPAL", px, py, iw, bh2, C_TEXT, t,
                  PAUSE_BTN_DELAY0 + 3*PAUSE_BTN_STEP,
-                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0))
+                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0, 1))
         act.save_and_quit = 1;
     py += bh2 + gap;
 
     if (fade_btn("QUITTER",        px, py, iw, bh2, C_RED, t,
                  PAUSE_BTN_DELAY0 + 4*PAUSE_BTN_STEP,
-                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0))
+                 PAUSE_BTN_DUR, PAUSE_BTN_SLIDE, 0, 1))
         act.quit_app = 1;
 
     /* Ligne résolution : apparaît en dernier */
@@ -638,11 +639,10 @@ MenuAction draw_pause(MenuState *m, int vw, int vh) {
             snprintf(sz, sizeof(sz), "%dx%d  %s",
                      GetScreenWidth(), GetScreenHeight(),
                      IsWindowFullscreen() ? "Plein écran" : "Fenêtre");
-            txt_c(sz, cx, cy + ph/2 - M_PAD - 12, 10,
-                  (Color){C_DIM.r, C_DIM.g, C_DIM.b,
-                          (unsigned char)(255.0f * ra)});
+            Color dc = {C_DIM.r, C_DIM.g, C_DIM.b, (unsigned char)(255.0f * ra)};
+            txt_c(sz, cx, cy + ph/2 - M_PAD - 12, 10, dc);
+            ui_draw_version(cx, cy + ph/2 - M_PAD - 14, 10, dc, 1);   /* + tampon de build */
         }
     }
-
     return act;
 }

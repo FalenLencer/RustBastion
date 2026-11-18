@@ -27,6 +27,12 @@
 #include "../ui/ui_palette.h"   /* UI_ACCENT (notification d'ordre) */
 #include "campaign_data.h"
 #include "../ui/ui_utils.h"   // DrawText/MeasureText → g_font (support accents)
+#include "../ui/ui_plate.h"   // plaque de métal (aide des commandes)
+
+#define HELP_W        560   /* panneau d'aide [H] (px canvas)                 */
+#define HELP_ROW_H     22   /* pas d'une ligne : touche en relief (fh(9)+6)   */
+#define HELP_KEY_COL  104   /* colonne des descriptions                       */
+#define HELP_KEY_MAX   16   /* au-delà : ligne de texte simple (pas une touche) */
 #include "../map/theme.h"
 #include "../combat/fx.h"     // effets de jus (particules, secousse, pops)
 #include "app_tutorial.h"     // tutoriel guidé (module extrait)
@@ -106,11 +112,24 @@ int app_game_render(AppContext *ctx) {
     if (!ctx->menu.paused && !ctx->tutorial_active) {
         int cxh = g_map_x_off + g_canvas_virt_w_base / 2;
         if (ctx->show_help) {
-            static const char *HL[] = {
+            /* Touches de la tour choisie : lettres SELON le clavier (AZERTY :
+               A Z E ; QWERTY : Q W E) — mêmes codes que hud_input.c. */
+            char kq[8], kw[8], ke[8], kz[8], tl1[96], tl2[96];
+            opts_key_name(KEY_Q, kq, sizeof(kq)); opts_key_name(KEY_W, kw, sizeof(kw));
+            opts_key_name(KEY_E, ke, sizeof(ke));
+            opts_key_name(opts_key_for_char('z', KEY_Z), kz, sizeof(kz));
+            snprintf(tl1, sizeof(tl1), "%s %s %s    tour choisie : dégâts / portée / cadence   R réparer   T cible",
+                     kq, kw, ke);
+            snprintf(tl2, sizeof(tl2), "SUPPR    vendre     CTRL+%s  annuler la dernière pose (remboursée)", kz);
+            const char *HL[] = {
                 "ESC      menu pause",
                 "ESPACE   pause tactique (solo) : geler pour réfléchir",
+                "ENTRÉE   lancer la vague (bonus d'or si en avance)",
                 "X        vitesse  x1 / x2 / x3",
                 "1-9      choisir une tour (1-4) ou une unité (5-9)",
+                tl1, tl2,
+                "TAB      tour suivante      ALT (maintenu)  portées de toutes les tours",
+                "Survol d'un ennemi : ses PV, ses faiblesses et ses résistances",
                 "Molette  zoomer la carte    Clic-molette  déplacer",
                 "Flèches  déplacer la carte zoomée",
                 "Clic G   placer / sélectionner",
@@ -121,28 +140,32 @@ int app_game_render(AppContext *ctx) {
                 "H        fermer cette aide",
             };
             int n = (int)(sizeof(HL)/sizeof(HL[0]));
-            int pw = 520, ph = 40 + n * (fh(10) + 4) + 10;
+            int pw = HELP_W, ph = 40 + n * HELP_ROW_H + 14;
             int px = cxh - pw/2, py = (g_canvas_virt_h - UI_HUD_HEIGHT)/2 - ph/2;
             if (py < 8) py = 8;
-            Rectangle pr = {(float)px,(float)py,(float)pw,(float)ph};
-            DrawRectangleRounded(pr, 0.08f, 6, (Color){6, 10, 18, 240});
-            DrawRectangleRoundedLinesEx(pr, 0.08f, 6, 2.0f, (Color){90, 150, 210, 235});
+            plate_panel((Rectangle){(float)px, (float)py, (float)pw, (float)ph}, PLATE_CHAMFER,
+                        (Color){90, 150, 210, 255}, 0.9f);   /* plaque, liseré bleu « aide » */
             const char *ht = "COMMANDES";
-            dtxt(ht, cxh - mtxt(ht,13)/2, py + 10, 13, (Color){170, 215, 255, 255});
-            int ly = py + 10 + fh(13) + 8;
+            dtxt(ht, cxh - mtxt(ht,13)/2, py + 12, 13, (Color){170, 215, 255, 255});
+            int ly = py + 12 + fh(13) + 8;
             for (int i = 0; i < n; i++) {
-                dtxt(HL[i], px + 22, ly, 10, (Color){210, 220, 232, 255});
-                ly += fh(10) + 4;
+                /* « TOUCHE  description » : la touche en relief, le texte en colonne */
+                const char *sp = strstr(HL[i], "  ");
+                int kl = sp ? (int)(sp - HL[i]) : 0;
+                if (kl > 0 && kl < HELP_KEY_MAX) {
+                    char key[HELP_KEY_MAX];
+                    snprintf(key, sizeof(key), "%.*s", kl, HL[i]);
+                    while (*sp == ' ') sp++;
+                    plate_keycap(px + 18, ly - 2, key, (Color){170, 215, 255, 255});
+                    dtxt(sp, px + 18 + HELP_KEY_COL, ly, 10, (Color){210, 220, 232, 255});
+                } else {
+                    dtxt(HL[i], px + 18, ly, 10, (Color){170, 190, 210, 255});
+                }
+                ly += HELP_ROW_H;
             }
-        } else {
-            /* Coin bas-droit de la carte : en haut à droite, il chevauchait
-               le panneau flottant « Vague ». */
-            const char *hint = "[H] Aide";
-            int hw = mtxt(hint, 9);
-            dtxt(hint, g_map_x_off + g_canvas_virt_w_base - hw - 12,
-                 g_canvas_virt_h - UI_HUD_HEIGHT - fh(9) - 4, 9,
-                 (Color){120, 140, 165, 200});
         }
+        /* (Le rappel « [H] Aide » du coin de la carte n'est plus utile : le
+           panneau bas affiche « H Aide et commandes » et les raccourcis.) */
     }
 
     /* ── Bannière (mode de jeu + infos de carte) ─────────────── */

@@ -329,7 +329,7 @@ void game_state_update(GameState *gs, float dt) {
     int _inv_before = gs->inventory_count;
     unit_pool_update(&gs->units, &gs->enemies, &gs->map,
                      effective_dt, gs->inventory, &gs->inventory_count,
-                     &gs->towers);
+                     &gs->towers, &gs->enemy_paths);
     /* Récompense or pour chaque matériau livré ce frame */
     {
         int _delivered = gs->inventory_count - _inv_before;
@@ -482,6 +482,7 @@ void game_state_update(GameState *gs, float dt) {
     {
         int in_wave = (gs->wave_manager.state == WAVE_SPAWNING ||
                        gs->wave_manager.state == WAVE_ONGOING);
+        tower_wave_tick(in_wave);   /* bilan de vague ; pose annulable en PRÉPARATION seulement */
         if (!in_wave) {
             gs->ui.wave_prep_seen = 1;
         } else if (gs->ui.wave_prep_seen) {

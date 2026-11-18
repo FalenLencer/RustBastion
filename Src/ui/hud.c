@@ -87,6 +87,27 @@ const ToolInfo TOOL_INFO[TOOL_COUNT] = {
     [TOOL_UNIT_WORKER]  = {"OUVRIER",   "Ouvrier", "W", "Collecte mat.",  15,   0, 0.8f, 0.0f, 1},
 };
 
+/* Chiffres À JOUR d'un outil : ceux des tables de stats du jeu (SOURCE
+   UNIQUE). TOOL_INFO n'apporte plus que libellés, icône, description — ses
+   copies de chiffres avaient divergé (Sniper 90 dégâts affichés pour 115,
+   Soldat 1,2 de portée pour 4,5). Médic : portée de SOIN (son rôle) ;
+   Ouvrier : dégâts 0 = « Non combatif ». */
+ToolInfo hud_tool_info(ToolID id) {
+    ToolInfo t = TOOL_INFO[(id >= 0 && id < TOOL_COUNT) ? id : 0];
+    if (ui_tool_is_tower(id)) {
+        const TowerStats *s = &TOWER_BASE_STATS[ui_tool_to_tower(id)];
+        t.cost = s->cost; t.dmg = s->damage; t.range = s->range; t.rate = s->fire_rate;
+    } else if (ui_tool_is_unit(id)) {
+        UnitType ut = ui_tool_to_unit(id);
+        const UnitStats *s = &UNIT_BASE_STATS[ut];
+        t.cost  = s->cost;
+        t.dmg   = (ut == UNIT_WORKER) ? 0.0f : s->damage;
+        t.range = (ut == UNIT_MEDIC) ? UNIT_MEDIC_HEAL_RANGE : s->atk_range;
+        t.rate  = s->atk_rate;
+    }
+    return t;
+}
+
 const char *ui_tool_name(ToolID id) {
     if (id < 0 || id >= TOOL_COUNT) return "Aucun";
     return TOOL_INFO[id].shortname;
@@ -272,69 +293,15 @@ void ui_init(UIState *ui) {
     ui->apply_mat_visible   = 0;
     ui->worker_selected_idx = -1;
     ui->sell_unit_idx       = -1;
-    ui->overlay_tl_pos      = (Vector2){-1.0f, -1.0f};  // sentinel : init au 1er frame
     ui->overlay_tr_pos      = (Vector2){-1.0f, -1.0f};
     ui->overlay_bl_pos      = (Vector2){-1.0f, -1.0f};  // sentinel : init au 1er frame
     ui->dragging_overlay      = -1;
     ui->behavior_pending      = -1;
     ui->behavior_pending_unit = -1;
 
-    const int HUD_Y  = g_canvas_virt_h - UI_HUD_HEIGHT;
-    const int M      = UI_MARGIN;
-    const int GAP    = 6;
-
-    // ── Rangées de boutons ────────────────────────────────────
-    int row1_y = HUD_Y + 18;
-    int row2_y = row1_y + UI_BTN_H + GAP + 14;
-    int col0_x = UI_LEFT_PANEL_W + M + 6;
-
-    for (int i = 0; i < 4; i++) {
-        ui->tool_btns[TOOL_TOWER_GUN + i] = (Rectangle){
-            col0_x + i * (UI_BTN_W + GAP),
-            row1_y, UI_BTN_W, UI_BTN_H
-        };
-    }
-    for (int i = 0; i < 5; i++) {
-        ui->tool_btns[TOOL_UNIT_SOLDIER + i] = (Rectangle){
-            col0_x + i * (UI_BTN_W + GAP),
-            row2_y, UI_BTN_W, UI_BTN_H
-        };
-    }
-
-    // ── Bouton LANCER VAGUE ───────────────────────────────────
-    int wave_x = col0_x + 5 * (UI_BTN_W + GAP) + M;
-    int wave_h = UI_BTN_H * 2 + GAP + 14;
-    ui->wave_btn = (Rectangle){
-        wave_x, row1_y, 108, wave_h
-    };
-
-    // ── Bouton PAUSE ─────────────────────────────────────────
-    ui->pause_btn = (Rectangle){
-        wave_x + 108 + M, row1_y, 36, wave_h
-    };
-
-    // ── Boutons panneau droit (positions initiales, recalculées dans ui_update) ─
-    int right_x = g_canvas_virt_w_base - UI_PANEL_W + M;
-    int right_w = UI_PANEL_W - M * 2;
-    int btn_h   = 34;
-
-    ui->sell_btn = (Rectangle){
-        right_x,
-        HUD_Y + UI_HUD_HEIGHT - M - btn_h * 2 - 5,
-        right_w, btn_h
-    };
-
-    ui->unit_sell_btn = (Rectangle){
-        right_x,
-        HUD_Y + UI_HUD_HEIGHT - M - btn_h,
-        right_w, btn_h
-    };
-
-    ui->apply_mat_btn = (Rectangle){
-        right_x,
-        HUD_Y + UI_HUD_HEIGHT - M - btn_h,
-        right_w, btn_h
-    };
+    /* Positions initiales des boutons : même calcul que chaque frame
+       (hud_input_layout), source unique. */
+    hud_layout_buttons(ui, g_canvas_virt_h - UI_HUD_HEIGHT);
 }
 
 // ════════════════════════════════════════════════════
@@ -344,6 +311,22 @@ void ui_init(UIState *ui) {
 // le plus résisté. Utilisé par : tooltip de pose de tour (2D),
 // bouton APPLIQUER MATÉRIAU (2D), invite [M]/[N] du mode héros.
 // ════════════════════════════════════════════════════
+int hud_enemy_dmg_list(int etype, int weak_side, int with_mult, char *out, int out_sz) {
+    int off = 0, n = 0;
+    out[0] = '\0';
+    if (etype < 0 || etype >= ENEMY_TYPE_COUNT) return 0;
+    for (int d = 0; d < DAMAGE_TYPE_COUNT && off < out_sz - 1; d++) {
+        float m = ENEMY_DMG_MULT[etype][d];
+        if (weak_side ? (m < HUD_DMG_WEAK_MULT) : (m > HUD_DMG_RESIST_MULT)) continue;
+        off += with_mult
+             ? snprintf(out + off, (size_t)(out_sz - off), "%s%s ×%.1f", n ? ", " : "", DAMAGE_NAMES[d], m)
+             : snprintf(out + off, (size_t)(out_sz - off), "%s%s", n ? ", " : "", DAMAGE_NAMES[d]);
+        n++;
+    }
+    ui_utf8_fix_tail(out);
+    return n;
+}
+
 #define ADVICE_TYPES   3      /* ennemis les plus probables considérés */
 #define ADVICE_STRONG  1.15f  /* seuil « efficace » (multiplicateur)   */
 #define ADVICE_WEAK    0.85f  /* seuil « résiste »                     */

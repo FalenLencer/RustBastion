@@ -14,6 +14,53 @@
 
 #include "hud_internal.h"
 
+/* LANCER LA VAGUE (clic sur le bouton OU touche ENTRÉE) : seulement en
+   préparation, jamais quand le lancement manuel est verrouillé (Asym). */
+static void launch_wave(UIState *ui, GameState *gs) {
+    if (gs->wave_manager.lock_manual || gs->phase != PHASE_PREP) return;
+    int bonus = wave_early_launch_bonus(&gs->wave_manager);
+    gs->gold += bonus;
+    wave_start(&gs->wave_manager);
+    gs->phase = PHASE_WAVE;
+    if (bonus > 0) {
+        char nbuf[44];
+        snprintf(nbuf, sizeof(nbuf), "+%d or (lancement rapide)", bonus);
+        ui_push_notif(ui, nbuf, (Color){230, 155, 35, 255});
+    }
+}
+
+/* Raccourcis des tours : améliorer / réparer / cibler / vendre la tour
+   sélectionnée, TAB = tour suivante, CTRL+Z = annuler la dernière pose de
+   la préparation (remboursement intégral). Mêmes actions que les boutons. */
+static void tower_hotkeys(UIState *ui, GameState *gs) {
+    int ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    if (ctrl && IsKeyPressed(opts_key_for_char('z', KEY_Z))) {
+        int last = tower_last_fresh(&gs->towers);
+        if (last >= 0) hud_tower_action(ui, gs, last, TACT_SELL);
+        else ui_push_notif(ui, "Rien à annuler (pose de la préparation seulement)",
+                           (Color){150, 140, 120, 255});
+        return;                                  /* Z/W d'AZERTY : pas d'amélioration */
+    }
+    if (IsKeyPressed(HUD_KEY_NEXT_TOWER)) {
+        int start = ui->selection.active ? ui->selection.tower_idx : -1;
+        for (int k = 1; k <= MAX_TOWERS; k++) {
+            int i = (start + k + MAX_TOWERS) % MAX_TOWERS;
+            if (!gs->towers.towers[i].active) continue;
+            ui_clear_selection(ui, gs);
+            ui->selection.active = 1;
+            ui->selection.tower_idx = i;
+            break;
+        }
+    }
+    if (ctrl || !ui->selection.active) return;
+    static const int KEYS[] = {HUD_KEY_UPG_DMG, HUD_KEY_UPG_RANGE, HUD_KEY_UPG_RATE,
+                               HUD_KEY_REPAIR, HUD_KEY_TARGET, HUD_KEY_SELL};
+    static const TowerAction ACT[] = {TACT_DMG, TACT_RANGE, TACT_RATE,
+                                      TACT_REPAIR, TACT_TARGET, TACT_SELL};
+    for (int k = 0; k < (int)(sizeof(ACT) / sizeof(ACT[0])); k++)
+        if (IsKeyPressed(KEYS[k])) hud_tower_action(ui, gs, ui->selection.tower_idx, ACT[k]);
+}
+
 // ════════════════════════════════════════════════════
 // MISE À JOUR
 // ════════════════════════════════════════════════════
@@ -164,36 +211,11 @@ void ui_update(UIState *ui, GameState *gs) {
         }
         else if (!gs->wave_manager.lock_manual &&
                  CheckCollisionPointRec(mouse, ui->wave_btn)) {
-            if (gs->phase == PHASE_PREP) {
-                int bonus = wave_early_launch_bonus(&gs->wave_manager);
-                gs->gold += bonus;
-                wave_start(&gs->wave_manager);
-                gs->phase = PHASE_WAVE;
-                if (bonus > 0) {
-                    char nbuf[44];
-                    snprintf(nbuf, sizeof(nbuf), "+%d or (lancement rapide)", bonus);
-                    ui_push_notif(ui, nbuf, (Color){230, 155, 35, 255});
-                }
-            }
+            launch_wave(ui, gs);
         }
         else if (ui->selection.active &&
                  CheckCollisionPointRec(mouse, ui->sell_btn)) {
-            Tower *tw = &gs->towers.towers[ui->selection.tower_idx];
-            if (tw->active) {
-                int refund = tower_sell_refund(tw, &gs->map);   // pose + améliorations
-                gs->gold += refund;
-                // Rend le MINERAI appliqué à l'inventaire (s'il reste de la place).
-                if (tw->material != MAT_NONE && gs->inventory_count < MAX_INVENTORY) {
-                    gs->inventory[gs->inventory_count++] = tw->material;
-                    ui_push_notif(ui, "Minerai récupéré", (Color){62, 175, 200, 255});
-                }
-                gs->map.tiles[tw->tile_y][tw->tile_x].buildable = 1;
-                tw->active = 0;
-                gs->towers.tower_count--;
-                char nbuf[32];
-                snprintf(nbuf, sizeof(nbuf), "+%d or récupérés", refund);
-                ui_push_notif(ui, nbuf, (Color){230, 155, 35, 255});
-            }
+            hud_tower_action(ui, gs, ui->selection.tower_idx, TACT_SELL);
             ui->selection.active = 0;
         }
         else if (ui->sell_unit_idx >= 0 &&
@@ -335,6 +357,8 @@ void ui_update(UIState *ui, GameState *gs) {
     if (IsKeyPressed(KEY_NINE))  ui->selected_tool = TOOL_UNIT_WORKER;
     if (IsKeyPressed(KEY_X))     ui->speed_mult = (ui->speed_mult % 3) + 1;
     if (IsKeyPressed(KEY_F))     ui->show_fps  ^= 1;
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) launch_wave(ui, gs);
+    tower_hotkeys(ui, gs);
 
     // Tick notifications flottantes
     {

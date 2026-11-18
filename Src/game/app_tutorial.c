@@ -14,6 +14,7 @@
 #include "../ui/ui_utils.h"    // dtxt / mtxt / fh
 #include "../engine/audio.h"   // musique menu au retour (PASSER/TERMINER)
 #include "../ui/ui_anim.h"     // ui_dt / ea_out_cubic / ea_out_back
+#include "../ui/ui_plate.h"    // bulle et boutons en plaque de métal
 #include "../ui/hud.h"         // ToolID / rectangles HUD
 #include "../combat/tower.h"   // Tower
 #include "game_init.h"         // game_init_custom (démarrage du tutoriel)
@@ -88,7 +89,7 @@ static const TutStep TUT_STEPS[] = {
       tutorial_is_place_tower, tutorial_target_map, 1,
       "Clique sur la carte" },
     { TUT_ACTION, "3. Lance la vague",
-      "Clique le bouton LANCER quand tu es prêt.",
+      "Clique LANCER (ou ENTRÉE) quand tu es prêt.",
       "Tes tours tirent automatiquement sur les ennemis.",
       tutorial_is_wave, tutorial_target_wave, 1,
       "Clique sur le bouton vague" },
@@ -436,8 +437,7 @@ void tutorial_render(AppContext *ctx) {
 
     int px = (int)pr.x, py = (int)pr.y;
     int cx = px + TUT_PW / 2;
-    DrawRectangleRounded(pr, 0.12f, 6, (Color){8, 16, 28, 240});
-    DrawRectangleRoundedLinesEx(pr, 0.12f, 6, 2.0f, (Color){90, 170, 220, 235});
+    plate_panel(plate_inset(pr, -2.0f), PLATE_CHAMFER, (Color){90, 170, 220, 255}, 0.9f);   /* plaque, liseré bleu */
 
     char step[16];
     snprintf(step, sizeof(step), "%d / %d", s + 1, TUT_COUNT);
@@ -471,8 +471,7 @@ void tutorial_render(AppContext *ctx) {
         Rectangle b = tutorial_btn_rect(ctx);
         int hov = CheckCollisionPointRec(virt_mouse(), b);
         const char *bl = (s == TUT_COUNT - 1) ? "TERMINER" : "SUIVANT";
-        DrawRectangleRounded(b, 0.3f, 5, hov ? (Color){40, 110, 150, 245} : (Color){24, 70, 100, 235});
-        DrawRectangleRoundedLinesEx(b, 0.3f, 5, hov ? 2.0f : 1.2f, (Color){90, 180, 230, 235});
+        plate_button(b, (Color){90, 180, 230, 255}, hov, 1);
         int bw = mtxt(bl, 11);
         dtxt(bl, (int)b.x + (int)b.width/2 - bw/2, (int)b.y + (int)b.height/2 - fh(11)/2, 11,
              (Color){200, 235, 255, 255});
@@ -480,8 +479,8 @@ void tutorial_render(AppContext *ctx) {
 
     Rectangle skip = tutorial_skip_rect(ctx);
     int skip_hov = CheckCollisionPointRec(virt_mouse(), skip);
-    DrawRectangleRounded(skip, 0.25f, 4, skip_hov ? (Color){48, 90, 120, 240} : (Color){16, 34, 54, 220});
-    DrawRectangleRoundedLinesEx(skip, 0.25f, 4, 1.0f, (Color){90, 150, 210, 220});
+    plate_chamfer_fill(skip, 4.0f, skip_hov ? (Color){48, 90, 120, 240} : (Color){16, 34, 54, 220});
+    plate_chamfer_line(skip, 4.0f, (Color){90, 150, 210, 220});
     dtxt("PASSER", (int)skip.x + 10, (int)skip.y + 6, 9, (Color){200, 224, 240, 255});
 
     if (g_tut_deny_active && g_tut_deny_timer > 0.0f) {

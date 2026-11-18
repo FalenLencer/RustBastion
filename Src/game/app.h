@@ -107,8 +107,9 @@ void app_init        (AppContext *ctx);
  * Retourne 1 pour continuer, 0 pour quitter la boucle. */
 int  app_update      (AppContext *ctx, float dt);
 
-/* Sauvegarde si la partie est en cours (à appeler avant fermeture). */
-void app_save_on_exit(const AppContext *ctx);
+/* Sauvegarde la partie en cours dans son emplacement (fermeture de la
+   fenêtre ET sauvegarde automatique de fin de vague). 1 = écrite. */
+int  app_save_on_exit(const AppContext *ctx);
 
 /* Libère les ressources haut niveau (menu, options). */
 void app_cleanup     (AppContext *ctx);

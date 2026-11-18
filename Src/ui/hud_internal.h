@@ -41,18 +41,71 @@
 #define OVERLAY_OV_P     6
 #define OVERLAY_GRIP_H   4   /* poignée : le contenu commence à OV_P + GRIP_H */
 #define OVERLAY_LAST_H  16   /* dernière ligne (taille 10 → fh(10) = 16 px)  */
-/* Hauteurs = poignée + lignes + dernière ligne À SA HAUTEUR RÉELLE (sans la
-   poignée ni fh, « Unités » / « Vitesse » touchaient le bord du cadre). */
-#define OVERLAY_TL_H   (OVERLAY_OV_P + OVERLAY_GRIP_H + 17+3 + 17+3 + 14+3 \
-                        + OVERLAY_LAST_H + OVERLAY_OV_P)  /* or + vies + tours + unites */
-#define OVERLAY_TR_H   (OVERLAY_OV_P + OVERLAY_GRIP_H + 17+3 + 14+3 + 14+3 + 9+5 \
-                        + OVERLAY_LAST_H + OVERLAY_OV_P)
+/* Hauteur = poignée + lignes + dernière ligne À SA HAUTEUR RÉELLE (sans la
+   poignée ni fh, « Vitesse » touchait le bord du cadre). Le panneau haut-
+   gauche (or / vies / tours / unités) a disparu : tout est dans le panneau
+   bas ; celui de droite garde vague (progression d'acte), kills, vitesse. */
+#define OVERLAY_TR_ROW_WAVE   (17 + 3)
+#define OVERLAY_TR_ROW_KILLS  (14 + 3)
+#define OVERLAY_TR_H   (OVERLAY_OV_P + OVERLAY_GRIP_H + OVERLAY_TR_ROW_WAVE + OVERLAY_TR_ROW_KILLS \
+                        + OVERLAY_LAST_H + OVERLAY_OV_P)   /* vague + kills + vitesse */
+/* Bouton de vitesse du panneau haut-droit — SOURCE UNIQUE rendu ↔ clic. */
+Rectangle hud_speed_btn_rect(const UIState *ui);
 /* Hauteur dynamique de l'overlay BL — dépend de l'état des bases en jeu */
 int overlay_bl_h(const GameState *gs);
 /* Décale un panneau flottant (dir ±1) tant qu'il masque une base ou un
    spawn — positions initiales des overlays (hud.c). */
 void overlay_avoid_marks(Vector2 *pos, int ow, int oh,
                          const GameState *gs, int dir);
+
+// ════════════════════════════════════════════════════
+// PANNEAU BAS : TROIS PLAQUES (gauche / centre / droite)
+// Mise en page = hud_layout_buttons (SOURCE UNIQUE des rectangles,
+// lue par le rendu ET par les clics).
+// ════════════════════════════════════════════════════
+#define HUD_PLATE_GAP    4    /* jour entre deux plaques (px)                      */
+#define HUD_PANEL_PAD   12    /* bord du panneau → contenu, en x (cadre + marge)   */
+#define HUD_SEC_Y       10    /* haut du panneau → 1er titre de section            */
+#define HUD_SEC_H       20    /* titre de section + filet, au-dessus d'une rangée  */
+#define HUD_ROW_GAP      6    /* rangée de cartes → titre de la rangée suivante    */
+#define HUD_CARD_GAP     6    /* écart entre deux cartes d'outil                   */
+#define HUD_BLOCK_GAP   12    /* cartes → bouton de vague                          */
+#define HUD_WAVE_W     124    /* bouton LANCER LA VAGUE                            */
+#define HUD_PAUSE_W     40    /* bouton PAUSE                                      */
+#define HUD_SLOT_BTN_H  22    /* achats de slots (bas du panneau gauche)           */
+#define HUD_TP_GAP       4    /* fiche de tour : écart entre rangées de boutons    */
+#define HUD_TP_UPG_H    34    /* … améliorations (libellé + niveau·coût)           */
+#define HUD_TP_ROW_H    24    /* … [CIBLE] [RÉPARER] [VENDRE]                      */
+#define HUD_TP_MAT_H    22    /* … appliquer un minerai                            */
+/* Zone de contenu du panneau droit (fiche de sélection / renseignement). */
+#define HUD_RX(vw)      ((vw) - UI_PANEL_W + HUD_PANEL_PAD)
+#define HUD_RW          (UI_PANEL_W - HUD_PANEL_PAD * 2)
+/* Zone de contenu du panneau gauche. */
+#define HUD_LX          HUD_PANEL_PAD
+#define HUD_LW          (UI_LEFT_PANEL_W - HUD_PANEL_PAD * 2)
+/* Rectangles de tous les boutons fixes du panneau bas (cartes, vague,
+   pause, panneau droit, achats de slots) pour un HUD débutant à hud_y. */
+void hud_layout_buttons(UIState *ui, int hud_y);
+/* Actions sur une tour posée — SOURCE UNIQUE pour le clic sur son bouton
+   et pour son raccourci clavier (hud_input_click.c). 1 = action traitée. */
+typedef enum { TACT_DMG = 0, TACT_RANGE, TACT_RATE, TACT_REPAIR, TACT_SELL, TACT_TARGET } TowerAction;
+int hud_tower_action(UIState *ui, GameState *gs, int idx, TowerAction a);
+/* Raccourcis de la tour sélectionnée. Codes = POSITIONS physiques (US) :
+   Q/W/E = A/Z/E sur AZERTY ; libellé affiché via opts_key_name(). */
+#define HUD_KEY_UPG_DMG    KEY_Q
+#define HUD_KEY_UPG_RANGE  KEY_W
+#define HUD_KEY_UPG_RATE   KEY_E
+#define HUD_KEY_REPAIR     KEY_R
+#define HUD_KEY_TARGET     KEY_T
+#define HUD_KEY_SELL       KEY_DELETE
+#define HUD_KEY_NEXT_TOWER KEY_TAB
+#define HUD_KEY_SHOW_RANGE KEY_LEFT_ALT   /* maintenue : portées de toutes les tours */
+/* Couleurs du panneau bas partagées par ses sections. */
+#define HUD_COL_TOWER   ((Color){214, 160,  60, 255})   /* tout ce qui est « tour »  */
+#define HUD_COL_UNIT    ((Color){110, 200, 110, 255})   /* tout ce qui est « unité » */
+#define HUD_COL_GREY    ((Color){110,  95,  75, 255})   /* texte d'un élément éteint */
+#define HUD_KEY_FS       7    /* petite touche de raccourci (cartes, pause)        */
+#define HUD_BTN_FS_MIN   8    /* libellé de bouton : plus petit lisible avant coupe */
 
 // ════════════════════════════════════════════════════
 // COÛTS DES ACHATS EN JEU
@@ -79,6 +132,9 @@ typedef struct {
 } ToolInfo;
 
 extern const ToolInfo  TOOL_INFO[TOOL_COUNT];
+/* Fiche d'outil avec les chiffres RÉELS (stats de tours / unités) : à
+   utiliser pour tout affichage de coût, dégâts, portée, cadence (hud.c). */
+ToolInfo hud_tool_info(ToolID id);
 extern       Color     TOOL_COLORS[TOOL_COUNT];
 extern const int       TOWER_UNLOCK_AT[TOWER_TYPE_COUNT];
 extern const char     *TOWER_UNLOCK_ACT_NAME[TOWER_TYPE_COUNT];
@@ -123,6 +179,16 @@ Color hud_sel_col(Color c);
 int   hud_sel_portrait(Texture2D tex, int px, int py, int psz, Color border, float t);
 int   hud_sel_tower(const UIState *ui, const GameState *gs,       // _sel_tower.c
                     int rx, int max_w, int py, float sel_t);
+/* Panneau droit au repos : renseignement de vague (hud_render_intel.c). */
+void  hud_render_intel(const UIState *ui, const GameState *gs, int rx, int max_w);
+/* Bouton du panneau droit en plaque : libellé centré (taille fs). */
+void  hud_plate_btn(const Rectangle *r, Color acc, int enabled, int active,
+                    const char *lbl, int fs, Color lc);
+/* … avec la touche de raccourci `key` à gauche (nom selon le clavier) et le
+   libellé centré dans le reste. hud_btn_keycap : la touche seule (largeur). */
+void  hud_plate_btn_key(const Rectangle *r, Color acc, int enabled, int key,
+                        const char *lbl, int fs, Color lc);
+int   hud_btn_keycap(const Rectangle *r, int key);
 /* Sections de ui_render, dans l'ordre de dessin. */
 void  hud_render_left_panel  (const UIState *ui, const GameState *gs);  // _info.c
 void  hud_render_wave_button (const UIState *ui, const GameState *gs);  // _wave.c
@@ -150,3 +216,15 @@ int   hud_click_map         (UIState *ui, GameState *gs, Vector2 mouse, int HUD_
    vide, ennemis non découverts en campagne, ou multiplicateurs plats).
    Partagé : tooltip de pose 2D, bouton matériau 2D, invites héros. */
 int     hud_counter_advice(const GameState *gs, char *out, int out_sz);
+
+/* Types de dégâts auxquels un ennemi est FAIBLE (weak_side = 1 : ×dégâts ≥
+   HUD_DMG_WEAK_MULT) ou qu'il RÉSISTE (0 : ≤ HUD_DMG_RESIST_MULT), en liste
+   « Feu ×1.5, Électrique ×1.3 » (with_mult) ou « Feu, Électrique ». Retourne
+   le nombre de types. Partagé : fiche de découverte, fiche au survol. */
+#define HUD_DMG_WEAK_MULT    1.30f
+#define HUD_DMG_RESIST_MULT  0.70f
+int     hud_enemy_dmg_list(int etype, int weak_side, int with_mult, char *out, int out_sz);
+/* Ennemi sous la souris (coords canvas) sur la carte, -1 = aucun. */
+int     hud_enemy_pick(const GameState *gs, Vector2 mouse);
+/* Fiche de l'ennemi survolé (hud_render_enemy.c). */
+void    hud_render_enemy_tip(const UIState *ui, const GameState *gs);

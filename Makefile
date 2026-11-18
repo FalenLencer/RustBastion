@@ -6,7 +6,7 @@
 # ── Sources ─────────────────────────────────────────────────────
 SRC = Src/main.c                                                              \
       Src/engine/audio.c       Src/engine/canvas.c    Src/engine/window.c   \
-      Src/engine/assets.c      Src/engine/paths.c                            \
+      Src/engine/assets.c      Src/engine/paths.c     Src/engine/logfile.c  \
       Src/game/game_state.c    Src/game/game_init.c   Src/game/save.c       \
       Src/game/meta.c          Src/game/app.c Src/game/hazard.c Src/game/hints.c Src/game/app_menu.c Src/game/app_render.c         Src/game/runperks.c   \
       Src/game/app_tutorial.c  Src/game/app_mp.c Src/game/app_flow.c                            \
@@ -17,7 +17,7 @@ SRC = Src/main.c                                                              \
       Src/game/campaign_story_branches.c                                    \
       Src/map/map_gen.c        Src/map/pathfinding.c  Src/map/theme.c       \
       Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c    \
-      Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
+      Src/combat/unit.c        Src/combat/unit_guard.c Src/combat/projectile.c Src/combat/material.c \
       Src/combat/fx.c          Src/combat/move.c                             \
       Src/ui/renderer.c Src/ui/terrain_bake.c Src/ui/terrain_ground.c Src/ui/terrain_pad.c Src/ui/terrain_ruins.c Src/ui/terrain_ore.c Src/ui/pixel_paint.c Src/ui/hazard_art.c Src/ui/renderer_entities.c Src/ui/entity_fx.c Src/ui/renderer_tower_fx.c Src/ui/renderer_towers.c        Src/ui/ui_utils.c Src/ui/ui_plate.c Src/ui/tile_art.c \
       Src/ui/tile_art_decor.c  Src/ui/ambient.c                              \
@@ -25,7 +25,7 @@ SRC = Src/main.c                                                              \
       Src/ui/render3d.c        Src/ui/render3d_units.c Src/ui/render3d_enemies.c \
       Src/ui/render3d_world.c  Src/ui/render3d_terrain.c Src/ui/render3d_fx.c \
       Src/ui/perk_art.c                                                     \
-      Src/ui/hud.c             Src/ui/hud_input.c Src/ui/hud_input_layout.c Src/ui/hud_input_click.c Src/ui/hud_input_map.c     Src/ui/hud_render.c Src/ui/hud_render_info.c Src/ui/hud_render_wave.c Src/ui/hud_render_sel.c Src/ui/hud_render_sel_tower.c Src/ui/hud_render_ovl.c Src/ui/hud_render_world.c Src/ui/hud_render_disc.c   \
+      Src/ui/hud.c             Src/ui/hud_input.c Src/ui/hud_input_layout.c Src/ui/hud_input_click.c Src/ui/hud_input_map.c     Src/ui/hud_render.c Src/ui/hud_render_info.c Src/ui/hud_render_wave.c Src/ui/hud_render_sel.c Src/ui/hud_render_sel_tower.c Src/ui/hud_render_intel.c Src/ui/hud_render_enemy.c Src/ui/hud_render_ovl.c Src/ui/hud_render_world.c Src/ui/hud_render_disc.c   \
       Src/ui/menu.c            Src/ui/menu_hub.c Src/ui/menu_screens.c  Src/ui/menu_campaign.c Src/ui/menu_campaign_info.c Src/ui/menu_journal.c \
       Src/ui/menu_anim.c       Src/ui/menu_anim_worker.c Src/ui/menu_anim_poses.c \
       Src/ui/menu_options.c    Src/ui/menu_upgrades.c Src/ui/menu_bestiary.c \
@@ -49,6 +49,14 @@ OBJ_DIR      = $(BUILD_DIR)/obj
 # ── ZIP ─────────────────────────────────────────────────────────
 ZIP_WIN      = $(RELEASE_DIR)/rustbastion_win.tar.gz
 ZIP_LINUX    = $(RELEASE_DIR)/rustbastion_linux.tar.gz
+
+# ── Tampon de version (Src/engine/version.h) ────────────────────
+# Date/heure de compilation + révision git (lecture seule), affichés à
+# l'écran titre, en pause et dans le journal : un exe de release en
+# retard sur les sources se reconnaît d'un coup d'œil.
+BUILD_STAMP := $(shell date '+%Y-%m-%d %H:%M')
+BUILD_REV   := $(shell git rev-parse --short HEAD 2>/dev/null || echo nogit)
+VERSION_DEF  = -DRB_BUILD_STAMP='"$(BUILD_STAMP)"' -DRB_BUILD_REV='"$(BUILD_REV)"'
 
 # ════════════════════════════════════════════════════════════════
 #  LINUX
@@ -105,7 +113,7 @@ HDR = $(wildcard Src/*.h Src/*/*.h)
 
 $(OUT_LINUX): $(SRC) $(HDR)
 	@mkdir -p $(BUILD_DIR)
-	$(CC_LINUX) $(CFLAGS_LINUX) $(SRC) -o $(OUT_LINUX) $(LDFLAGS_LINUX)
+	$(CC_LINUX) $(CFLAGS_LINUX) $(VERSION_DEF) $(SRC) -o $(OUT_LINUX) $(LDFLAGS_LINUX)
 	@echo "✓ Linux build : $(OUT_LINUX)"
 
 # ── Windows — icône ──────────────────────────────────────────────
@@ -118,7 +126,7 @@ win: $(OUT_WIN)
 
 $(OUT_WIN): $(SRC) $(ICON_OBJ) $(HDR)
 	@mkdir -p $(BUILD_DIR)
-	$(CC_WIN) $(CFLAGS_WIN) $(SRC) $(ICON_OBJ) -o $(OUT_WIN) $(LDFLAGS_WIN)
+	$(CC_WIN) $(CFLAGS_WIN) $(VERSION_DEF) $(SRC) $(ICON_OBJ) -o $(OUT_WIN) $(LDFLAGS_WIN)
 	@echo "✓ Windows build : $(OUT_WIN)"
 
 # ════════════════════════════════════════════════════════════════

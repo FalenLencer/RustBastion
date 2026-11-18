@@ -14,6 +14,7 @@
 #include "ui_anim.h"                 // horloge + hover animés de l'UI
 #include "ui_palette.h"              // palette UI (source unique)
 #include "../game/campaign_data.h"   // campaign_difficulty_stage (aperçu de vague)
+#include "ui_plate.h"                // boutons en plaque de métal
 // ── Animation d'entrée du panneau droit (crossfade de sélection) ──
 // Quand le sujet affiché change (tour / unité / outil), le contenu
 // glisse de +10px et fond en 0.18 s. Les TEXTES passent par hud_sel_txt()
@@ -25,6 +26,9 @@
 #define SEL_SLIDE_PX     10.0f   // glissement horizontal du texte (px)
 #define SEL_FS           12      // lignes de la fiche d'unité (PV, état…)
 #define SEL_BTN_FS        8      // libellés des boutons de comportement
+#define SEL_BTN_IDLE     ((Color){175, 158, 125, 255})   /* libellé d'un bouton au repos */
+#define SEL_RED          ((Color){200,  70,  50, 255})   /* vendre / renvoyer            */
+#define SEL_RED_TXT      ((Color){240, 130, 100, 255})
 
 static int   g_sel_dx = 0;       // offset x courant des textes du panneau
 static float g_sel_al = 1.0f;    // facteur alpha courant du contenu
@@ -65,6 +69,49 @@ Color hud_sel_col(Color c) {
     return c;
 }
 
+/* Bouton du panneau droit en plaque de métal (fondu avec le contenu) ;
+   `active` = état retenu (comportement courant) : corps éclairé. */
+/* Corps du bouton (fondu avec le contenu du panneau). */
+static void btn_body(const Rectangle *r, Color acc, int enabled, int active, int grips) {
+    int hov = enabled && CheckCollisionPointRec(virt_mouse(), *r);
+    plate_alpha(g_sel_al);
+    plate_button_ex(*r, acc, hov || active, enabled, grips);
+    plate_alpha(1.0f);
+}
+
+void hud_plate_btn(const Rectangle *r, Color acc, int enabled, int active,
+                   const char *lbl, int fs, Color lc) {
+    btn_body(r, acc, enabled, active, 1);
+    if (active)                     /* témoin allumé : l'état retenu se lit d'un coup d'œil */
+        DrawRectangle((int)r->x + 6, (int)(r->y + r->height) - 5, (int)r->width - 12, 2,
+                      hud_sel_col(acc));
+    if (lbl) {
+        int w = mtxt(lbl, fs);
+        dtxt(lbl, (int)(r->x + r->width / 2) - w / 2, (int)(r->y + (r->height - fh(fs)) / 2),
+             fs, hud_sel_col(lc));
+    }
+}
+
+int hud_btn_keycap(const Rectangle *r, int key) {
+    char kn[16];
+    opts_key_name(key, kn, sizeof(kn));
+    int kh = fh(HUD_KEY_FS) + 4;
+    return plate_keycap_fs((int)r->x + 5, (int)(r->y + (r->height - kh) / 2), kn,
+                           hud_sel_col(UI_ACCENT), HUD_KEY_FS);
+}
+
+void hud_plate_btn_key(const Rectangle *r, Color acc, int enabled, int key,
+                       const char *lbl, int fs, Color lc) {
+    btn_body(r, acc, enabled, 0, 0);                   /* sans prises : la touche les remplace */
+    int kw = hud_btn_keycap(r, key);
+    int x0 = (int)r->x + 5 + kw, x1 = (int)(r->x + r->width) - 5;   /* reste du bouton */
+    while (mtxt(lbl, fs) > x1 - x0 - 4 && fs > HUD_BTN_FS_MIN) fs--;   /* réduire avant de couper */
+    char b[48];
+    clip_text(lbl, x1 - x0 - 4, fs, b, sizeof(b));
+    dtxt(b, (x0 + x1) / 2 - mtxt(b, fs) / 2, (int)(r->y + (r->height - fh(fs)) / 2), fs,
+         hud_sel_col(lc));
+}
+
 // Portrait avec pop d'entrée : scale 0.85 → 1.0 (ea_out_back) + bordure
 // en fondu, centré dans la boîte psz × psz d'origine.
 int hud_sel_portrait(Texture2D tex, int px, int py, int psz,
@@ -83,8 +130,8 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
     // PANNEAU DROIT — sélection tour / outil / unité
     // ════════════════════════════════════════════════
     {
-        const int rx    = VIRT_W - UI_PANEL_W + M;
-        const int max_w = UI_PANEL_W - M * 2;
+        const int rx    = HUD_RX(VIRT_W);
+        const int max_w = HUD_RW;
         int py = HUD_Y + M;
         char buf[48];
 
@@ -214,73 +261,33 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
             if (u->type != UNIT_WORKER) {
                 static const char *BLBL[4] = {"PATROL","GARDE","ESCORT","MANUEL"};
                 static const Color BCOL[4] = {
-                    {100,85,55,255},{192,57,43,255},{200,200,50,255},{82,155,200,255}
+                    {175,150,100,255},{192,57,43,255},{200,200,50,255},{82,155,200,255}
                 };
-                Vector2 _vm4 = virt_mouse();
                 for (int _b = 0; _b < 4; _b++) {
-                    const Rectangle *_br = &ui->unit_beh_btns[_b];
                     int _active = ((int)u->behavior == _b);
-                    int _hov    = CheckCollisionPointRec(_vm4, *_br);
-                    Color _bg   = _active ? (Color){20,12,4,240}
-                                : _hov   ? (Color){14,8,2,220}
-                                         : UI_PANEL_BG_SOFT;
-                    Color _brd  = _active ? BCOL[_b] : _hov
-                                ? (Color){BCOL[_b].r/2,BCOL[_b].g/2,BCOL[_b].b/2,200}
-                                : (Color){50,38,14,150};
-                    DrawRectangleRounded(*_br, 0.20f, 4, _bg);
-                    DrawRectangleRoundedLinesEx(*_br, 0.20f, 4,
-                        _active ? 2.0f : 1.0f, hud_sel_col(_brd));
-                    /* Mesuré à la taille DESSINÉE (centrage exact) */
-                    int _tw4 = mtxt(BLBL[_b], SEL_BTN_FS);
-                    dtxt(BLBL[_b],
-                         (int)(_br->x + _br->width/2 - _tw4/2),
-                         (int)(_br->y + _br->height/2 - fh(SEL_BTN_FS)/2),
-                         SEL_BTN_FS, _active ? BCOL[_b] : (Color){110,90,55,220});
+                    hud_plate_btn(&ui->unit_beh_btns[_b], BCOL[_b], 1, _active,
+                                  BLBL[_b], SEL_BTN_FS,
+                                  _active ? (Color){245, 235, 215, 255} : SEL_BTN_IDLE);
                 }
                 /* 5e bouton : SUIVRE (médic uniquement) */
                 if (u->type == UNIT_MEDIC) {
-                    const Rectangle *_br5 = &ui->unit_beh_btns[4];
-                    int   _act5 = (u->behavior == UBEH_FOLLOW_UNIT);
-                    int   _hov5 = CheckCollisionPointRec(_vm4, *_br5);
-                    Color _sc5  = {231, 76, 60, 255};
-                    Color _bg5  = _act5 ? (Color){20,12,4,240}
-                                : _hov5 ? (Color){14,8,2,220}
-                                        : UI_PANEL_BG_SOFT;
-                    Color _brd5 = _act5 ? _sc5
-                                : _hov5 ? (Color){_sc5.r/2,_sc5.g/2,_sc5.b/2,200}
-                                        : (Color){50,38,14,150};
-                    DrawRectangleRounded(*_br5, 0.20f, 4, _bg5);
-                    DrawRectangleRoundedLinesEx(*_br5, 0.20f, 4,
-                        _act5 ? 2.0f : 1.0f, hud_sel_col(_brd5));
-                    const char *_lbl5 = "SUIVRE UNITÉ";
-                    int _tw5 = mtxt(_lbl5, SEL_BTN_FS);
-                    dtxt(_lbl5,
-                         (int)(_br5->x + _br5->width/2 - _tw5/2),
-                         (int)(_br5->y + _br5->height/2 - fh(SEL_BTN_FS)/2),
-                         SEL_BTN_FS, _act5 ? _sc5 : (Color){110,90,55,220});
+                    int _act5 = (u->behavior == UBEH_FOLLOW_UNIT);
+                    hud_plate_btn(&ui->unit_beh_btns[4], (Color){231, 76, 60, 255}, 1, _act5,
+                                  "SUIVRE UNITÉ", SEL_BTN_FS,
+                                  _act5 ? (Color){245, 235, 215, 255} : SEL_BTN_IDLE);
                 }
             }
 
             // Bouton RENVOYER
             {
-                Rectangle ub   = ui->unit_sell_btn;
-                float     urnd = (float)UI_RADIUS / ub.height;
-                Vector2   m    = virt_mouse();
-                int hov = CheckCollisionPointRec(m, ub);
-                DrawRectangleRounded(ub, urnd, 6,
-                    hov ? (Color){30,10,4,255} : (Color){14,4,2,255});
-                DrawRectangleRoundedLinesEx(ub, urnd, 6, 1.5f,
-                    hud_sel_col(hov ? (Color){192,80,48,255} : (Color){80,30,16,255}));
                 int refund = (int)(UNIT_BASE_STATS[u->type].cost * UNIT_SELL_REFUND);
                 snprintf(buf, sizeof(buf), "Renvoyer  +%d or", refund);
-                int bw = mtxt(buf, 13);
-                dtxt(buf, (int)(ub.x + ub.width/2 - bw/2),
-                         (int)(ub.y + ub.height/2 - fh(13)/2),
-                         13, (Color){192,90,58,255});
+                hud_plate_btn(&ui->unit_sell_btn, SEL_RED, 1, 0, buf, 13, SEL_RED_TXT);
             }
 
         } else if (ui->selected_tool != TOOL_NONE) {
-            const ToolInfo *info = &TOOL_INFO[ui->selected_tool];
+            const ToolInfo  ti   = hud_tool_info(ui->selected_tool);   /* chiffres réels */
+            const ToolInfo *info = &ti;
             Color col = TOOL_COLORS[ui->selected_tool];
 
             // Portrait splash
@@ -339,10 +346,8 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
 
         } else {
             panel_right_empty:
-            /* Invite sur 2 lignes (le panneau est large) au pas fh() */
-            dtxt("Cliquez sur un outil",   rx, py, 13, (Color){80, 64, 40, 255});
-            py += fh(13);
-            dtxt("ou sur une tour posée.", rx, py, 13, (Color){80, 64, 40, 255});
+            /* Au repos : renseignement de vague (composition, contre, raccourcis) */
+            hud_render_intel(ui, gs, rx, max_w);
         }
 
         /* Fin du panneau droit : helpers redevenus neutres pour le reste */

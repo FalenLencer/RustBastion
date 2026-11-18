@@ -6,7 +6,8 @@
 
 #include "unit.h"
 #include "tower.h"
-#include "move.h"               // collision-déplacement commune (anti-traversée)
+#include "move.h"
+#include "unit_guard.h"   /* postes de garde sur les routes d'approche */               // collision-déplacement commune (anti-traversée)
 #include "combat_math.h"
 #include "../game/runperks.h"   // g_run_mods (build de run)
 #include "../engine/audio.h"
@@ -309,34 +310,8 @@ void unit_damage(Unit *u, float dmg) {
     // et gère count-- correctement au début du prochain frame
 }
 
-/* ════════════════════════════════════════════════════
-   CIBLAGE ENNEMI
-   ════════════════════════════════════════════════════ */
-static int find_enemy_target(const Unit *u, const EnemyPool *ep,
-                              float base_px, float base_py)
-{
-    // L'ouvrier ne cherche pas de cible spontanément
-    if (u->type == UNIT_WORKER) return -1;
-
-    float intercept_px = u->intercept_range * TILE_SIZE;
-    int   best         = -1;
-    float best_score   = -FLT_MAX;
-
-    for (int i = 0; i < MAX_ENEMIES; i++) {
-        const Enemy *e = &ep->enemies[i];
-        if (!e->active || e->dead || e->spawn_delay > 0.0f) continue;
-
-        float d_base = gdist(e->x, e->y, base_px, base_py);
-        float d_unit = gdist(e->x, e->y, u->x,    u->y);
-
-        if (d_base > intercept_px && d_unit > u->atk_range * TILE_SIZE * 3.0f)
-            continue;
-
-        float score = -d_base;
-        if (score > best_score) { best_score = score; best = i; }
-    }
-    return best;
-}
+/* Ciblage ennemi (vision depuis le point gardé) : unit_find_enemy_target,
+   unit_guard.c. */
 
 static int find_heal_target(const Unit *medic, const UnitPool *up) {
     float heal_range = UNIT_MEDIC_HEAL_RANGE * TILE_SIZE;
@@ -359,7 +334,7 @@ static int find_heal_target(const Unit *medic, const UnitPool *up) {
    ════════════════════════════════════════════════════ */
 void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
                       MaterialType *inventory, int *inv_count,
-                      const TowerPool *towers)
+                      const TowerPool *towers, const PathSet *paths)
 {
     /* Invalide la grille de navigation : elle sera reconstruite par la
        première unité qui se déplace, puis RÉUTILISÉE par toutes les
@@ -667,6 +642,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
         // ── Résolution du comportement : position "home" effective ──
         float eff_hx = u->home_base_px;
         float eff_hy = u->home_base_py;
+        int   posted = 0;          /* 1 = garde un poste de route d'approche */
 
         switch (u->behavior) {
         case UBEH_GUARD_TOWER:
@@ -731,6 +707,9 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             }
             break;
         default: // UBEH_PATROL
+            /* Poste sur une ROUTE D'APPROCHE de la base (plus d'orbite à
+               360° qui passait la moitié du temps du côté vide). */
+            posted = unit_guard_post(up, i, map, paths, &eff_hx, &eff_hy);
             break;
         }
 
@@ -758,7 +737,7 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
             }
         }
 
-        int tgt = can_attack ? find_enemy_target(u, ep, eff_hx, eff_hy) : -1;
+        int tgt = can_attack ? unit_find_enemy_target(u, ep, eff_hx, eff_hy, posted) : -1;
         u->target_idx = tgt;
 
         if (tgt != -1) {
@@ -831,8 +810,17 @@ void unit_pool_update(UnitPool *up, EnemyPool *ep, Map *map, float dt,
         } else if (u->behavior != UBEH_MANUAL || !u->manual_moving) {
             // Pas d'ennemi et pas en déplacement manuel actif → patrouille
             u->state = USTATE_PATROL;
-            if (u->behavior == UBEH_MANUAL) {
-                // En mode manuel : rester au point de destination (pas d'orbite)
+            if (u->behavior == UBEH_MANUAL || posted) {
+                /* Manuel : rester au point de destination. Poste de garde :
+                   le tenir (validé contre le décor), en sentinelle. */
+                if (posted) {
+                    u->patrol_angle += UNIT_PATROL_ANGLE_SPEED * dt;   /* va-et-vient */
+                    float fpx, fpy;
+                    if (move_free_spot(map, towers, eff_hx, eff_hy, u->size,
+                                       MOVE_F_ALLY, &fpx, &fpy)) {
+                        eff_hx = fpx; eff_hy = fpy;
+                    }
+                }
                 float dist = gdist(u->x, u->y, eff_hx, eff_hy);
                 if (dist > UNIT_PATROL_SLACK) {
                     float step = u->speed * TILE_SIZE * UNIT_PATROL_SPEED_FRAC * dt;

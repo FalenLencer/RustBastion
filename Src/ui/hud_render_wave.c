@@ -4,209 +4,148 @@
  * Unauthorized copying or distribution is prohibited.
  */
 
-/*  hud_render_wave.c ─ Bouton LANCER VAGUE (+ aperçu) et bandeau de fin de vague.
+/*  hud_render_wave.c ─ Bouton LANCER LA VAGUE et bandeau de fin de vague.
  *
- *  Extrait de hud_render.c (règle projet : fichiers < 500 lignes) ; le code
- *  des sections est inchangé, ui_render() les appelle dans le même ordre.
+ *  L'aperçu de la prochaine vague (autrefois un panneau flottant posé sur
+ *  la carte, au-dessus du bouton) vit dans le panneau droit au repos :
+ *  hud_render_intel.c.
  */
 
 #include "hud_internal.h"
 #include "ui_anim.h"                 // horloge + hover animés de l'UI
 #include "ui_palette.h"              // palette UI (source unique)
-#include "../game/campaign_data.h"   // campaign_difficulty_stage (aperçu de vague)
-// ── Bouton LANCER VAGUE (PROMPT I) ────────────────────────────
-#define WAVE_BREATH_FREQ   3.2f   // respiration de la bordure (rad/s)
-#define WAVE_URGENT_FREQ   7.0f   // respiration accélérée (timer bonus bas)
-#define WAVE_URGENT_RATIO  0.2f   // seuil d'urgence sur le timer bonus
-#define WAVE_PV_IN_DUR     0.25f  // apparition du panneau d'aperçu (s)
-#define WAVE_PV_RISE       8.0f   // glissement du panneau depuis le bouton (px)
-#define WAVE_PV_ICON_STEP  0.05f  // délai entre icônes d'ennemis (s)
-#define WAVE_PV_ICON_DUR   0.20f  // pop d'une icône (s)
+#include "ui_plate.h"                // bouton en plaque de métal
+// ── Bouton LANCER LA VAGUE ────────────────────────────────────
+#define WAVE_BREATH_FREQ   3.2f   // respiration du halo (rad/s)
+#define WAVE_URGENT_FREQ   7.0f   // respiration accélérée (bonus bientôt perdu)
+#define WAVE_URGENT_RATIO  0.2f   // seuil d'urgence sur le minuteur de préparation
 #define WAVE_RING_DUR      0.30f  // anneau expansif au lancement (s)
 #define WAVE_RING_RADIUS   40.0f  // rayon final de l'anneau (px)
+#define WAVE_HDR_FS        9      // « VAGUE 4 »
+#define WAVE_TITLE_FS      18     // « LANCER »
+#define WAVE_BONUS_FS      14     // « +14 »
+#define WAVE_BIG_FS        26     // ennemis restants (en vague)
+#define WAVE_SMALL_FS      8      // légendes
+#define WAVE_BAR_H         6
+#define WAVE_GO_COL        ((Color){ 70, 215, 120, 255})   /* prêt à lancer       */
+#define WAVE_HURRY_COL     ((Color){243, 156,  18, 255})   /* bonus presque perdu */
+#define WAVE_FIGHT_COL     ((Color){215,  85,  60, 255})   /* vague en cours      */
+#define WAVE_HDR_COL       ((Color){190, 172, 128, 255})
+#define WAVE_GOLD_COL      ((Color){240, 168,  45, 255})
 
-/* Bouton LANCER VAGUE, aperçu de la prochaine vague. */
+/* Texte centré sur x. */
+static void ctxt(const char *s, int cx, int y, int fs, Color c) {
+    dtxt(s, cx - mtxt(s, fs) / 2, y, fs, c);
+}
+
+/* Bouton LANCER LA VAGUE : en préparation, gros appel à l'action vert
+   (orange quand le bonus d'avance s'épuise) avec sa touche, le bonus en or
+   et le compte à rebours ; pendant la vague, l'état du combat (ennemis
+   restants + progression). */
 void hud_render_wave_button(const UIState *ui, const GameState *gs) {
     HUD_FRAME_LOCALS;
-    // ════════════════════════════════════════════════
-    // BOUTON LANCER VAGUE (masqué en Asym pur : pas de lancement manuel)
-    // ════════════════════════════════════════════════
-    if (!gs->wave_manager.lock_manual) {
-        const Rectangle *wb = &ui->wave_btn;
-        int   in_prep = (gs->phase == PHASE_PREP);
-        float ratio   = gs->wave_manager.prep_timer / PREP_TIME;
-        if (ratio < 0.0f) ratio = 0.0f;
-        if (ratio > 1.0f) ratio = 1.0f;
+    if (gs->wave_manager.lock_manual) return;   /* Asym pur : pas de lancement manuel */
 
-        /* ── Horloges locales (accumulées via ui_dt, jamais GetTime) ── */
-        static float wave_t   = 0.0f;   // respiration continue
-        static float pv_t     = 0.0f;   // apparition de l'aperçu (prep)
-        static float ring_t   = 1e9f;   // anneau de lancement
-        static int   was_prep = 0;
-        wave_t += ui_dt();
-        if (in_prep) pv_t += ui_dt(); else pv_t = 0.0f;
-        if (was_prep && !in_prep) ring_t = 0.0f;   // prep → vague : lancement
-        was_prep = in_prep;
-        ring_t += ui_dt();
+    const Rectangle *wb = &ui->wave_btn;
+    int   in_prep = (gs->phase == PHASE_PREP);
+    float ratio   = gs->wave_manager.prep_timer / PREP_TIME;
+    if (ratio < 0.0f) ratio = 0.0f;
+    if (ratio > 1.0f) ratio = 1.0f;
 
-        /* Survol (lissé) : fond éclairci + texte grossi (seulement en prep) */
-        int   whov = CheckCollisionPointRec(virt_mouse(), *wb);
-        float whk  = ui_hover_t((int)wb->x, (int)wb->y, whov && in_prep);
+    /* ── Horloges locales (accumulées via ui_dt, jamais GetTime) ── */
+    static float wave_t   = 0.0f;   // respiration continue
+    static float ring_t   = 1e9f;   // anneau de lancement
+    static int   was_prep = 0;
+    wave_t += ui_dt();
+    if (was_prep && !in_prep) ring_t = 0.0f;   // prep → vague : lancement
+    was_prep = in_prep;
+    ring_t += ui_dt();
 
-        float wrnd = (float)UI_RADIUS / wb->height;
-        Color wbg  = in_prep ? (Color){(unsigned char)(5  + whk * 8.0f),
-                                       (unsigned char)(20 + whk * 22.0f),
-                                       (unsigned char)(8  + whk * 10.0f), 255}
-                             : (Color){7, 7, 7, 255};
-        DrawRectangleRounded(*wb, wrnd, 6, wbg);
+    int   whov = CheckCollisionPointRec(virt_mouse(), *wb) && in_prep;
+    float whk  = ui_hover_t((int)wb->x, (int)wb->y, whov);
+    int   wx   = (int)(wb->x + wb->width / 2);
+    int   y    = (int)wb->y + 12;
+    int   boss = in_prep && game_next_wave_is_boss(gs);
+    int   bar_x = (int)wb->x + 12, bar_w = (int)wb->width - 24;
+    int   bar_y = (int)(wb->y + wb->height) - 12 - WAVE_BAR_H;
+    char  b[32];
 
-        if (in_prep) {
-            /* Bordure qui respire — verte, orange et rapide en urgence */
-            int   urgent = (ratio < WAVE_URGENT_RATIO);
-            float freq   = urgent ? WAVE_URGENT_FREQ : WAVE_BREATH_FREQ;
-            float p      = (sinf(wave_t * freq) + 1.0f) * 0.5f;
-            Color bc     = urgent ? (Color){243, 156, 18, 0}
-                                  : (Color){ 42, 188, 105, 0};
-            bc.a = (unsigned char)(200.0f + 55.0f * p);
-            DrawRectangleRoundedLinesEx(*wb, wrnd, 6, 1.5f + 0.8f * p, bc);
-            /* Halo : cadre 2 px plus large, alpha pulsé */
-            Rectangle hb = {wb->x - 2, wb->y - 2, wb->width + 4, wb->height + 4};
-            DrawRectangleRoundedLinesEx(hb, wrnd, 6, 2.0f,
-                (Color){bc.r, bc.g, bc.b, (unsigned char)(p * 60.0f)});
-        } else {
-            DrawRectangleRoundedLinesEx(*wb, wrnd, 6, 1.5f,
-                                        (Color){30, 30, 30, 255});
+    if (in_prep) {
+        int   urgent = (ratio < WAVE_URGENT_RATIO);
+        Color acc    = urgent ? WAVE_HURRY_COL : WAVE_GO_COL;
+        float p      = (sinf(wave_t * (urgent ? WAVE_URGENT_FREQ : WAVE_BREATH_FREQ)) + 1.0f) * 0.5f;
+        plate_chamfer_line(plate_inset(*wb, -3.0f), PLATE_CHAMFER_S + 2.0f,
+                           plate_fade(acc, 0.15f + 0.35f * p));          /* halo qui respire */
+        plate_button(*wb, acc, whov, 1);
+        if (boss) {                                    /* préavis de BOSS : rayures */
+            plate_hazard((int)wb->x + 8, (int)wb->y + 6, (int)wb->width - 16, 4, UI_DANGER);
+            plate_hazard((int)wb->x + 8, (int)(wb->y + wb->height) - 9, (int)wb->width - 16, 3, UI_DANGER);
         }
 
-        Color tcol = ratio > 0.5f ? UI_SUCCESS
-                   : ratio > 0.2f ? UI_WARN
-                                  : UI_DANGER;
-        hud_draw_bar((int)wb->x + GAP,
-                 (int)wb->y + (int)wb->height - 12,
-                 (int)wb->width - GAP*2, 5,
-                 ratio, tcol, (Color){16,16,16,255});
+        snprintf(b, sizeof(b), boss ? "VAGUE %d : BOSS" : "VAGUE %d", gs->wave_manager.number + 1);
+        ctxt(b, wx, y, WAVE_HDR_FS, boss ? UI_DANGER : WAVE_HDR_COL);
+        y += fh(WAVE_HDR_FS) + 6;
 
-        int wx = (int)(wb->x + wb->width/2);
-        Color wlbl = in_prep ? (Color){42,188,105,255} : (Color){58,58,58,255};
+        int tfs = WAVE_TITLE_FS + (int)(whk + 0.5f);   /* grossit d'1 px au survol */
+        Color tc = {(unsigned char)(acc.r + (255 - acc.r) * 0.35f * whk),
+                    (unsigned char)(acc.g + (255 - acc.g) * 0.35f * whk),
+                    (unsigned char)(acc.b + (255 - acc.b) * 0.35f * whk), 255};
+        ctxt("LANCER", wx, y, tfs, tc);
+        y += fh(WAVE_TITLE_FS) + 4;
 
-        if (in_prep) {
-            const char *l1 = "LANCER";
-            int lfs = 13 + (int)(whk + 0.5f);   // 13 → 14 px au survol
-            dtxt(l1, wx - mtxt(l1,lfs)/2, (int)wb->y + M, lfs, wlbl);
+        const char *key = "ENTRÉE";
+        int kw = plate_key_hint(0, 0, key, "", 0) - 6;   /* largeur de la touche seule */
+        plate_keycap(wx - kw / 2, y, key, UI_ACCENT);
+        y += fh(9) + 4 + 2 + 8;
 
-            /* Bonus de lancement anticipé : icône or + nombre */
-            char b2[14];
-            snprintf(b2, sizeof(b2), "+%d", (int)(ratio*15.0f));
-            int ic2 = fh(10) - 4;
-            int b2w = ic2 + 3 + mtxt(b2, 10);
-            draw_icon(g_icon_gold, wx - b2w/2, (int)wb->y+29, ic2, WHITE);
-            dtxt(b2, wx - b2w/2 + ic2 + 3, (int)wb->y+27, 10,
-                     (Color){225,145,28,255});
+        /* Bonus d'avance : or gagné à lancer MAINTENANT (même calcul que le clic) */
+        int bonus = wave_early_launch_bonus(&gs->wave_manager);
+        snprintf(b, sizeof(b), "+%d", bonus);
+        int gi = fh(WAVE_BONUS_FS) - 7, bw = gi + 3 + mtxt(b, WAVE_BONUS_FS);
+        draw_icon(g_icon_gold, wx - bw / 2, y + 4, gi, bonus > 0 ? WHITE : HUD_COL_GREY);
+        dtxt(b, wx - bw / 2 + gi + 3, y, WAVE_BONUS_FS, bonus > 0 ? WAVE_GOLD_COL : HUD_COL_GREY);
+        y += fh(WAVE_BONUS_FS);
+        ctxt("bonus d'avance", wx, y, WAVE_SMALL_FS, HUD_COL_GREY);
 
-            char b3[10];
-            snprintf(b3, sizeof(b3), "%.0fs", gs->wave_manager.prep_timer);
-            dtxt(b3, wx - mtxt(b3,10)/2, (int)wb->y+40, 10,
-                     UI_BORDER);
-        } else {
-            const char *l1 = "EN COURS";
-            dtxt(l1, wx - mtxt(l1,11)/2,
-                     (int)(wb->y + wb->height/2 - 8), 11, wlbl);
-        }
+        snprintf(b, sizeof(b), "%.0f s", gs->wave_manager.prep_timer);
+        ctxt(b, wx, bar_y - fh(10) - 2, 10, urgent ? WAVE_HURRY_COL : WAVE_HDR_COL);
+        Color tcol = ratio > 0.5f ? UI_SUCCESS : ratio > WAVE_URGENT_RATIO ? UI_WARN : UI_DANGER;
+        hud_draw_bar(bar_x, bar_y, bar_w, WAVE_BAR_H, ratio, tcol, (Color){16, 16, 16, 255});
+    } else {
+        plate_button(*wb, WAVE_FIGHT_COL, 0, 1);
+        int alive    = enemy_pool_alive(&gs->enemies);
+        int to_spawn = gs->wave_manager.total_to_spawn - gs->wave_manager.total_spawned;
+        if (to_spawn < 0) to_spawn = 0;
+        int left = alive + to_spawn;
 
-        // ── Aperçu de la PROCHAINE VAGUE (pendant la prépa) ───────
-        // Montre les types susceptibles d'arriver → choix de défense
-        // éclairé. En campagne, un type non encore découvert s'affiche "?".
-        if (in_prep) {
-            EnemyType pv[ENEMY_TYPE_COUNT];
-            int max_stage = gs->is_campaign
-                ? campaign_difficulty_stage(gs->campaign_stage) - 1 : 9999;
-            int npv = wave_preview_types(gs->wave_manager.number + 1,
-                                         gs->map.theme, gs->is_campaign, max_stage,
-                                         gs->wave_manager.arcade_bias,
-                                         pv, ENEMY_TYPE_COUNT);
-            if (npv > 6) npv = 6;
-            if (npv > 0) {
-                /* Apparition : le panneau glisse depuis le bouton en fondu */
-                float pk = pv_t / WAVE_PV_IN_DUR;
-                if (pk > 1.0f) pk = 1.0f;
-                pk = ea_out_cubic(pk);
-                int dy = (int)(WAVE_PV_RISE * (1.0f - pk));
+        snprintf(b, sizeof(b), "VAGUE %d", gs->wave_manager.number);
+        ctxt(b, wx, y, WAVE_HDR_FS, WAVE_HDR_COL);
+        y += fh(WAVE_HDR_FS) + 6;
+        ctxt("EN COURS", wx, y, 13, WAVE_FIGHT_COL);
+        y += fh(13) + 6;
+        snprintf(b, sizeof(b), "%d", left);
+        ctxt(b, wx, y, WAVE_BIG_FS, (Color){240, 225, 200, 255});
+        y += fh(WAVE_BIG_FS);
+        ctxt(left > 1 ? "ennemis restants" : "ennemi restant", wx, y, WAVE_SMALL_FS, HUD_COL_GREY);
 
-                const int ic = 22, ig = 4, ip = 7;
-                /* Préavis de BOSS (campagne ET arcade) : le panneau s'élargit
-                   déjà à la largeur de l'en-tête (pw dérive de mtxt(hdr)). */
-                int boss_next = game_next_wave_is_boss(gs);
-                const char *hdr = boss_next ? "PROCHAINE VAGUE : BOSS !"
-                                            : "PROCHAINE VAGUE";
-                int hw     = mtxt(hdr, 10);
-                int stripw = npv*ic + (npv-1)*ig;
-                int pw     = (stripw > hw ? stripw : hw) + ip*2;
-                /* En-tête à sa hauteur réelle fh(10) : avec 15 px, les
-                   vignettes mordaient sur le libellé. */
-                const int hdr_h = 4 + fh(10) + 1;
-                int ph     = hdr_h + ic + ip;
-                int ppx    = wx - pw/2;
-                int ppy    = (int)wb->y - ph - 6 + dy;
-                DrawRectangleRounded((Rectangle){(float)ppx,(float)ppy,(float)pw,(float)ph},
-                                     0.16f, 5,
-                                     (Color){10, 7, 3, (unsigned char)(230.0f * pk)});
-                DrawRectangleRoundedLinesEx((Rectangle){(float)ppx,(float)ppy,(float)pw,(float)ph},
-                                            0.16f, 5, 1.2f,
-                                            (Color){70, 48, 16, (unsigned char)(210.0f * pk)});
-                /* En-tête rouge si un boss arrive : le préavis doit sauter aux yeux */
-                Color hdr_c = boss_next ? UI_DANGER : (Color){150, 120, 70, 255};
-                hdr_c.a = (unsigned char)(255.0f * pk);
-                dtxt(hdr, ppx + pw/2 - hw/2, ppy + 4, 10, hdr_c);
-                int ix = ppx + (pw - stripw)/2, iy = ppy + hdr_h;
-                for (int k = 0; k < npv; k++) {
-                    /* Cascade : icône k pope avec k×0.05 s de délai */
-                    float kj = (pv_t - WAVE_PV_ICON_STEP * (float)k)
-                             / WAVE_PV_ICON_DUR;
-                    if (kj <= 0.0f) { ix += ic + ig; continue; }
-                    float af  = kj > 1.0f ? 1.0f : kj;          // fondu
-                    float szf = 0.5f + 0.5f * ea_out_back(kj);  // scale 0.5→1
-                    float bs  = (float)ic * szf;
-                    float bx0 = (float)ix + ((float)ic - bs) * 0.5f;
-                    float by0 = (float)iy + ((float)ic - bs) * 0.5f;
+        float prog = 0.0f;
+        if (gs->wave_manager.total_to_spawn > 0)
+            prog = 1.0f - (float)left / (float)gs->wave_manager.total_to_spawn;
+        prog = prog < 0.0f ? 0.0f : prog > 1.0f ? 1.0f : prog;
+        snprintf(b, sizeof(b), "%d %%", (int)(prog * 100.0f + 0.5f));
+        ctxt(b, wx, bar_y - fh(10) - 2, 10, WAVE_HDR_COL);
+        hud_draw_bar(bar_x, bar_y, bar_w, WAVE_BAR_H, prog,
+                     prog > 0.7f ? UI_SUCCESS : prog > 0.3f ? UI_WARN : WAVE_FIGHT_COL,
+                     (Color){16, 16, 16, 255});
+    }
 
-                    EnemyType ty = pv[k];
-                    Color ec = renderer_enemy_color(ty);
-                    int disc = !gs->is_campaign || gs->meta.bestiary_discovered[ty];
-                    Rectangle br = {bx0, by0, bs, bs};
-                    DrawRectangleRounded(br, 0.3f, 4,
-                        (Color){(unsigned char)(ec.r/5),(unsigned char)(ec.g/5),
-                                (unsigned char)(ec.b/5),(unsigned char)(255.0f*af)});
-                    DrawRectangleRoundedLinesEx(br, 0.3f, 4, 1.0f,
-                        (Color){ec.r, ec.g, ec.b, (unsigned char)(220.0f*af)});
-                    if (disc && g_enemy_splash[ty].id != 0) {
-                        DrawTexturePro(g_enemy_splash[ty],
-                            (Rectangle){0,0,(float)g_enemy_splash[ty].width,(float)g_enemy_splash[ty].height},
-                            (Rectangle){bx0 + 2.0f, by0 + 2.0f, bs - 4.0f, bs - 4.0f},
-                            (Vector2){0,0}, 0.0f,
-                            (Color){255,255,255,(unsigned char)(255.0f*af)});
-                    } else if (disc) {
-                        DrawCircle(ix+ic/2, iy+ic/2, bs*0.3f,
-                                   (Color){ec.r, ec.g, ec.b, (unsigned char)(255.0f*af)});
-                    } else {
-                        int qw = mtxt("?", 13);
-                        dtxt("?", ix+ic/2 - qw/2, iy+ic/2 - fh(13)/2, 13,
-                             (Color){ec.r, ec.g, ec.b, (unsigned char)(220.0f*af)});
-                    }
-                    ix += ic + ig;
-                }
-            }
-        }
-
-        /* ── Anneau expansif au lancement (transition prep → vague).
-           Local au bouton, dans l'espace canvas : pas de conversion
-           caméra (fx_burst dessinerait dans le monde, désaligné). ── */
-        if (ring_t < WAVE_RING_DUR) {
-            float rk = ring_t / WAVE_RING_DUR;
-            DrawCircleLines(wx, (int)(wb->y + wb->height/2),
-                            WAVE_RING_RADIUS * rk,
-                            (Color){46, 204, 113,
-                                    (unsigned char)(180.0f * (1.0f - rk))});
-        }
+    /* ── Anneau expansif au lancement (transition prep → vague).
+       Local au bouton, dans l'espace canvas : pas de conversion
+       caméra (fx_burst dessinerait dans le monde, désaligné). ── */
+    if (ring_t < WAVE_RING_DUR) {
+        float rk = ring_t / WAVE_RING_DUR;
+        DrawCircleLines(wx, (int)(wb->y + wb->height / 2), WAVE_RING_RADIUS * rk,
+                        (Color){46, 204, 113, (unsigned char)(180.0f * (1.0f - rk))});
     }
 }
 
@@ -235,21 +174,29 @@ void hud_render_wave_banner(const UIState *ui, const GameState *gs) {
                  ui->wave_banner_kills > 1 ? "s" : "",
                  ui->wave_banner_gold);
         int has_adv = hud_counter_advice(gs, l3, (int)sizeof(l3));
+        /* Tour MVP de la vague (bilan par tour : dégâts réellement infligés) */
+        char l4[80];
+        int  mvp = tower_wave_mvp(&gs->towers);
+        if (mvp >= 0) {
+            const TowerTally *tt = tower_tally(mvp);
+            snprintf(l4, sizeof(l4), "Tour MVP : %s  ·  %.0f dégâts  ·  %d kill%s",
+                     TOWER_BASE_STATS[gs->towers.towers[mvp].type].name, tt->dmg_wave,
+                     tt->kills_wave, tt->kills_wave > 1 ? "s" : "");
+        }
 
         int w1 = mtxt(l1, 20), w2 = mtxt(l2, 12) + fh(12) + 2;
         int w3 = has_adv ? mtxt(l3, 10) : 0;
-        int pw = w1; if (w2 > pw) pw = w2; if (w3 > pw) pw = w3;
+        int w4 = mvp >= 0 ? mtxt(l4, 10) : 0;
+        int pw = w1; if (w2 > pw) pw = w2; if (w3 > pw) pw = w3; if (w4 > pw) pw = w4;
         pw += 36;
-        int ph = 8 + fh(20) + 4 + fh(12) + (has_adv ? 3 + fh(10) : 0) + 8;
+        int ph = 8 + fh(20) + 4 + fh(12) + (has_adv ? 3 + fh(10) : 0)
+               + (mvp >= 0 ? 3 + fh(10) : 0) + 8;
 
-        Color bg = UI_PANEL_BG_SOFT;  bg.a = (unsigned char)(bg.a * a);
-        Color bd = UI_ACCENT;         bd.a = (unsigned char)(200 * a);
-        DrawRectangleRounded(
-            (Rectangle){(float)(cx - pw/2), (float)by, (float)pw, (float)ph},
-            0.25f, 6, bg);
-        DrawRectangleRoundedLinesEx(
-            (Rectangle){(float)(cx - pw/2), (float)by, (float)pw, (float)ph},
-            0.25f, 6, 1.4f, bd);
+        /* Plaque de métal (style commun), fondue avec le bandeau */
+        plate_alpha(a);
+        plate_panel((Rectangle){(float)(cx - pw/2), (float)by, (float)pw, (float)ph},
+                    PLATE_CHAMFER, UI_ACCENT, 0.85f);
+        plate_alpha(1.0f);
 
         int ty2 = by + 8;
         Color c1 = UI_ACCENT; c1.a = (unsigned char)(255 * a);
@@ -261,6 +208,11 @@ void hud_render_wave_banner(const UIState *ui, const GameState *gs) {
         Color gt = WHITE;     gt.a = (unsigned char)(235 * a);
         draw_icon(g_icon_gold, lx + mtxt(l2, 12) + 2, ty2, fh(12), gt);
         ty2 += fh(12) + 3;
+        if (mvp >= 0) {
+            Color c4 = HUD_COL_TOWER; c4.a = (unsigned char)(235 * a);
+            dtxt(l4, cx - w4/2, ty2, 10, c4);
+            ty2 += fh(10) + 3;
+        }
         if (has_adv) {
             Color c3 = UI_INFO; c3.a = (unsigned char)(220 * a);
             dtxt(l3, cx - w3/2, ty2, 10, c3);

@@ -57,12 +57,20 @@ extern const int TOWER_UPG_COST_DMG  [TOWER_UPG_MAX]; // +10%/palier → +50%
 extern const int TOWER_UPG_COST_RANGE[TOWER_UPG_MAX]; // +10%/palier → +50%
 extern const int TOWER_UPG_COST_RATE [TOWER_UPG_MAX]; // +20%/palier → +100%
 
+/* Priorité de ciblage choisie par le joueur. AUTO = règle du type (Sniper :
+   le plus avancé, les autres : le plus proche, Soigneur toujours d'abord) ;
+   un choix explicite remplace TOUTE la règle, Soigneur compris. */
+typedef enum { TGT_AUTO = 0, TGT_FIRST, TGT_LAST, TGT_STRONG, TGT_NEAR, TGT_COUNT } TargetMode;
+extern const char *const TARGET_MODE_NAMES[TGT_COUNT];
+
 typedef struct {
     TowerType    type;
     int          tile_x, tile_y;
     float        cx, cy;
     float        fire_timer;
-    int          level;
+    int          target_mode;  // TargetMode. RÉEMPLOI de l'ancien `level`, jamais
+                               // incrémenté (toujours 0 = AUTO) : même taille, les
+                               // sauvegardes restent valides et retombent sur AUTO.
     int          active;
     float        angle;
     float        damage;
@@ -147,6 +155,25 @@ int  tower_cost_on_tile(TowerType type, const Map *map,
 // de TOUT l'investissement — pose ET améliorations payées. SOURCE UNIQUE pour
 // l'affichage du bouton et l'action (avant : la pose seule → 9 or pour 40).
 int  tower_sell_refund (const Tower *t, const Map *map);
+// POSE ANNULABLE : une tour posée pendant la préparation est remboursée à
+// 100 % (pose + améliorations) tant que la vague n'est pas lancée — on
+// corrige un mauvais placement sans pénalité. `tower_refund` = SOURCE UNIQUE
+// du montant rendu à la vente (bouton, action, raccourci).
+int  tower_refund      (const TowerPool *tp, int idx, const Map *map);
+int  tower_is_fresh    (const TowerPool *tp, int idx);
+int  tower_last_fresh  (const TowerPool *tp);   // dernière pose annulable, -1 sinon
+void tower_fresh_clear (void);                  // lancement de vague / nouvelle partie
+
+// ── Bilan par tour (dégâts réellement infligés, ennemis achevés) ──
+// Depuis la pose ET pour la vague en cours. Table latérale NON sauvegardée
+// (après un chargement, les compteurs repartent de zéro).
+typedef struct { float dmg, dmg_wave; int kills, kills_wave; } TowerTally;
+void              tower_tally_add (int idx, float dmg, int kill);  // chokepoint de dégâts
+const TowerTally *tower_tally     (int idx);
+int               tower_wave_mvp  (const TowerPool *tp);  // meilleure tour de la vague, -1
+// À chaque frame (game_state) : début de vague → bilan de vague remis à zéro ;
+// pendant la vague → plus aucune pose annulable.
+void              tower_wave_tick (int in_wave);
 int  tower_active_limit(const MetaBonuses *bonuses);
 
 // ── Améliorations individuelles ───────────────────────────────

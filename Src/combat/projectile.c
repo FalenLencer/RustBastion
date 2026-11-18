@@ -10,14 +10,27 @@
 #include "../engine/audio.h"
 #include <math.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /* Déplacement max plausible d'une cible entre deux frames (px). Au-delà, son
    slot a été réutilisé par un autre ennemi (le plus rapide : ~3,5 tuiles/s,
    ×3 en avance rapide → < 1 tuile/frame même à bas FPS). */
 #define PROJ_TARGET_JUMP_PX  (TILE_SIZE * 2.0f)
 
+/* Bilan par tour : tour d'origine de chaque projectile (slot de tour, -1 =
+   inconnue). Table LATÉRALE non sauvegardée : Projectile vit dans la section
+   TowerPool des sauvegardes, l'agrandir effacerait toutes les tours. */
+static int g_proj_src[MAX_PROJECTILES];
+static int g_dmg_src = -1;     /* tour créditée par le coup en cours */
+
+void projectile_src_reset(void) {
+    for (int i = 0; i < MAX_PROJECTILES; i++) g_proj_src[i] = -1;
+    g_dmg_src = -1;
+}
+
 static void apply_damage(Enemy *e, float dmg, DamageType dtype) {
     if (!e->active || e->dead) return;
+    float hp0 = e->hp;
 
     // Multiplicateur de résistance/faiblesse depuis la table globale
     int dt_idx = (int)dtype;
@@ -68,6 +81,8 @@ static void apply_damage(Enemy *e, float dmg, DamageType dtype) {
     }
 
     enemy_damage(e, dmg);
+    if (g_dmg_src >= 0)   /* dégâts RÉELLEMENT retirés (bouclier, sur-dégâts exclus) */
+        tower_tally_add(g_dmg_src, hp0 - (e->hp > 0.0f ? e->hp : 0.0f), e->dead);
     audio_play_sfx(AUDIO_SFX_ENEMY_HIT);
 }
 
@@ -108,6 +123,11 @@ int projectile_spawn(TowerPool *tp, const Tower *tw,
     p->origin        = tw->type;
     p->active        = 1;
     p->dmg_type      = tw->dmg_type;
+    {   /* tour d'origine (slot), si `tw` est bien une tour de la réserve */
+        uintptr_t a = (uintptr_t)tw, b0 = (uintptr_t)tp->towers;
+        g_proj_src[p - tp->projectiles] =
+            (a >= b0 && a < b0 + sizeof(tp->towers)) ? (int)(tw - tp->towers) : -1;
+    }
     return 1;
 }
 
@@ -144,6 +164,7 @@ void projectile_update(TowerPool *tp, EnemyPool *ep, float dt) {
         float step = p->speed * dt;
 
         if (dist <= step) {
+            g_dmg_src = g_proj_src[i];   /* crédite la tour d'origine (bilan) */
             if (p->splash) {
                 for (int j = 0; j < MAX_ENEMIES; j++) {
                     Enemy *e = &ep->enemies[j];
@@ -174,6 +195,7 @@ void projectile_update(TowerPool *tp, EnemyPool *ep, float dt) {
                     e->slow_timer = slow;
                 }
             }
+            g_dmg_src = -1;
 
             /* FX 3D d'impact (mode héros) : au point touché, typé.
                Émis à chaque coup, rebonds de chaîne compris. */

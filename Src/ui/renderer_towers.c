@@ -172,9 +172,6 @@ void render_towers(const TowerPool *tp) {
             DrawCircle((int)ex, (int)ey, 2.5f, col);
         }
 
-        for (int l = 0; l < tw->level && l < 3; l++)
-            DrawRectangle(px+4+l*4, py+s-6, 3, 3, (Color){255,215,0,255});
-
         // Barre HP (seulement si la tour est endommagée par artillerie)
         if (tw->hp < 100.0f && tw->hp > 0.0f) {
             float ratio = tw->hp / 100.0f;

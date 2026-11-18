@@ -6,7 +6,13 @@
 
 #include "ui_utils.h"
 #include "raylib.h"
+#include "../engine/version.h"
 #include <string.h>
+
+void ui_draw_version(int x, int bottom, int fs, Color col, int centered) {
+    int w = mtxt(GAME_VERSION_FULL, fs);
+    dtxt(GAME_VERSION_FULL, centered ? x - w / 2 : x - w, bottom - fh(fs), fs, col);
+}
 
 /* Recule i jusqu'au début d'un caractère UTF-8 : une coupe ne tombe jamais au
  * milieu d'une séquence (sinon raylib affiche « ? » à la place de l'accent). */

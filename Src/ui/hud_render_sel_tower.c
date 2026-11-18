@@ -15,6 +15,8 @@
 #include "ui_palette.h"              // palette UI (source unique)
 #include "../game/campaign_data.h"   // campaign_difficulty_stage (aperçu de vague)
 
+#define TP_TALLY_FS  8   /* bilan de la tour, au pied du portrait */
+
 /* Fiche de la tour sélectionnée (rx, max_w, py, sel_t : repères du panneau
    droit). Retourne 0 si la tour n'existe plus (panneau vide). */
 int hud_sel_tower(const UIState *ui, const GameState *gs,
@@ -32,6 +34,22 @@ int hud_sel_tower(const UIState *ui, const GameState *gs,
                               rx + max_w - PORTRAIT_SZ, HUD_Y + M,
                               PORTRAIT_SZ, col, sel_t);
     int text_w = pdone ? max_w - PORTRAIT_SZ - 6 : max_w;
+
+    /* Bilan de la tour (depuis sa pose), en bandeau au pied du portrait */
+    {
+        const TowerTally *tt = tower_tally(ui->selection.tower_idx);
+        char l1[24], l2[24];
+        if (tt->dmg >= 1000.0f) snprintf(l1, sizeof(l1), "%.1fk dégâts", tt->dmg / 1000.0f);
+        else                    snprintf(l1, sizeof(l1), "%.0f dégâts", tt->dmg);
+        snprintf(l2, sizeof(l2), "%d kill%s", tt->kills, tt->kills > 1 ? "s" : "");
+        int bx = rx + max_w - PORTRAIT_SZ, cx = bx + PORTRAIT_SZ / 2;
+        int by = HUD_Y + M + PORTRAIT_SZ - 2 * fh(TP_TALLY_FS) - 2;
+        DrawRectangle(bx + 2, by, PORTRAIT_SZ - 4, 2 * fh(TP_TALLY_FS) + 1,
+                      hud_sel_col((Color){0, 0, 0, 185}));
+        hud_sel_txt(l1, cx - mtxt(l1, TP_TALLY_FS) / 2, by, TP_TALLY_FS, (Color){240, 200, 120, 255});
+        hud_sel_txt(l2, cx - mtxt(l2, TP_TALLY_FS) / 2, by + fh(TP_TALLY_FS), TP_TALLY_FS,
+                    (Color){225, 215, 195, 255});
+    }
 
     // Nom (fs=16)
     clip_text(st->name, text_w, 16, buf, sizeof(buf));
@@ -65,8 +83,16 @@ int hud_sel_tower(const UIState *ui, const GameState *gs,
     hud_sel_txt(s_rate, rx,   py, 13, sc);
     hud_sel_txt(s_typ,  col2, py, 13, typc); py += 17;
 
-    /* ── Ligne d'astuce : synergie > minerai > rappel général ── */
-    {
+    /* ── Ligne d'astuce : contre de la vague (minerai en main) > synergie >
+          minerai > rappel général. Le contre vivait au-dessus du bouton de
+          minerai, sur la rangée [CIBLE][RÉPARER][VENDRE]. ── */
+    char adv[80];
+    if (ui->apply_mat_visible && gs->inventory_count > 0 &&
+        hud_counter_advice(gs, adv, sizeof(adv))) {
+        clip_text(adv, text_w, 9, buf, sizeof(buf));
+        hud_sel_txt(buf, rx, py, 9, UI_INFO);
+        py += fh(9);
+    } else {
         const char *hint = (tw->dmg_type == DMG_CRYO)
             ? "Synergie : gelé -> +30% dégâts subis"
             : (tw->dmg_type == DMG_POISON)
@@ -81,127 +107,68 @@ int hud_sel_tower(const UIState *ui, const GameState *gs,
         py += fh(9);
     }
 
-    /* ── Boutons d'amélioration (sous le portrait) ─ */
+    /* ── Améliorations (touche + libellé, niveau · coût) ─ */
     {
-        const int GAP2 = 6;
-        const int ubw  = (max_w - GAP2 * 2) / 3;
-        int uy = HUD_Y + M + PORTRAIT_SZ + GAP2;
-
-        DrawLine(rx, uy - 3, rx + max_w, uy - 3, (Color){40, 25, 6, 120});
-
-        /* Données des 3 boutons */
-        typedef struct { const char *lbl; int cost; int lvl; Color col; } UB;
+        typedef struct { const char *lbl; int cost; int lvl; Color col; int key; } UB;
         UB ubs[3] = {
-            { "DÉGÂTS", tower_upg_next_cost_dmg  (tw), tw->upg_dmg,   {231, 100,  60, 255} },
-            { "PORTÉE", tower_upg_next_cost_range(tw), tw->upg_range,  { 82, 155, 200, 255} },
-            { "CADENCE",tower_upg_next_cost_rate (tw), tw->upg_rate,   {155,  89, 182, 255} },
+            { "DÉGÂTS", tower_upg_next_cost_dmg  (tw), tw->upg_dmg,  {231, 100,  60, 255}, HUD_KEY_UPG_DMG   },
+            { "PORTÉE", tower_upg_next_cost_range(tw), tw->upg_range, { 82, 155, 200, 255}, HUD_KEY_UPG_RANGE },
+            { "CADENCE",tower_upg_next_cost_rate (tw), tw->upg_rate,  {155,  89, 182, 255}, HUD_KEY_UPG_RATE  },
         };
         const Rectangle *upg_rects[3] = {
             &ui->upg_dmg_btn, &ui->upg_range_btn, &ui->upg_rate_btn
         };
-        Vector2 vm2 = virt_mouse();
         for (int _u = 0; _u < 3; _u++) {
             const Rectangle *ur = upg_rects[_u];
-            int _hov    = CheckCollisionPointRec(vm2, *ur);
             int _is_max = (ubs[_u].cost < 0);
             int _afford = !_is_max && (gs->gold >= ubs[_u].cost);
-            Color _bg   = _is_max ? (Color){6, 6, 3, 220}
-                        : _hov    ? (Color){20, 12, 4, 235}
-                                  : (Color){10, 6, 2, 220};
-            Color _brd  = _is_max ? (Color){50, 40, 15, 120}
-                        : _afford ? ubs[_u].col
-                                  : (Color){60, 45, 15, 140};
-            DrawRectangleRounded(*ur, 0.15f, 4, _bg);
-            DrawRectangleRoundedLinesEx(*ur, 0.15f, 4, 1.2f, hud_sel_col(_brd));
+            hud_plate_btn(ur, ubs[_u].col, _afford, 0, NULL, 0, WHITE);
+            Rectangle kr = {ur->x, ur->y, ur->width, (float)(fh(9) + 8)};   /* 1re ligne */
+            int kw = hud_btn_keycap(&kr, ubs[_u].key);
 
-            /* Ligne 1 : étiquette type (y+2, fs=9) */
-            char _ltxt[12];
-            snprintf(_ltxt, sizeof(_ltxt), "%s", ubs[_u].lbl);
-            int _lw = mtxt(_ltxt, 9);
-            Color _lc = _is_max ? (Color){50, 40, 15, 180} : ubs[_u].col;
-            dtxt(_ltxt,
-                 (int)(ur->x + ur->width/2 - _lw/2),
-                 (int)(ur->y + 2), 9, _lc);
-
-            if (_is_max) {
-                /* MAX sur 2 lignes fusionnées */
-                int _mw = mtxt("MAX", 9);
-                dtxt("MAX",
-                     (int)(ur->x + ur->width/2 - _mw/2),
-                     (int)(ur->y + 18), 9,
-                     (Color){100, 80, 25, 200});
-            } else {
-                /* Ligne 2 : niveau X/5 (y+16, fs=8) */
-                char _lvltxt[10];
-                snprintf(_lvltxt, sizeof(_lvltxt), "niv %d/%d",
-                         ubs[_u].lvl, TOWER_UPG_MAX);
-                int _nlw = mtxt(_lvltxt, 8);
-                dtxt(_lvltxt,
-                     (int)(ur->x + ur->width/2 - _nlw/2),
-                     (int)(ur->y + 16), 8,
-                     (Color){148, 128, 95, 220});
-
-                /* Ligne 3 : coût (y+27, fs=8) */
-                char _ctxt[16];
-                snprintf(_ctxt, sizeof(_ctxt), "%d or", ubs[_u].cost);
-                int _cw = mtxt(_ctxt, 8);
-                dtxt(_ctxt,
-                     (int)(ur->x + ur->width/2 - _cw/2),
-                     (int)(ur->y + 27), 8,
-                     _afford ? (Color){220, 145, 30, 255}
-                             : (Color){100, 55, 25, 200});
-            }
+            /* Ligne 1 : étiquette (après la touche) ; ligne 2 : niveau · coût
+               (ou MAX). Pas vertical = fh() (texte DANS le cadre de 3 px). */
+            int cx = (int)(ur->x + ur->width / 2) + kw / 2;
+            int ly = (int)ur->y + 4;
+            Color _lc = _is_max ? (Color){95, 80, 50, 255} : ubs[_u].col;
+            dtxt(ubs[_u].lbl, cx - mtxt(ubs[_u].lbl, 9) / 2, ly, 9, hud_sel_col(_lc));
+            ly += fh(9) + 1;
+            char _l2[24];
+            if (_is_max) snprintf(_l2, sizeof(_l2), "MAX");
+            else         snprintf(_l2, sizeof(_l2), "%d/%d · %d or",
+                                  ubs[_u].lvl, TOWER_UPG_MAX, ubs[_u].cost);
+            cx = (int)(ur->x + ur->width / 2);
+            dtxt(_l2, cx - mtxt(_l2, 8) / 2, ly, 8,
+                 hud_sel_col(_is_max ? (Color){120, 100, 60, 255}
+                           : _afford ? (Color){240, 168, 45, 255}
+                                     : (Color){200, 85, 60, 255}));
         }
-        (void)ubw; (void)uy;
     }
 
-    /* ── Bouton RÉPARER TOUR + bouton VENDRE ─────────── */
+    /* ── [CIBLE] [RÉPARER] [VENDRE] ── */
     {
-        /* Réparer */
-        Rectangle rb   = ui->repair_tower_btn;
-        float     rrnd = (float)UI_RADIUS / rb.height;
-        Vector2   vm3  = virt_mouse();
-        int _hov_r = CheckCollisionPointRec(vm3, rb);
+        snprintf(buf, sizeof(buf), "Cible : %s",
+                 TARGET_MODE_NAMES[(unsigned)tw->target_mode < TGT_COUNT ? tw->target_mode : 0]);
+        hud_plate_btn_key(&ui->target_btn, (Color){210, 190, 140, 255}, 1, HUD_KEY_TARGET,
+                          buf, 10, (Color){235, 220, 185, 255});
+
         int _needs_rep = (tw->hp < TOWER_MAX_HP - 0.5f);
         int _can_rep   = _needs_rep && (gs->gold >= TOWER_REPAIR_COST);
-        Color _rbg = _can_rep  ? (_hov_r ? (Color){3, 20, 8, 235} : (Color){3, 12, 6, 210})
-                               : (Color){8, 6, 3, 190};
-        Color _rbd = _can_rep  ? (Color){28, 130, 55, 200}
-                               : (Color){45, 35, 12, 120};
-        DrawRectangleRounded(rb, rrnd, 4, _rbg);
-        DrawRectangleRoundedLinesEx(rb, rrnd, 4, 1.2f, hud_sel_col(_rbd));
-        /* Tour intacte : un seul libellé (l'ancien « OK » en 2e ligne
-           chevauchait « Rep. N or » : le bouton fait 1 ligne de haut). */
-        char _rptxt[24];
-        if (_needs_rep)
-            snprintf(_rptxt, sizeof(_rptxt), "Réparer %d or", TOWER_REPAIR_COST);
-        else
-            snprintf(_rptxt, sizeof(_rptxt), "Tour intacte");
-        int _rpw = mtxt(_rptxt, 10);
-        Color _rpc = _can_rep   ? (Color){42, 185, 90, 255}
-                   : _needs_rep ? (Color){55, 42, 22, 200}
-                                : (Color){42, 120, 70, 170};
-        dtxt(_rptxt,
-             (int)(rb.x + rb.width/2 - _rpw/2),
-             (int)(rb.y + rb.height/2 - fh(10)/2), 10, _rpc);
-    }
+        if (_needs_rep) snprintf(buf, sizeof(buf), "Réparer %d", TOWER_REPAIR_COST);
+        else            snprintf(buf, sizeof(buf), "Intacte");
+        hud_plate_btn_key(&ui->repair_tower_btn, (Color){60, 190, 100, 255}, _can_rep,
+                          HUD_KEY_REPAIR, buf, 10,
+                          _can_rep   ? (Color){120, 230, 150, 255}
+                        : _needs_rep ? (Color){200, 85, 60, 255}
+                                     : (Color){100, 150, 110, 255});
 
-    // Bouton VENDRE
-    {
-        Rectangle sb   = ui->sell_btn;
-        float     srnd = (float)UI_RADIUS / sb.height;
-        Vector2   m    = virt_mouse();
-        int hov = CheckCollisionPointRec(m, sb);
-        DrawRectangleRounded(sb, srnd, 6,
-            hov ? (Color){48,8,8,255} : (Color){20,4,4,255});
-        DrawRectangleRoundedLinesEx(sb, srnd, 6, 1.5f,
-            hud_sel_col(hov ? (Color){192,48,48,255} : (Color){90,18,18,255}));
-        int refund = tower_sell_refund(tw, &gs->map);
-        snprintf(buf, sizeof(buf), "Vendre  +%d or", refund);
-        int bw = mtxt(buf, 13);
-        dtxt(buf, (int)(sb.x + sb.width/2 - bw/2),
-                 (int)(sb.y + sb.height/2 - 7),
-                 13, (Color){192,58,42,255});
+        /* Posée pendant cette préparation : remboursée à 100 % (annuler) */
+        int fresh  = tower_is_fresh(&gs->towers, ui->selection.tower_idx);
+        int refund = tower_refund(&gs->towers, ui->selection.tower_idx, &gs->map);
+        snprintf(buf, sizeof(buf), fresh ? "Annuler +%d" : "Vendre +%d", refund);
+        hud_plate_btn_key(&ui->sell_btn, fresh ? (Color){230, 170, 60, 255} : (Color){200, 70, 50, 255},
+                          1, HUD_KEY_SELL, buf, 10,
+                          fresh ? (Color){250, 210, 120, 255} : (Color){240, 130, 100, 255});
     }
 
     // Bouton APPLIQUER MATÉRIAU
@@ -212,49 +179,35 @@ int hud_sel_tower(const UIState *ui, const GameState *gs,
         MaterialType mat = gs->inventory[_sidx];
 
         Rectangle ab   = ui->apply_mat_btn;
-        float     arnd = (float)UI_RADIUS / ab.height;
-        Vector2   mv   = virt_mouse();
-        int hov = CheckCollisionPointRec(mv, ab);
-        DrawRectangleRounded(ab, arnd, 6,
-            hov ? (Color){4,26,36,255} : (Color){3,14,20,255});
-        DrawRectangleRoundedLinesEx(ab, arnd, 6, 1.5f,
-            hud_sel_col(hov ? (Color){55,165,195,255} : (Color){24,82,100,255}));
+        hud_plate_btn(&ab, ((int)mat >= 0 && (int)mat < MAT_COUNT) ? MATERIAL_COLORS[mat] : UI_INFO,
+                      1, 0, NULL, 0, WHITE);
 
         /* Label : matériau + index si plusieurs en inventaire */
         if (gs->inventory_count > 1) {
-            /* Flèches de cycle */
-            dtxt("<", (int)(ab.x + 5),
-                 (int)(ab.y + ab.height/2 - 8), 14,
+            /* Flèches de cycle (dans le cadre, après les prises) */
+            dtxt("<", (int)(ab.x + 16),
+                 (int)(ab.y + ab.height/2 - fh(14)/2), 14,
                  (Color){62,175,200,200});
-            dtxt(">", (int)(ab.x + ab.width - 12),
-                 (int)(ab.y + ab.height/2 - 8), 14,
+            dtxt(">", (int)(ab.x + ab.width - 16 - mtxt(">", 14)),
+                 (int)(ab.y + ab.height/2 - fh(14)/2), 14,
                  (Color){62,175,200,200});
             clip_text(TextFormat("[%d/%d] %s",
                                 _sidx + 1, gs->inventory_count,
                                 MATERIAL_NAMES[mat]),
-                      max_w - 40, 11, buf, sizeof(buf));
+                      max_w - 60, 11, buf, sizeof(buf));
             int bw2 = mtxt(buf, 11);
             dtxt(buf, (int)(ab.x + ab.width/2 - bw2/2),
-                     (int)(ab.y + ab.height/2 - 7),
+                     (int)(ab.y + (ab.height - fh(11)) / 2),
                      11, UI_INFO);
         } else {
             clip_text(TextFormat("+ Appliquer  %s", MATERIAL_NAMES[mat]),
-                      max_w - M, 13, buf, sizeof(buf));
-            int bw2 = mtxt(buf, 13);
+                      max_w - 40, 11, buf, sizeof(buf));
+            int bw2 = mtxt(buf, 11);
             dtxt(buf, (int)(ab.x + ab.width/2 - bw2/2),
-                     (int)(ab.y + ab.height/2 - 7),
-                     13, UI_INFO);
+                     (int)(ab.y + (ab.height - fh(11)) / 2),
+                     11, UI_INFO);
         }
-
-        /* P0.3 — Conseil de contre au moment de CHOISIR le
-           matériau (ligne au-dessus du bouton APPLIQUER). */
-        char adv[80];
-        if (hud_counter_advice(gs, adv, sizeof(adv))) {
-            char advc[80];
-            clip_text(adv, max_w, 10, advc, sizeof(advc));
-            dtxt(advc, (int)ab.x,
-                 (int)(ab.y - fh(10) - 2), 10, UI_INFO);
-        }
+        /* (Le conseil de contre est sur la ligne d'astuce, plus haut.) */
     }
     return 1;
 }

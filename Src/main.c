@@ -11,6 +11,7 @@
    ════════════════════════════════════════════════════════════════ */
 #include "raylib.h"
 #include "engine/paths.h"
+#include "engine/logfile.h"
 #include "engine/window.h"
 #include "engine/canvas.h"
 #include "engine/audio.h"
@@ -59,8 +60,9 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* ── Répertoire de travail ──────────────────────────────────── */
+    /* ── Répertoire de travail + journal de session ─────────────── */
     setup_working_dir();
+    logfile_init();          /* config/rustbastion.log (avant InitWindow) */
 
     /* ── Fenêtre ────────────────────────────────────────────────── */
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -187,5 +189,6 @@ int main(int argc, char **argv) {
     assets_unload();
     UnloadRenderTexture(canvas);
     CloseWindow();
+    logfile_close();
     return 0;
 }

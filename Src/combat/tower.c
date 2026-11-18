@@ -18,8 +18,26 @@ _Static_assert(META_TOWER_COUNT == TOWER_TYPE_COUNT,
 #include "../game/meta.h"
 #include <stdlib.h>
 
+/* Tables LATÉRALES par slot de tour, NON sauvegardées (aucun champ ajouté à
+   Tower : la section des tours des sauvegardes reste valide ; après un
+   chargement, tout repart à zéro, ce qui est le bon défaut).
+   • g_fresh : pose ANNULABLE — 0 = ancienne, sinon rang de pose (1, 2…) ;
+   • g_tally : bilan par tour (dégâts infligés, ennemis achevés). */
+static int        g_fresh[MAX_TOWERS];
+static int        g_fresh_seq = 0;
+static TowerTally g_tally[MAX_TOWERS];
+
 /* ════════════════════════════════════════════════════
    STATS DE BASE
+   Équilibrage MESURÉ (11/2026, banc headless : bot qui défend 8 actes avec
+   une seule composition, même économie) : contrairement à l'intuition
+   « DPS/or », les tours MONO-CIBLE étaient loin derrière les tours de zone
+   face aux essaims — Tourelle seule 34 vagues tenues sur 96, Sniper 39,
+   Flamme 65, Tesla 66. Sniper 0,4 → 0,5 tir/s : 39 → 48 (+9). La Tourelle
+   est RESTÉE telle quelle : même +44 % de DPS ne lui donnait que +3 vagues
+   (sa limite est la valeur par EMPLACEMENT, la limite de tours étant la
+   vraie rareté) ; la gonfler aurait surtout rendu le début de campagne trop
+   facile. Tours de zone intouchées (difficulté générale préservée).
    ════════════════════════════════════════════════════ */
 const TowerStats TOWER_BASE_STATS[TOWER_TYPE_COUNT] = {
     [TOWER_GUN] = {
@@ -30,7 +48,7 @@ const TowerStats TOWER_BASE_STATS[TOWER_TYPE_COUNT] = {
     },
     [TOWER_SNIPER] = {
         .name="Sniper", .cost=25, .damage=115.0f, .range=6.5f,
-        .fire_rate=0.4f, .proj_speed=18.0f, .splash=0,
+        .fire_rate=0.5f, .proj_speed=18.0f, .splash=0,
         .slow_factor=0.0f, .slow_duration=0.0f, .chain_count=0,
         .description="Longue portée. Cible l'ennemi le plus avancé.",
     },
@@ -104,6 +122,9 @@ int tower_active_limit(const MetaBonuses *bonuses) {
 void tower_pool_init(TowerPool *tp) {
     memset(tp, 0, sizeof(TowerPool));
     tp->tower_limit = MAX_TOWERS_BASE;
+    tower_fresh_clear();
+    memset(g_tally, 0, sizeof(g_tally));   /* bilan par tour : nouvelle partie / chargement */
+    projectile_src_reset();
 }
 
 /* ════════════════════════════════════════════════════
@@ -144,15 +165,65 @@ int tower_at_tile(const TowerPool *tp, int tx, int ty) {
     return 0;
 }
 
-int tower_sell_refund(const Tower *t, const Map *map) {
-    if (!t || !map) return 0;
+/* Tout ce que la tour a coûté : pose (×2 sur ruine) + améliorations payées. */
+static int tower_spent(const Tower *t, const Map *map) {
     int spent = tower_cost_on_tile(t->type, map, t->tile_x, t->tile_y);
     for (int i = 0; i < t->upg_dmg   && i < TOWER_UPG_MAX; i++) spent += TOWER_UPG_COST_DMG[i];
     for (int i = 0; i < t->upg_range && i < TOWER_UPG_MAX; i++) spent += TOWER_UPG_COST_RANGE[i];
     for (int i = 0; i < t->upg_rate  && i < TOWER_UPG_MAX; i++) spent += TOWER_UPG_COST_RATE[i];
+    return spent;
+}
+
+int tower_sell_refund(const Tower *t, const Map *map) {
+    if (!t || !map) return 0;
     float frac = TOWER_SELL_REFUND + g_run_mods.sell_refund_add;
     if (frac > 1.0f) frac = 1.0f;          // perk Recyclage : plafond 100 %
-    return (int)((float)spent * frac);
+    return (int)((float)tower_spent(t, map) * frac);
+}
+
+/* ── Pose ANNULABLE (tables en tête de fichier) ── */
+void tower_fresh_clear(void) {
+    memset(g_fresh, 0, sizeof(g_fresh));
+    g_fresh_seq = 0;
+}
+int tower_is_fresh(const TowerPool *tp, int idx) {
+    return tp && idx >= 0 && idx < MAX_TOWERS && tp->towers[idx].active && g_fresh[idx] > 0;
+}
+int tower_last_fresh(const TowerPool *tp) {
+    int best = -1;
+    for (int i = 0; i < MAX_TOWERS; i++)
+        if (tower_is_fresh(tp, i) && (best < 0 || g_fresh[i] > g_fresh[best])) best = i;
+    return best;
+}
+/* ── Bilan par tour (cf. tower.h) ── */
+void tower_tally_add(int idx, float dmg, int kill) {
+    if (idx < 0 || idx >= MAX_TOWERS) return;
+    if (dmg > 0.0f) { g_tally[idx].dmg += dmg; g_tally[idx].dmg_wave += dmg; }
+    if (kill)       { g_tally[idx].kills++;    g_tally[idx].kills_wave++; }
+}
+const TowerTally *tower_tally(int idx) {
+    static const TowerTally none = {0};
+    return (idx >= 0 && idx < MAX_TOWERS) ? &g_tally[idx] : &none;
+}
+int tower_wave_mvp(const TowerPool *tp) {
+    int best = -1;
+    for (int i = 0; i < MAX_TOWERS; i++)
+        if (tp->towers[i].active && g_tally[i].dmg_wave > 0.0f &&
+            (best < 0 || g_tally[i].dmg_wave > g_tally[best].dmg_wave)) best = i;
+    return best;
+}
+void tower_wave_tick(int in_wave) {
+    static int prev = 0;
+    if (in_wave && !prev)
+        for (int i = 0; i < MAX_TOWERS; i++) g_tally[i].dmg_wave = 0.0f, g_tally[i].kills_wave = 0;
+    if (in_wave) tower_fresh_clear();
+    prev = in_wave;
+}
+
+int tower_refund(const TowerPool *tp, int idx, const Map *map) {
+    if (!tp || !map || idx < 0 || idx >= MAX_TOWERS) return 0;
+    const Tower *t = &tp->towers[idx];
+    return tower_is_fresh(tp, idx) ? tower_spent(t, map) : tower_sell_refund(t, map);
 }
 
 int tower_path_coverage(const Map *map, int tx, int ty, float range_tiles) {
@@ -203,13 +274,15 @@ int tower_place(TowerPool *tp, TowerType type,
     if (!tw) return 0;
 
     *gold -= real_cost;
+    g_fresh[tw - tp->towers] = ++g_fresh_seq;   /* annulable jusqu'au lancement */
+    g_tally[tw - tp->towers] = (TowerTally){0};  /* bilan propre à cette tour */
 
     tw->type      = type;
     tw->tile_x    = tile_x;
     tw->tile_y    = tile_y;
     tw->cx        = px_of(tile_x);
     tw->cy        = px_of(tile_y);
-    tw->level     = 0;
+    tw->target_mode = TGT_AUTO;
     tw->active    = 1;
     tw->angle     = 0.0f;
     tw->hp        = TOWER_MAX_HP;
@@ -299,8 +372,29 @@ void tower_do_repair(Tower *t) {
 }
 
 /* ════════════════════════════════════════════════════
-   CIBLAGE — Healer priorité absolue
+   CIBLAGE — priorité choisie (AUTO : Healer d'abord, puis règle du type)
    ════════════════════════════════════════════════════ */
+const char *const TARGET_MODE_NAMES[TGT_COUNT] = {
+    [TGT_AUTO] = "Auto", [TGT_FIRST] = "Premier", [TGT_LAST] = "Dernier",
+    [TGT_STRONG] = "Plus fort", [TGT_NEAR] = "Proche",
+};
+
+/* Score d'un ennemi à portée (le plus haut est visé). AUTO reproduit À
+   L'IDENTIQUE l'ancienne règle (équilibrage inchangé par défaut). */
+static float target_score(const Tower *tw, const Enemy *e, float d2) {
+    int mode = tw->target_mode;
+    if (mode <= TGT_AUTO || mode >= TGT_COUNT) {
+        if (e->type == ENEMY_HEALER) return TOWER_HEALER_PRIORITY;   // priorité absolue
+        mode = (tw->type == TOWER_SNIPER) ? TGT_FIRST : TGT_NEAR;
+    }
+    switch (mode) {
+    case TGT_FIRST:  return  (float)e->path_index;   // le plus avancé vers la base
+    case TGT_LAST:   return -(float)e->path_index;   // le plus en arrière
+    case TGT_STRONG: return  e->hp;                  // le plus de PV restants
+    default:         return -d2;                     // le plus proche
+    }
+}
+
 static int find_target(const Tower *tw, const EnemyPool *ep) {
     float rng  = tw->range * TILE_SIZE;
     float rng2 = rng * rng;
@@ -316,14 +410,7 @@ static int find_target(const Tower *tw, const EnemyPool *ep) {
         float d2 = gdist2(tw->cx, tw->cy, e->x, e->y);
         if (d2 > rng2) continue;
 
-        float score;
-        if (e->type == ENEMY_HEALER)
-            score = TOWER_HEALER_PRIORITY; // priorité absolue
-        else if (tw->type == TOWER_SNIPER)
-            score = (float)e->path_index;
-        else
-            score = -d2;
-
+        float score = target_score(tw, e, d2);
         if (score > best_score) {
             best_score = score;
             best_idx   = i;

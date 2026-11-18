@@ -15,8 +15,8 @@ typedef struct GameState GameState;
 #define UI_HUD_HEIGHT    190
 #define UI_LEFT_PANEL_W  160   // panneau gauche (barres HP)
 #define UI_PANEL_W       360   // panneau droit (stats / info)
-#define UI_BTN_W          68
-#define UI_BTN_H          52
+#define UI_BTN_W          72   // carte d'outil (tour / unité) du panneau bas
+#define UI_BTN_H          60
 #define UI_MARGIN          8
 #define UI_RADIUS          4
 #define MAX_NOTIFS         8
@@ -79,6 +79,7 @@ typedef struct {
     Rectangle     upg_range_btn;
     Rectangle     upg_rate_btn;
     Rectangle     repair_tower_btn;
+    Rectangle     target_btn;        // priorité de ciblage (cycle)
     // Boutons achat slots (panneau droit vide)
     Rectangle     buy_tower_slot_btn;
     Rectangle     buy_unit_slot_btn;
@@ -96,10 +97,9 @@ typedef struct {
     int           behavior_pending;    // UBEH_* en attente d'assignation (-1 = aucun)
     int           behavior_pending_unit; // index de l'unité attendant l'assignation
     // Overlays déplaçables (positions en coordonnées virtuelles)
-    Vector2       overlay_tl_pos;     // panneau haut-gauche (or / tours / unités)
     Vector2       overlay_tr_pos;     // panneau haut-droit  (vague / kills / ennemis)
     Vector2       overlay_bl_pos;     // panneau bas-gauche  (bases HP / réparation)
-    int           dragging_overlay;   // -1=aucun, 0=TL, 1=TR, 2=BL
+    int           dragging_overlay;   // -1=aucun, 1=TR (vague), 2=BL (bases)
     Vector2       drag_grab;          // décalage souris → coin overlay au début du drag
     // Sélection de GROUPE d'unités (glisser-boîte gauche → ordre clic droit)
     int           group_sel[MAX_UNITS]; // 1 = unité (par slot) dans le groupe courant

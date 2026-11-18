@@ -25,6 +25,7 @@
 #define UPG_STEM_HW    2.0f   /* demi-largeur de la hampe (px)         */
 #define UPG_STEM_H     4.0f   /* hauteur de la hampe (px)              */
 #define UPG_EDGE_A     210    /* alpha max du contour sombre           */
+#define RANGE_RING_W   2.0f   /* épaisseur du cercle de portée (ALT)   */
 static void draw_upgrade_arrow(float cx, float cy, unsigned char a) {
     Color fill = {90, 230, 120, a};
     Color edge = {24, 120,  64, (unsigned char)(a < UPG_EDGE_A ? a : UPG_EDGE_A)};
@@ -136,6 +137,34 @@ void hud_render_world_marks(const UIState *ui, const GameState *gs) {
                 float dot_x = tw->tile_x * TILE_SIZE + TILE_SIZE - 6.0f;
                 float dot_y = tw->tile_y * TILE_SIZE + TILE_SIZE - 3.0f;
                 draw_upgrade_arrow(dot_x, dot_y, pa);
+            }
+        }
+
+        // ALT maintenu : portées de TOUTES les tours. Les disques translucides
+        // s'additionnent → zones bien couvertes plus denses, trous visibles.
+        if (IsKeyDown(HUD_KEY_SHOW_RANGE) || IsKeyDown(KEY_RIGHT_ALT)) {
+            for (int i = 0; i < MAX_TOWERS; i++) {
+                const Tower *tw = &gs->towers.towers[i];
+                if (!tw->active) continue;
+                Color rc = TOWER_FILL[tw->type];
+                Color lc = {(unsigned char)((rc.r + 255) / 2), (unsigned char)((rc.g + 255) / 2),
+                            (unsigned char)((rc.b + 255) / 2), 210};   /* éclairci : lisible sur tout terrain */
+                float rad = tw->range * TILE_SIZE;
+                DrawCircleV((Vector2){tw->cx, tw->cy}, rad, (Color){rc.r, rc.g, rc.b, 30});
+                DrawRing((Vector2){tw->cx, tw->cy}, rad - RANGE_RING_W, rad, 0.0f, 360.0f, 64, lc);
+                DrawCircleV((Vector2){tw->cx, tw->cy}, 3.0f, lc);
+            }
+        }
+
+        // Ennemi survolé : anneau (sa fiche est dessinée hors caméra)
+        if (ui->selected_tool == TOOL_NONE && !ui->box_dragging) {
+            Vector2 vm = virt_mouse();
+            int ei = (vm.y < HUD_Y) ? hud_enemy_pick(gs, vm) : -1;
+            if (ei >= 0) {
+                const Enemy *e = &gs->enemies.enemies[ei];
+                Color ec = renderer_enemy_color(e->type);
+                DrawCircleLines((int)e->x, (int)e->y, e->size + 4.0f, (Color){ec.r, ec.g, ec.b, 230});
+                DrawCircleLines((int)e->x, (int)e->y, e->size + 5.0f, (Color){0, 0, 0, 150});
             }
         }
 

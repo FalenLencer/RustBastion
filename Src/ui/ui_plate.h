@@ -43,8 +43,12 @@ void plate_panel(Rectangle box, float c, Color acc, float acc_a);
 /* Bouton : plaque, panneau teinté `acc`, prises latérales ; survolé = plus
    vif + halo ; désactivé = métal terne. */
 void plate_button(Rectangle b, Color acc, int hov, int enabled);
-/* Touche de clavier en métal, coin haut-gauche (x, y) ; retourne sa largeur. */
+/* … sans les prises latérales (grips = 0) : bouton portant une touche. */
+void plate_button_ex(Rectangle b, Color acc, int hov, int enabled, int grips);
+/* Touche de clavier en métal, coin haut-gauche (x, y) ; retourne sa largeur.
+   _fs : taille de police au choix (petite touche sur une carte du HUD). */
 int  plate_keycap(int x, int y, const char *lbl, Color col);
+int  plate_keycap_fs(int x, int y, const char *lbl, Color col, int fs);
 /* Titre de section : repère coloré, texte, filet dégradé jusqu'à x + w. */
 void plate_section(int x, int y, int w, const char *txt, Color col);
 /* Indication « [TOUCHE] action » ; draw = 0 : mesure seulement. Retourne

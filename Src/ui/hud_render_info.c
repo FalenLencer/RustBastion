@@ -15,127 +15,181 @@
 #include "ui_palette.h"              // palette UI (source unique)
 #include "../game/campaign_data.h"   // campaign_difficulty_stage (aperçu de vague)
 #include "../game/hints.h"           // HINT_SHOW_TIME (fondu du bandeau CONSEIL)
+#include "ui_plate.h"                // boutons / touches en plaque de métal
 
-static void draw_sep(int x, int y, int w, Color col) {
-    DrawLine(x, y, x + w, y, col);
+// ── Panneau gauche (statut) ──────────────────────────────────────
+#define LP_GOLD_FS      20     /* trésor : le chiffre qu'on lit le plus souvent    */
+#define LP_LINE_FS       9
+#define LP_BAR_H         5
+#define LP_INV_SLOT     14     /* case de l'inventaire de minerai (px)             */
+#define LP_INV_GAP       3
+#define LP_BTN_FS       10
+#define LP_GOLD_COL     ((Color){240, 175,  50, 255})
+#define LP_LABEL_COL    ((Color){150, 132, 100, 255})
+#define LP_SCRAP_COL    ((Color){150, 205,  80, 255})
+#define LP_INV_COL      ((Color){ 90, 190, 210, 255})
+#define LP_GOLD_SNAP       10000.0f  /* écart = nouvelle partie : pas de défilement */
+#define LP_GOLD_ROLL       8.0f      /* vitesse du compteur roulant (1/s)          */
+#define LP_GOLD_FLASH_MIN  5         /* gain minimal qui fait flasher le chiffre   */
+#define LP_GOLD_FLASH_GAIN 0.25f     /* flash blanc → or (s)                       */
+#define LP_GOLD_FLASH_LOSS 0.20f     /* flash rouge → or (s)                       */
+#define LP_GOLD_BUMP_DUR   0.20f     /* saut de l'icône au gain (s)                */
+#define LP_HIT_DUR         0.35f     /* battement du cœur au dégât (s)             */
+#define LP_HIT_RING_DUR    0.40f     /* onde de choc du cœur (s)                   */
+
+/* Bouton d'achat de slot : plaque + « +1 Tour » à gauche, prix à droite. */
+static void slot_button(const Rectangle *r, const char *lbl, int cost, int at_max,
+                        int afford, Color acc) {
+    int hov = CheckCollisionPointRec(virt_mouse(), *r);
+    plate_button(*r, acc, hov && !at_max, !at_max);
+    int ty = (int)(r->y + (r->height - fh(LP_BTN_FS)) / 2);
+    dtxt(lbl, (int)r->x + 16, ty, LP_BTN_FS, at_max ? HUD_COL_GREY : acc);
+    char pb[16];
+    if (at_max) snprintf(pb, sizeof(pb), "MAX");
+    else        snprintf(pb, sizeof(pb), "%d", cost);
+    int pw = mtxt(pb, LP_BTN_FS), px = (int)(r->x + r->width) - 16 - pw;
+    if (!at_max) {
+        int gi = fh(LP_BTN_FS) - 5;
+        draw_icon(g_icon_gold, px - gi - 2, ty + 3, gi, afford ? WHITE : HUD_COL_GREY);
+    }
+    dtxt(pb, px, ty, LP_BTN_FS, at_max ? HUD_COL_GREY : afford ? LP_GOLD_COL : UI_DANGER);
 }
 
-/* Panneau gauche — vies, ferraille, thème, inventaire. */
+/* Panneau gauche — or, bases, ferraille, minerais, achats de slots. */
 void hud_render_left_panel(const UIState *ui, const GameState *gs) {
     HUD_FRAME_LOCALS;
-    // ════════════════════════════════════════════════
-    // PANNEAU GAUCHE — vies, ferraille, thème, inventaire
-    // ════════════════════════════════════════════════
+    const int x = HUD_LX, w = HUD_LW;
+    int y = HUD_Y + HUD_SEC_Y;
+
+    /* ── OR « vivant » : compteur roulant, icône qui saute au gain, flash
+          blanc (gain ≥ 5) ou rouge (dépense). Repris de l'ancien panneau
+          flottant haut-gauche, supprimé (doublon de ce panneau). ── */
     {
-        const int px    = M + 2;
-        const int bar_x = px + 32;
-        const int bar_w = UI_LEFT_PANEL_W - 32 - 30 - M;
-        const int val_x = UI_LEFT_PANEL_W - 30;
-        int py = HUD_Y + M;
-
-        // FERRAILLE — uniquement en campagne
-        if (gs->is_campaign) {
-            float sr = fminf((float)gs->meta.scrap / 200.0f, 1.0f);
-            draw_icon(g_icon_scrap, px, py - 1, 16, WHITE);
-            hud_draw_bar(bar_x, py + 2, bar_w, 7, sr,
-                     (Color){127, 200, 50, 255}, (Color){4, 16, 4, 200});
-            dtxt(TextFormat("%d", gs->meta.scrap),
-                     val_x, py + 1, 10, (Color){127, 200, 50, 255});
-            py += 16;
+        static float disp = -1.0f, fx_t = 1e9f;
+        static int   prev = -1, gain = 1;
+        if (disp < 0.0f || fabsf((float)gs->gold - disp) > LP_GOLD_SNAP) {   /* nouvelle partie */
+            disp = (float)gs->gold; prev = gs->gold;
         }
-
-        draw_sep(px, py, UI_LEFT_PANEL_W - M * 2, (Color){40, 25, 6, 130});
-        py += 5;
-
-        // Thème
-        {
-            char tbuf[26];
-            clip_text(th->name, UI_LEFT_PANEL_W - M * 2, 10, tbuf, sizeof(tbuf));
-            dtxt(tbuf, px, py, 10, (Color){48, 82, 48, 255});
-            py += 12;
+        if (gs->gold != prev) {
+            int d = gs->gold - prev;
+            if (d >= LP_GOLD_FLASH_MIN) { fx_t = 0.0f; gain = 1; }
+            else if (d < 0)             { fx_t = 0.0f; gain = 0; }
+            prev = gs->gold;
         }
+        disp += ((float)gs->gold - disp) * fminf(1.0f, ui_dt() * LP_GOLD_ROLL);
+        fx_t += ui_dt();
 
-        // Inventaire
-        if (gs->inventory_count > 0) {
-            dtxt(TextFormat("Mat: %d", gs->inventory_count),
-                     px, py, 9, (Color){62, 165, 185, 255});
+        int gi = fh(LP_GOLD_FS) - 8, isz = gi;
+        if (gain && fx_t < LP_GOLD_BUMP_DUR)
+            isz = (int)((float)gi * (1.0f + 0.25f * sinf(fx_t / LP_GOLD_BUMP_DUR * PI)) + 0.5f);
+        draw_icon(g_icon_gold, x - (isz - gi) / 2, y + 4 - (isz - gi) / 2, isz, WHITE);
+        Color gc = LP_GOLD_COL;
+        float fd = gain ? LP_GOLD_FLASH_GAIN : LP_GOLD_FLASH_LOSS;
+        if (fx_t < fd) {
+            float f = fx_t / fd;
+            Color from = gain ? WHITE : (Color){255, 120, 80, 255};
+            gc = (Color){(unsigned char)(from.r + (gc.r - from.r) * f),
+                         (unsigned char)(from.g + (gc.g - from.g) * f),
+                         (unsigned char)(from.b + (gc.b - from.b) * f), 255};
         }
+        int shown = (int)(disp + 0.5f);
+        char gb[16];
+        if (shown >= 100000) snprintf(gb, sizeof(gb), "%dk", shown / 1000);
+        else                 snprintf(gb, sizeof(gb), "%d", shown);
+        dtxt(gb, x + gi + 6, y, LP_GOLD_FS, gc);
+        y += fh(LP_GOLD_FS) + 2;
+    }
 
-        // ── Achats de slots supplémentaires (bas du panneau gauche) ──
-        // P1.2 : caches en debut de partie (predicat partage avec l'input) ;
-        // a la place, un rappel discret de l'aide pour les nouveaux joueurs.
-        if (!hud_show_slot_buys(gs)) {
-            dtxt("[H] commandes", px, HUD_Y + HUD_H - 44, 10,
-                     (Color){72, 58, 38, 190});
-        } else {
-            const int bw = UI_LEFT_PANEL_W - M * 2 - 4;
-
-            /* Séparateur + titre */
-            draw_sep(px, HUD_Y + HUD_H - 59, bw,
-                     (Color){40, 25, 6, 110});
-            dtxt("SLOTS", px, HUD_Y + HUD_H - 75, 10,
-                     (Color){72, 58, 38, 180});
-
-            const char *slot_labels[2];
-            char        slot_bufs[2][40];
-            Color       slot_cols[2];
-            const Rectangle *slot_rects[2] = {
-                &ui->buy_tower_slot_btn,
-                &ui->buy_unit_slot_btn,
-            };
-
-            /* Tours */
-            {
-                int _b      = gs->slots_tower_bought;
-                int _bl     = tower_active_limit(&gs->bonuses);
-                int _at_max = (_b >= SLOT_MAX_BUYS || (_bl + _b) >= MAX_TOWERS_HARD);
-                if (_at_max)
-                    snprintf(slot_bufs[0], sizeof(slot_bufs[0]), "+1 Tour  [MAX]");
-                else
-                    snprintf(slot_bufs[0], sizeof(slot_bufs[0]),
-                             "+1 Tour  %d or", SLOT_TOWER_COSTS[_b]);
-                slot_labels[0] = slot_bufs[0];
-                slot_cols[0]   = _at_max
-                    ? (Color){55, 42, 18, 200}
-                    : (gs->gold >= (_b < SLOT_MAX_BUYS ? SLOT_TOWER_COSTS[_b] : 99999))
-                    ? (Color){200, 160, 50, 255}
-                    : (Color){100, 75, 25, 200};
-            }
-            /* Unités */
-            {
-                int _b      = gs->slots_unit_bought;
-                int _ul     = unit_active_limit(&gs->bonuses, gs->map.base_count);
-                int _at_max = (_b >= SLOT_MAX_BUYS || (_ul + _b) >= MAX_UNITS);
-                if (_at_max)
-                    snprintf(slot_bufs[1], sizeof(slot_bufs[1]), "+1 Unité  [MAX]");
-                else
-                    snprintf(slot_bufs[1], sizeof(slot_bufs[1]),
-                             "+1 Unité  %d or", SLOT_UNIT_COSTS[_b]);
-                slot_labels[1] = slot_bufs[1];
-                slot_cols[1]   = _at_max
-                    ? (Color){55, 42, 18, 200}
-                    : (gs->gold >= (_b < SLOT_MAX_BUYS ? SLOT_UNIT_COSTS[_b] : 99999))
-                    ? (Color){160, 220, 80, 255}
-                    : (Color){60, 90, 40, 200};
-            }
-
-            Vector2 _vms = virt_mouse();
-            for (int _s = 0; _s < 2; _s++) {
-                const Rectangle *_sr = slot_rects[_s];
-                int _hov = CheckCollisionPointRec(_vms, *_sr);
-                DrawRectangleRounded(*_sr, 0.20f, 4,
-                    _hov ? (Color){20, 14, 4, 235} : (Color){12, 8, 2, 210});
-                DrawRectangleRoundedLinesEx(*_sr, 0.20f, 4, 1.2f,
-                    _hov ? (Color){120, 90, 30, 220} : (Color){55, 40, 12, 160});
-                int _tw2 = mtxt(slot_labels[_s], 11);
-                dtxt(slot_labels[_s],
-                     (int)(_sr->x + _sr->width/2 - _tw2/2),
-                     (int)(_sr->y + _sr->height/2 - 7),
-                     11, slot_cols[_s]);
-            }
-
-            (void)bw;
+    /* ── BASES : PV cumulés (= vies) + barre ── */
+    {
+        int hp = 0, mx = 0;
+        for (int b = 0; b < gs->map.base_count && b < MAX_BASES; b++) {
+            if (!gs->map.bases[b].active) continue;
+            hp += gs->map.bases[b].hp > 0 ? gs->map.bases[b].hp : 0;
+            mx += gs->map.bases[b].max_hp;
         }
+        float r  = mx > 0 ? (float)hp / (float)mx : 0.0f;
+        Color hc = r > 0.6f ? UI_SUCCESS : r > 0.3f ? UI_WARN : UI_DANGER;
+        /* Battement au dégât : cœur qui gonfle (retombée élastique) + onde */
+        static int   prev_lives = -1;
+        static float hit_t      = 1e9f;
+        if (prev_lives < 0 || gs->lives > prev_lives) prev_lives = gs->lives;
+        if (gs->lives < prev_lives) { hit_t = 0.0f; prev_lives = gs->lives; }
+        hit_t += ui_dt();
+        int hi = fh(LP_LINE_FS) - 1, hsz = hi;
+        if (hit_t < LP_HIT_DUR)
+            hsz = (int)((float)hi * (1.0f + 0.5f * (1.0f - ea_out_elastic(hit_t / LP_HIT_DUR))) + 0.5f);
+        draw_icon(g_icon_heart, x - 1 - (hsz - hi) / 2, y - (hsz - hi) / 2, hsz, hc);
+        if (hit_t < LP_HIT_RING_DUR) {
+            float pr = hit_t / LP_HIT_RING_DUR;
+            DrawCircleLines(x - 1 + hi / 2, y + hi / 2, 6.0f + 16.0f * pr,
+                            (Color){hc.r, hc.g, hc.b, (unsigned char)(200.0f * (1.0f - pr))});
+        }
+        dtxt(gs->map.base_count > 1 ? "Bases" : "Base", x + hi + 5, y, LP_LINE_FS, LP_LABEL_COL);
+        char vb[16];
+        snprintf(vb, sizeof(vb), "%d", gs->lives);
+        dtxt(vb, x + w - mtxt(vb, LP_LINE_FS), y, LP_LINE_FS, hc);
+        y += fh(LP_LINE_FS) + 1;
+        hud_draw_bar(x, y, w, LP_BAR_H, r, hc, (Color){20, 14, 10, 255});
+        y += LP_BAR_H + 6;
+    }
+
+    /* ── FERRAILLE (méta-progression) — campagne seulement ── */
+    if (gs->is_campaign) {
+        int si = fh(LP_LINE_FS) - 2;
+        draw_icon(g_icon_scrap, x - 1, y + 1, si, WHITE);
+        dtxt("Ferraille", x + si + 4, y, LP_LINE_FS, LP_LABEL_COL);
+        char sb[16];
+        snprintf(sb, sizeof(sb), "%d", gs->meta.scrap);
+        dtxt(sb, x + w - mtxt(sb, LP_LINE_FS), y, LP_LINE_FS, LP_SCRAP_COL);
+        y += fh(LP_LINE_FS) + 4;
+    }
+
+    /* ── MINERAIS : une case par place d'inventaire ── */
+    {
+        int full = (gs->inventory_count >= MAX_INVENTORY);
+        dtxt("Minerais", x, y, LP_LINE_FS, LP_LABEL_COL);
+        char ib[24];
+        snprintf(ib, sizeof(ib), full ? "PLEIN %d/%d" : "%d/%d", gs->inventory_count, MAX_INVENTORY);
+        dtxt(ib, x + w - mtxt(ib, LP_LINE_FS), y, LP_LINE_FS, full ? UI_WARN : LP_INV_COL);
+        y += fh(LP_LINE_FS) + 1;
+        int step = LP_INV_SLOT + LP_INV_GAP;
+        int ix   = x + (w - (MAX_INVENTORY * step - LP_INV_GAP)) / 2;
+        for (int k = 0; k < MAX_INVENTORY; k++, ix += step) {
+            DrawRectangle(ix, y, LP_INV_SLOT, LP_INV_SLOT, PLATE_FRAME_D);
+            DrawRectangle(ix + 1, y + 1, LP_INV_SLOT - 2, LP_INV_SLOT - 2, (Color){10, 8, 6, 255});
+            if (k >= gs->inventory_count) continue;
+            MaterialType m = gs->inventory[k];
+            Color mc = (m > MAT_NONE && m < MAT_COUNT) ? MATERIAL_COLORS[m] : LP_INV_COL;
+            int cx = ix + LP_INV_SLOT / 2, cy = y + LP_INV_SLOT / 2, rr = LP_INV_SLOT / 2 - 2;
+            plate_tri((Vector2){(float)cx, (float)(cy - rr)}, (Vector2){(float)(cx - rr), (float)cy},
+                      (Vector2){(float)(cx + rr), (float)cy}, mc);                      /* gemme */
+            plate_tri((Vector2){(float)(cx - rr), (float)cy}, (Vector2){(float)cx, (float)(cy + rr)},
+                      (Vector2){(float)(cx + rr), (float)cy},
+                      (Color){(unsigned char)(mc.r * 0.6f), (unsigned char)(mc.g * 0.6f),
+                              (unsigned char)(mc.b * 0.6f), 255});
+            DrawRectangle(cx - 1, cy - rr + 2, 2, 2, (Color){255, 255, 255, 170}); /* reflet */
+        }
+    }
+
+    // ── Achats de slots (bas) ; masqués en début de partie (P1.2,
+    // prédicat partagé avec l'input) : rappel de l'aide à la place.
+    if (!hud_show_slot_buys(gs)) {
+        plate_key_hint(x, (int)ui->buy_unit_slot_btn.y, "H", "Aide et commandes", 1);
+        return;
+    }
+    {
+        int b = gs->slots_tower_bought;
+        int at_max = (b >= SLOT_MAX_BUYS || tower_active_limit(&gs->bonuses) + b >= MAX_TOWERS_HARD);
+        int cost   = at_max ? 0 : SLOT_TOWER_COSTS[b];
+        slot_button(&ui->buy_tower_slot_btn, "+1 Tour", cost, at_max, gs->gold >= cost, HUD_COL_TOWER);
+    }
+    {
+        int b = gs->slots_unit_bought;
+        int at_max = (b >= SLOT_MAX_BUYS ||
+                      unit_active_limit(&gs->bonuses, gs->map.base_count) + b >= MAX_UNITS);
+        int cost   = at_max ? 0 : SLOT_UNIT_COSTS[b];
+        slot_button(&ui->buy_unit_slot_btn, "+1 Unité", cost, at_max, gs->gold >= cost, HUD_COL_UNIT);
     }
 }
 
@@ -228,6 +282,7 @@ void hud_render_build_ribbon(const UIState *ui, const GameState *gs) {
 #define HINT_FADE_OUT  0.60f  // disparition (s)
 #define HINT_FS        10
 #define HINT_TAG_FS    8
+#define HINT_BELOW_BANNER_Y 168   // sous le bandeau de fin de vague (haut max ≈ 160 px)
 void hud_render_hint(const UIState *ui, const GameState *gs) {
     HUD_FRAME_LOCALS;
     if (ui->hint_t <= 0.0f || !ui->hint_text) return;
@@ -239,13 +294,17 @@ void hud_render_hint(const UIState *ui, const GameState *gs) {
     int tw = mtxt(ui->hint_text, HINT_FS), gw = mtxt(tag, HINT_TAG_FS) + 10;
     int bw = tw + gw + M * 3, bh = fh(HINT_FS) + 12;
     int y  = (ui->top_reserved_y > HINT_Y) ? ui->top_reserved_y : HINT_Y;
+    /* Bandeau de fin de vague affiché (même place, centré) : le conseil passe
+       dessous au lieu d'être recouvert. */
+    if (ui->wave_banner_t > 0.0f && y < HINT_BELOW_BANNER_Y) y = HINT_BELOW_BANNER_Y;
     int x  = g_map_x_off + g_canvas_virt_w_base / 2 - bw / 2;
     Rectangle r = {(float)x, (float)y, (float)bw, (float)bh};
-    DrawRectangleRounded(r, 0.4f, 6, (Color){10, 16, 24, (unsigned char)(230.0f * a)});
-    DrawRectangleRoundedLinesEx(r, 0.4f, 6, 1.5f, (Color){110, 180, 230, (unsigned char)(230.0f * a)});
+    plate_alpha(a);   /* plaque de métal, liseré bleu « conseil » */
+    plate_panel(plate_inset(r, -(float)PLATE_BORDER), PLATE_CHAMFER_S, (Color){110, 180, 230, 255}, 0.9f);
+    plate_alpha(1.0f);
     int ch = fh(HINT_TAG_FS) + 4, cy = y + (bh - ch) / 2;
-    DrawRectangleRounded((Rectangle){(float)(x + M), (float)cy, (float)gw, (float)ch}, 0.4f, 4,
-                         (Color){110, 180, 230, (unsigned char)(255.0f * a)});
+    plate_chamfer_fill((Rectangle){(float)(x + M), (float)cy, (float)gw, (float)ch}, 3.0f,
+                       (Color){110, 180, 230, (unsigned char)(255.0f * a)});
     dtxt(tag, x + M + 5, cy + 2, HINT_TAG_FS, (Color){10, 16, 24, (unsigned char)(255.0f * a)});
     dtxt(ui->hint_text, x + M * 2 + gw, y + (bh - fh(HINT_FS)) / 2, HINT_FS,
          (Color){215, 232, 245, (unsigned char)(255.0f * a)});
@@ -258,7 +317,8 @@ void hud_render_tool_tooltip(const UIState *ui, const GameState *gs) {
     // TOOLTIP OUTIL (au-dessus de tout le reste)
     // ════════════════════════════════════════════════
     if (ui->hovered_tool != -1) {
-        const ToolInfo  *info   = &TOOL_INFO[ui->hovered_tool];
+        const ToolInfo   ti     = hud_tool_info((ToolID)ui->hovered_tool);   /* chiffres réels */
+        const ToolInfo  *info   = &ti;
         const Rectangle *rb     = &ui->tool_btns[ui->hovered_tool];
         int              locked = !tool_is_unlocked((ToolID)ui->hovered_tool, gs);
 
@@ -283,14 +343,10 @@ void hud_render_tool_tooltip(const UIState *ui, const GameState *gs) {
         if (tx + TW > VIRT_W - UI_PANEL_W - M)
             tx = VIRT_W - UI_PANEL_W - M - TW;
 
-        float trnd = (float)UI_RADIUS / TH;
         Color border = locked ? (Color){80, 55, 20, 200} : TOOL_COLORS[ui->hovered_tool];
-        DrawRectangleRounded(
-            (Rectangle){(float)tx,(float)ty,(float)TW,(float)TH},
-            trnd, 6, UI_PANEL_BG);
-        DrawRectangleRoundedLinesEx(
-            (Rectangle){(float)tx,(float)ty,(float)TW,(float)TH},
-            trnd, 6, 1.5f, border);
+        plate_panel((Rectangle){(float)(tx - PLATE_BORDER), (float)(ty - PLATE_BORDER),
+                                (float)(TW + 2 * PLATE_BORDER), (float)(TH + 2 * PLATE_BORDER)},
+                    PLATE_CHAMFER_S, border, 0.85f);
 
         char dbuf[48];
         clip_text(info->name, TW - M*2, 11, dbuf, sizeof(dbuf));
@@ -328,7 +384,7 @@ void hud_render_tool_tooltip(const UIState *ui, const GameState *gs) {
                 char adv[80];
                 if (hud_counter_advice(gs, adv, sizeof(adv))) {
                     int aw = mtxt(adv, 10), ah = fh(10) + 6;
-                    int ay = ty - ah - 2;
+                    int ay = ty - PLATE_BORDER - ah - 2;   /* au-dessus du cadre */
                     DrawRectangle(tx, ay, aw + M * 2, ah, UI_PANEL_BG_SOFT);
                     dtxt(adv, tx + M, ay + 3, 10, UI_INFO);
                 }

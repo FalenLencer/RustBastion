@@ -57,6 +57,7 @@ void opts_key_name(int key, char *out, int outsz) {
         case KEY_TAB:           n = "TAB";       break;
         case KEY_ENTER:         n = "ENTRÉE";    break;
         case KEY_BACKSPACE:     n = "RETOUR AR"; break;
+        case KEY_DELETE:        n = "SUPPR";     break;
         case KEY_UP:            n = "FL. HAUT";  break;
         case KEY_DOWN:          n = "FL. BAS";   break;
         case KEY_LEFT:          n = "FL. GAUCHE";break;
@@ -68,4 +69,15 @@ void opts_key_name(int key, char *out, int outsz) {
     }
     if (n) snprintf(out, outsz, "%s", n);
     else   snprintf(out, outsz, "CODE %d", key);
+}
+
+// ── Touche qui IMPRIME la lettre `c` sur ce clavier (CTRL+Z doit être la
+//    touche marquée « Z », qui est KEY_W sur AZERTY) ; repli sinon ─────
+int opts_key_for_char(char c, int fallback) {
+    if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    for (int k = KEY_A; k <= KEY_Z; k++) {
+        const char *ln = glfwGetKeyName(k, 0);
+        if (ln && ln[0] == c && ln[1] == '\0') return k;
+    }
+    return fallback;
 }

@@ -186,9 +186,11 @@ typedef struct UnitPool {
 void unit_pool_init    (UnitPool *up, float base_px, float base_py);
 int  unit_spawn        (UnitPool *up, UnitType type, int *gold, const MetaBonuses *bonuses);
 int  unit_spawn_at     (UnitPool *up, UnitType type, int *gold, const MetaBonuses *bonuses, float bpx, float bpy);
+/* `paths` : chemins ennemis — postes de garde sur les routes d'approche
+   (unit_guard.h) ; NULL = orbite classique autour de la base. */
 void unit_pool_update  (UnitPool *up, EnemyPool *ep, Map *map, float dt,
                         MaterialType *inventory, int *inv_count,
-                        const TowerPool *towers);
+                        const TowerPool *towers, const PathSet *paths);
 void unit_damage       (Unit *u, float dmg);
 void unit_assign_deposit(UnitPool *up, int unit_idx, int deposit_idx);
 /* 1 (défaut) = un ouvrier inactif part seul vers le gisement actif le plus

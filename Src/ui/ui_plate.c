@@ -18,6 +18,8 @@
 #define PLATE_KEY_FS     9      /* police des touches                        */
 #define PLATE_SEC_FS     9      /* police des titres de section              */
 #define PLATE_GRIP_N     3      /* prises latérales d'un bouton (traits)     */
+#define PLATE_GRIP_MIN_W 60     /* bouton plus étroit (intérieur) : pas de
+                                   prises, elles mordraient sur son icône    */
 #define PLATE_STRIPE     5      /* largeur d'une rayure de danger (px)       */
 
 static float g_pa = 1.0f;       /* opacité globale (plate_alpha)             */
@@ -93,6 +95,10 @@ void plate_panel(Rectangle box, float c, Color acc, float acc_a) {
 }
 
 void plate_button(Rectangle b, Color acc, int hov, int enabled) {
+    plate_button_ex(b, acc, hov, enabled, 1);
+}
+
+void plate_button_ex(Rectangle b, Color acc, int hov, int enabled, int grips) {
     float c = PLATE_CHAMFER_S;
     if (hov && enabled)                                    /* halo de survol */
         plate_chamfer_line(plate_inset(b, -2.0f), c + 1.0f, plate_fade(acc, 0.45f));
@@ -110,6 +116,7 @@ void plate_button(Rectangle b, Color acc, int hov, int enabled) {
     plate_chamfer_line(plate_inset(in, 1.0f), ic,
                        plate_fade(acc, !enabled ? 0.25f : hov ? 1.0f : 0.70f));
     Color grip = A(plate_fade(PLATE_FRAME_L, enabled ? 0.8f : 0.4f));
+    if (!grips || in.width < PLATE_GRIP_MIN_W) return;
     for (int k = 0; k < PLATE_GRIP_N; k++) {               /* prises latérales */
         int gx = (int)in.x + 6 + k * 3, gx2 = (int)(in.x + in.width) - 7 - k * 3;
         int gy = (int)in.y + 6, gh = (int)in.height - 12;
@@ -118,14 +125,17 @@ void plate_button(Rectangle b, Color acc, int hov, int enabled) {
     }
 }
 
-int plate_keycap(int x, int y, const char *lbl, Color col) {
-    int w = mtxt(lbl, PLATE_KEY_FS) + 10, h = fh(PLATE_KEY_FS) + 4;
+int plate_keycap_fs(int x, int y, const char *lbl, Color col, int fs) {
+    int pad = fs < PLATE_KEY_FS ? 3 : 5, w = mtxt(lbl, fs) + 2 * pad, h = fh(fs) + (fs < PLATE_KEY_FS ? 2 : 4);
     DrawRectangle(x, y, w, h + 2, A(PLATE_FRAME_D));                    // épaisseur de la touche
     DrawRectangle(x + 1, y + 1, w - 2, h - 1, A(PLATE_FRAME));          // dessus
     DrawRectangle(x + 1, y + 1, w - 2, 1, A(PLATE_FRAME_L));            // arête éclairée
     DrawRectangle(x + 1, y + h, w - 2, 1, A(plate_fade(col, 0.55f)));   // filet coloré
-    dtxt(lbl, x + 5, y + 2, PLATE_KEY_FS, A(col));
+    dtxt(lbl, x + pad, y + (h - fh(fs)) / 2, fs, A(col));
     return w;
+}
+int plate_keycap(int x, int y, const char *lbl, Color col) {
+    return plate_keycap_fs(x, y, lbl, col, PLATE_KEY_FS);
 }
 
 void plate_section(int x, int y, int w, const char *txt, Color col) {

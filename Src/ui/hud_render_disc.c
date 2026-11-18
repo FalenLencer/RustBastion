@@ -13,6 +13,7 @@
 #include "ui_anim.h"                 // horloge + hover animés de l'UI
 #include "ui_palette.h"              // palette UI (source unique)
 #include "terrain.h"                  // filon peint (fiche minerai)
+#include "ui_plate.h"                // plaque de métal (style commun du jeu)
 #include "../game/campaign_data.h"   // campaign_difficulty_stage (aperçu de vague)
 
 #define SLOT_DISC        4        // slot ui_timer (0-3 : menus)
@@ -122,26 +123,21 @@ void hud_render_discovery(const UIState *ui, const GameState *gs) {
         {
             float sc  = 0.92f + 0.08f * ea_out_cubic(k1);
             float scw = (float)cw * sc, sch = (float)ch * sc;
+            /* Plaque de métal (cadre biseauté, rivets, liseré couleur de catégorie) */
             Rectangle pr2 = {(float)cx - scw/2.0f, (float)cy - sch/2.0f, scw, sch};
-            DrawRectangleRounded(pr2, 0.05f, 6,
-                                 (Color){8,5,2,(unsigned char)(252.0f * k1)});
-            DrawRectangleRoundedLinesEx(pr2, 0.05f, 6, 2.0f,
-                (Color){cat_col.r, cat_col.g, cat_col.b,
-                        (unsigned char)(255.0f * k1)});
+            plate_alpha(k1);
+            plate_panel(plate_inset(pr2, -(float)PLATE_BORDER), PLATE_CHAMFER, cat_col, 0.9f);
+            plate_alpha(1.0f);
         }
 
         // Bandeau d'en-tête : se remplit de gauche à droite (clip manuel —
         // BeginScissorMode opère en coordonnées écran, pas canvas)
         int hdr_h = 46;
         if (k2 > 0.0f) {
-            DrawRectangleRounded(
-                (Rectangle){(float)card_x,(float)card_y,(float)cw * k2,(float)hdr_h},
-                0.1f, 4, cat_dim);
-            DrawRectangleRoundedLinesEx(
-                (Rectangle){(float)card_x,(float)card_y,(float)cw,(float)hdr_h},
-                0.1f, 4, 1.5f,
-                (Color){cat_col.r, cat_col.g, cat_col.b,
-                        (unsigned char)(255.0f * k2)});
+            plate_chamfer_fill((Rectangle){(float)card_x, (float)card_y, (float)cw * k2, (float)hdr_h},
+                               PLATE_CHAMFER_S, cat_dim);
+            plate_chamfer_line((Rectangle){(float)card_x, (float)card_y, (float)cw, (float)hdr_h},
+                               PLATE_CHAMFER_S, plate_fade(cat_col, k2));
         }
 
         // Badge catégorie
@@ -161,9 +157,8 @@ void hud_render_discovery(const UIState *ui, const GameState *gs) {
                 float bw2 = (float)badge_w * bs, bh2 = (float)badge_h * bs;
                 float bcx = (float)bx + badge_w/2.0f, bcy = (float)by + badge_h/2.0f;
                 unsigned char ba = (unsigned char)(255.0f * (kb > 1.0f ? 1.0f : kb));
-                DrawRectangleRounded(
-                    (Rectangle){bcx - bw2/2.0f, bcy - bh2/2.0f, bw2, bh2},
-                    0.4f, 4, (Color){cat_col.r, cat_col.g, cat_col.b, ba});
+                plate_chamfer_fill((Rectangle){bcx - bw2/2.0f, bcy - bh2/2.0f, bw2, bh2},
+                                   3.0f, (Color){cat_col.r, cat_col.g, cat_col.b, ba});
                 dtxt(cat_lbl, bx + 6, by + badge_h/2 - fh(10)/2, 10,
                      (Color){8,5,2,ba});
             }
@@ -190,8 +185,8 @@ void hud_render_discovery(const UIState *ui, const GameState *gs) {
             xbg.a = (unsigned char)((float)xbg.a * k2);
             xbd.a = (unsigned char)((float)xbd.a * k2);
             xtc.a = (unsigned char)((float)xtc.a * k2);
-            DrawRectangleRounded(xbtn, 0.3f, 4, xbg);
-            DrawRectangleRoundedLinesEx(xbtn, 0.3f, 4, 1.5f, xbd);
+            plate_chamfer_fill(xbtn, 4.0f, xbg);
+            plate_chamfer_line(xbtn, 4.0f, xbd);
             int xw = mtxt("X", 11);
             dtxt("X", xbx + xbw/2 - xw/2, xby + xbh/2 - fh(11)/2, 11, xtc);
         }
@@ -307,14 +302,10 @@ void hud_render_discovery(const UIState *ui, const GameState *gs) {
                      ENEMY_BASE_STATS[de->idx].hp,
                      ENEMY_BASE_STATS[de->idx].speed,
                      ENEMY_BASE_STATS[de->idx].reward);
-            // Faiblesses elementaires (mult >= 1.3) : apprend le CONTRE a utiliser.
-            char wk[64]; int off = 0, wn = 0;
-            for (int d = 0; d < DAMAGE_TYPE_COUNT && off < (int)sizeof(wk) - 1; d++) {
-                if (ENEMY_DMG_MULT[de->idx][d] >= 1.30f)
-                    off += snprintf(wk + off, sizeof(wk) - off, "%s%s",
-                                    wn++ ? ", " : "", DAMAGE_NAMES[d]);
-            }
-            if (wn) snprintf(stat_b, sizeof(stat_b), "Faible : %s", wk);
+            // Faiblesses elementaires : apprend le CONTRE a utiliser.
+            char wk[64];
+            if (hud_enemy_dmg_list(de->idx, 1, 0, wk, (int)sizeof(wk)))
+                snprintf(stat_b, sizeof(stat_b), "Faible : %s", wk);
             else    snprintf(stat_b, sizeof(stat_b), "Peu de faiblesse élémentaire");
         } else if (de->type == DISC_TOWER) {
             snprintf(stat_a, sizeof(stat_a), "Coût : %d or   Dégâts : %.0f",
@@ -428,14 +419,11 @@ void hud_render_discovery(const UIState *ui, const GameState *gs) {
                 int btnx = cx - btnw/2, btny = card_y + ch - 14 - btnh;
                 Rectangle cont = {(float)btnx,(float)btny,(float)btnw,(float)btnh};
                 int chov = CheckCollisionPointRec(virt_mouse(), cont);
-                Color cbg = chov ? cat_col : cat_dim;
-                Color ctc = chov ? (Color){8,5,2,255} : cat_col;
-                cbg.a = (unsigned char)((float)cbg.a * kb2);
+                Color ctc = chov ? (Color){255, 245, 225, 255} : cat_col;
                 ctc.a = (unsigned char)((float)ctc.a * kb2);
-                DrawRectangleRounded(cont, 0.3f, 4, cbg);
-                DrawRectangleRoundedLinesEx(cont, 0.3f, 4, 1.5f,
-                    (Color){cat_col.r, cat_col.g, cat_col.b,
-                            (unsigned char)(255.0f * kb2)});
+                plate_alpha(kb2);
+                plate_button(cont, cat_col, chov, 1);
+                plate_alpha(1.0f);
                 const char *btn_lbl = ui->disc_count > 1 ? "SUIVANT >" : "CONTINUER";
                 int blw = mtxt(btn_lbl, 12);
                 dtxt(btn_lbl, btnx + btnw/2 - blw/2,

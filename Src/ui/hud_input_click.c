@@ -17,33 +17,15 @@ int hud_click_overlay_drag(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y)
     (void)ui; (void)gs; (void)mouse; (void)HUD_Y;
     // Démarrage du drag sur un overlay (priorité sur tout autre clic)
     {
-        Rectangle tl_r = {ui->overlay_tl_pos.x, ui->overlay_tl_pos.y,
-                           OVERLAY_W, OVERLAY_TL_H};
         Rectangle tr_r = {ui->overlay_tr_pos.x, ui->overlay_tr_pos.y,
                            OVERLAY_W, OVERLAY_TR_H};
-        if (CheckCollisionPointRec(mouse, tl_r)) {
-            ui->dragging_overlay = 0;
-            ui->drag_grab = (Vector2){mouse.x - tl_r.x, mouse.y - tl_r.y};
-            return 1; // ne pas propager le clic
-        }
         if (CheckCollisionPointRec(mouse, tr_r)) {
-            // Bouton vitesse dans le coin bas-droit de l'overlay TR :
-            // intercepté avant le drag pour ne pas déclencher le glissement.
-            // Position identique à celle calculée dans le rendu.
-            {
-                const int _ovp = OVERLAY_OV_P;
-                const int _bw  = 26, _bh = 14;
-                // ty_speed = oy + OV_P+GRIP + (17+3) + (14+3) + (14+3) + (9+5)
-                const int _by = (int)tr_r.y + _ovp + OVERLAY_GRIP_H + 20 + 17 + 17 + 14;
-                Rectangle _sbr = {
-                    tr_r.x + OVERLAY_W - _ovp - _bw,
-                    (float)_by, (float)_bw, (float)_bh
-                };
-                if (CheckCollisionPointRec(mouse, _sbr)) {
-                    ui->speed_mult = (ui->speed_mult % 3) + 1;
-                    audio_play_sfx(AUDIO_SFX_MENU_CLICK);
-                    return 1;
-                }
+            // Bouton vitesse (coin bas-droit de l'overlay) : intercepté avant
+            // le glissement. Rectangle partagé avec le rendu.
+            if (CheckCollisionPointRec(mouse, hud_speed_btn_rect(ui))) {
+                ui->speed_mult = (ui->speed_mult % 3) + 1;
+                audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+                return 1;
             }
             ui->dragging_overlay = 1;
             ui->drag_grab = (Vector2){mouse.x - tr_r.x, mouse.y - tr_r.y};
@@ -151,77 +133,91 @@ int hud_click_unit_panel(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y) {
     return 0;
 }
 
-/* Amélioration / réparation de la tour sélectionnée. Retourne 1 si le clic est consommé. */
-int hud_click_tower_panel(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y) {
-    (void)ui; (void)gs; (void)mouse; (void)HUD_Y;
-    /* ── Amélioration et réparation de la tour sélectionnée ── */
-    if (ui->selection.active) {
-        int _tidx = ui->selection.tower_idx;
-        if (_tidx >= 0 && _tidx < MAX_TOWERS && gs->towers.towers[_tidx].active) {
-            Tower *_tw = &gs->towers.towers[_tidx];
-
-            if (CheckCollisionPointRec(mouse, ui->upg_dmg_btn)) {
-                int _c = tower_upg_next_cost_dmg(_tw);
-                if (_c < 0) {
-                    ui_push_notif(ui, "Dégâts : niveau max !", (Color){130, 90, 40, 255});
-                } else if (gs->gold >= _c) {
-                    gs->gold -= _c;
-                    tower_upgrade_dmg(_tw);
-                    char _nb[48];
-                    snprintf(_nb, sizeof(_nb), "Dégâts +10%% (niv %d/%d)",
-                             _tw->upg_dmg, TOWER_UPG_MAX);
-                    ui_push_notif(ui, _nb, (Color){231, 100, 60, 255});
-                } else {
-                    ui_push_notif(ui, "Or insuffisant !", (Color){243, 156, 18, 255});
-                }
-                return 1;
-            }
-            if (CheckCollisionPointRec(mouse, ui->upg_range_btn)) {
-                int _c = tower_upg_next_cost_range(_tw);
-                if (_c < 0) {
-                    ui_push_notif(ui, "Portée : niveau max !", (Color){130, 90, 40, 255});
-                } else if (gs->gold >= _c) {
-                    gs->gold -= _c;
-                    tower_upgrade_range(_tw);
-                    char _nb[48];
-                    snprintf(_nb, sizeof(_nb), "Portée +10%% (niv %d/%d)",
-                             _tw->upg_range, TOWER_UPG_MAX);
-                    ui_push_notif(ui, _nb, (Color){82, 155, 200, 255});
-                } else {
-                    ui_push_notif(ui, "Or insuffisant !", (Color){243, 156, 18, 255});
-                }
-                return 1;
-            }
-            if (CheckCollisionPointRec(mouse, ui->upg_rate_btn)) {
-                int _c = tower_upg_next_cost_rate(_tw);
-                if (_c < 0) {
-                    ui_push_notif(ui, "Cadence : niveau max !", (Color){130, 90, 40, 255});
-                } else if (gs->gold >= _c) {
-                    gs->gold -= _c;
-                    tower_upgrade_rate(_tw);
-                    char _nb[48];
-                    snprintf(_nb, sizeof(_nb), "Cadence +20%% (niv %d/%d)",
-                             _tw->upg_rate, TOWER_UPG_MAX);
-                    ui_push_notif(ui, _nb, (Color){155, 89, 182, 255});
-                } else {
-                    ui_push_notif(ui, "Or insuffisant !", (Color){243, 156, 18, 255});
-                }
-                return 1;
-            }
-            if (CheckCollisionPointRec(mouse, ui->repair_tower_btn)) {
-                if (_tw->hp >= TOWER_MAX_HP) {
-                    ui_push_notif(ui, "Tour déjà intacte !", (Color){130, 90, 40, 255});
-                } else if (gs->gold >= TOWER_REPAIR_COST) {
-                    gs->gold -= TOWER_REPAIR_COST;
-                    tower_do_repair(_tw);
-                    ui_push_notif(ui, "Tour réparée !", (Color){46, 204, 113, 255});
-                } else {
-                    ui_push_notif(ui, "Or insuffisant !", (Color){243, 156, 18, 255});
-                }
-                return 1;
-            }
-        }
+/* Une amélioration (coût < 0 = niveau max). */
+static void tower_upgrade_try(UIState *ui, GameState *gs, Tower *tw, int cost,
+                              void (*apply)(Tower *), const int *lvl,
+                              const char *what, const char *gain, Color col) {
+    char nb[64];
+    if (cost < 0) {
+        snprintf(nb, sizeof(nb), "%s : niveau max !", what);
+        ui_push_notif(ui, nb, (Color){130, 90, 40, 255});
+    } else if (gs->gold >= cost) {
+        gs->gold -= cost;
+        apply(tw);
+        snprintf(nb, sizeof(nb), "%s %s (niv %d/%d)", what, gain, *lvl, TOWER_UPG_MAX);
+        ui_push_notif(ui, nb, col);
+    } else {
+        ui_push_notif(ui, "Or insuffisant !", (Color){243, 156, 18, 255});
     }
+}
+
+int hud_tower_action(UIState *ui, GameState *gs, int idx, TowerAction a) {
+    if (idx < 0 || idx >= MAX_TOWERS || !gs->towers.towers[idx].active) return 0;
+    Tower *tw = &gs->towers.towers[idx];
+    switch (a) {
+    case TACT_DMG:
+        tower_upgrade_try(ui, gs, tw, tower_upg_next_cost_dmg(tw), tower_upgrade_dmg,
+                          &tw->upg_dmg, "Dégâts", "+10%", (Color){231, 100, 60, 255});
+        break;
+    case TACT_RANGE:
+        tower_upgrade_try(ui, gs, tw, tower_upg_next_cost_range(tw), tower_upgrade_range,
+                          &tw->upg_range, "Portée", "+10%", (Color){82, 155, 200, 255});
+        break;
+    case TACT_RATE:
+        tower_upgrade_try(ui, gs, tw, tower_upg_next_cost_rate(tw), tower_upgrade_rate,
+                          &tw->upg_rate, "Cadence", "+20%", (Color){155, 89, 182, 255});
+        break;
+    case TACT_REPAIR:
+        if (tw->hp >= TOWER_MAX_HP) {
+            ui_push_notif(ui, "Tour déjà intacte !", (Color){130, 90, 40, 255});
+        } else if (gs->gold >= TOWER_REPAIR_COST) {
+            gs->gold -= TOWER_REPAIR_COST;
+            tower_do_repair(tw);
+            ui_push_notif(ui, "Tour réparée !", (Color){46, 204, 113, 255});
+        } else {
+            ui_push_notif(ui, "Or insuffisant !", (Color){243, 156, 18, 255});
+        }
+        break;
+    case TACT_TARGET: {
+        tw->target_mode = (tw->target_mode + 1) % TGT_COUNT;
+        char nb[48];
+        snprintf(nb, sizeof(nb), "Cible : %s", TARGET_MODE_NAMES[tw->target_mode]);
+        ui_push_notif(ui, nb, (Color){210, 190, 140, 255});
+        break;
+    }
+    case TACT_SELL: {
+        int fresh  = tower_is_fresh(&gs->towers, idx);
+        int refund = tower_refund(&gs->towers, idx, &gs->map);   // pose + améliorations
+        gs->gold += refund;
+        // Rend le MINERAI appliqué à l'inventaire (s'il reste de la place).
+        if (tw->material != MAT_NONE && gs->inventory_count < MAX_INVENTORY) {
+            gs->inventory[gs->inventory_count++] = tw->material;
+            ui_push_notif(ui, "Minerai récupéré", (Color){62, 175, 200, 255});
+        }
+        gs->map.tiles[tw->tile_y][tw->tile_x].buildable = 1;
+        tw->active = 0;
+        gs->towers.tower_count--;
+        char nb[48];
+        snprintf(nb, sizeof(nb), fresh ? "Pose annulée : +%d or" : "+%d or récupérés", refund);
+        ui_push_notif(ui, nb, (Color){230, 155, 35, 255});
+        if (ui->selection.tower_idx == idx) ui->selection.active = 0;
+        break;
+    }
+    }
+    audio_play_sfx(AUDIO_SFX_MENU_CLICK);
+    return 1;
+}
+
+/* Boutons de la tour sélectionnée. Retourne 1 si le clic est consommé. */
+int hud_click_tower_panel(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y) {
+    (void)HUD_Y;
+    if (!ui->selection.active) return 0;
+    const Rectangle *r[] = {&ui->upg_dmg_btn, &ui->upg_range_btn, &ui->upg_rate_btn,
+                            &ui->repair_tower_btn, &ui->target_btn};
+    const TowerAction a[] = {TACT_DMG, TACT_RANGE, TACT_RATE, TACT_REPAIR, TACT_TARGET};
+    for (int k = 0; k < (int)(sizeof(a) / sizeof(a[0])); k++)
+        if (CheckCollisionPointRec(mouse, *r[k]))
+            return hud_tower_action(ui, gs, ui->selection.tower_idx, a[k]) || 1;
     return 0;
 }
 

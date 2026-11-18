@@ -12,81 +12,85 @@
 
 #include "hud_internal.h"
 
-/* Recalcule la mise en page des boutons du HUD et suit le glisser des
-   overlays (avant tout clic de la frame). */
-void hud_input_layout(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y) {
-    (void)ui; (void)gs; (void)mouse; (void)HUD_Y;
-    // ── Repositionnement dynamique des boutons centraux (tours/unités/vague) ──
-    // Centrés dans la zone entre le panneau gauche et le panneau droit
-    // pour s'adapter à toutes les largeurs de fenêtre.
+Rectangle hud_speed_btn_rect(const UIState *ui) {
+    const float bw = 26.0f, bh = 14.0f;
+    float ox = ui->overlay_tr_pos.x, oy = ui->overlay_tr_pos.y;
+    return (Rectangle){ox + OVERLAY_W - OVERLAY_OV_P - bw,
+                       oy + OVERLAY_OV_P + OVERLAY_GRIP_H + OVERLAY_TR_ROW_WAVE + OVERLAY_TR_ROW_KILLS,
+                       bw, bh};
+}
+
+/* Rectangles des boutons fixes du panneau bas (cf. hud_internal.h). */
+void hud_layout_buttons(UIState *ui, int HUD_Y) {
+    // ── Plaque centrale : cartes des tours / unités + LANCER + PAUSE ──
+    // Bloc centré entre les panneaux gauche et droit (toutes largeurs).
     {
-        const int M    = UI_MARGIN;
-        const int GAP  = 6;
+        const int M      = UI_MARGIN;
+        const int STEP   = UI_BTN_W + HUD_CARD_GAP;
+        const int CARDS  = 5 * STEP - HUD_CARD_GAP;          /* rangée la plus longue */
+        const int SPAN   = CARDS + HUD_BLOCK_GAP + HUD_WAVE_W + M + HUD_PAUSE_W;
 
         int mid_left  = UI_LEFT_PANEL_W;
-        int mid_right = g_canvas_virt_w - UI_PANEL_W;
-        int mid_w     = mid_right - mid_left;
+        int mid_w     = g_canvas_virt_w - UI_PANEL_W - mid_left;
+        int col0_x    = mid_left + (mid_w - SPAN) / 2;
+        if (col0_x < mid_left + HUD_PANEL_PAD) col0_x = mid_left + HUD_PANEL_PAD;
 
-        /* Empreinte totale : 5 boutons + M + bouton vague + M + pause */
-        const int BTNS_SPAN = 5*(UI_BTN_W + GAP) + M + 108 + M + 36;
-
-        int col0_x = mid_left + (mid_w - BTNS_SPAN) / 2;
-        if (col0_x < mid_left + M) col0_x = mid_left + M;
-
-        int row1_y = HUD_Y + 18;
-        int row2_y = row1_y + UI_BTN_H + GAP + 14;
+        /* Chaque rangée a son titre de section au-dessus (HUD_SEC_H). */
+        int sec1_y = HUD_Y + HUD_SEC_Y;
+        int row1_y = sec1_y + HUD_SEC_H;
+        int row2_y = row1_y + UI_BTN_H + HUD_ROW_GAP + HUD_SEC_H;
 
         for (int i = 0; i < 4; i++)
             ui->tool_btns[TOOL_TOWER_GUN + i] = (Rectangle){
-                (float)(col0_x + i*(UI_BTN_W+GAP)),
-                (float)row1_y, UI_BTN_W, UI_BTN_H
+                (float)(col0_x + i * STEP), (float)row1_y, UI_BTN_W, UI_BTN_H
             };
         for (int i = 0; i < 5; i++)
             ui->tool_btns[TOOL_UNIT_SOLDIER + i] = (Rectangle){
-                (float)(col0_x + i*(UI_BTN_W+GAP)),
-                (float)row2_y, UI_BTN_W, UI_BTN_H
+                (float)(col0_x + i * STEP), (float)row2_y, UI_BTN_W, UI_BTN_H
             };
 
-        int wave_x = col0_x + 5*(UI_BTN_W + GAP) + M;
-        int wave_h  = UI_BTN_H * 2 + GAP + 14;
-        ui->wave_btn  = (Rectangle){(float)wave_x, (float)row1_y, 108.0f, (float)wave_h};
-        ui->pause_btn = (Rectangle){(float)(wave_x + 108 + M), (float)row1_y,
-                                    36.0f, (float)wave_h};
+        /* LANCER et PAUSE : toute la hauteur des deux rangées, titres compris */
+        int wave_x = col0_x + CARDS + HUD_BLOCK_GAP;
+        int wave_h = row2_y + UI_BTN_H - sec1_y;
+        ui->wave_btn  = (Rectangle){(float)wave_x, (float)sec1_y, HUD_WAVE_W, (float)wave_h};
+        ui->pause_btn = (Rectangle){(float)(wave_x + HUD_WAVE_W + M), (float)sec1_y,
+                                    HUD_PAUSE_W, (float)wave_h};
     }
 
-    // ── Repositionnement dynamique des boutons du panneau droit ──
+    // ── Boutons du panneau droit ──
     {
         const int M       = UI_MARGIN;
         const int GAP     = 6;
-        const int right_x = g_canvas_virt_w - UI_PANEL_W + M;
-        const int max_w   = UI_PANEL_W - M * 2;
-        const int ubh     = 38;   /* hauteur bouton upgrade (3 lignes visibles) */
-        const int ubw     = (max_w - GAP * 2) / 3;
-        const int rsh     = (max_w - GAP) / 2;
+        const int right_x = HUD_RX(g_canvas_virt_w);
+        const int max_w   = HUD_RW;
+        const int ubw     = (max_w - GAP * 2) / 3;   /* 3 boutons par rangée */
         const int btn_h   = 34;
 
-        /* Boutons d'amélioration + réparation tour (sous le portrait) */
-        int uy = HUD_Y + M + PORTRAIT_SZ + GAP;
-        ui->upg_dmg_btn   = (Rectangle){(float)right_x,                     (float)uy, (float)ubw, (float)ubh};
-        ui->upg_range_btn = (Rectangle){(float)(right_x + ubw + GAP),       (float)uy, (float)ubw, (float)ubh};
-        ui->upg_rate_btn  = (Rectangle){(float)(right_x + (ubw+GAP)*2),     (float)uy, (float)ubw, (float)ubh};
-        uy += ubh + 5;
-        ui->repair_tower_btn = (Rectangle){(float)right_x,              (float)uy, (float)rsh,               26.0f};
-        ui->sell_btn         = (Rectangle){(float)(right_x + rsh + GAP),(float)uy, (float)(max_w - rsh - GAP),26.0f};
-        uy += 26 + 5;
-        ui->apply_mat_btn    = (Rectangle){(float)right_x,              (float)uy, (float)max_w,              26.0f};
+        /* Fiche de tour, sous le portrait : améliorations (2 lignes de
+           texte), puis [CIBLE] [RÉPARER] [VENDRE], puis le minerai. Tout
+           tient au-dessus du cadre bas (l'ancienne pile débordait de 6 px
+           SOUS le bas de l'écran pour le bouton de minerai). */
+        int uy = HUD_Y + M + PORTRAIT_SZ + HUD_TP_GAP;
+        ui->upg_dmg_btn   = (Rectangle){(float)right_x,                 (float)uy, (float)ubw, HUD_TP_UPG_H};
+        ui->upg_range_btn = (Rectangle){(float)(right_x + ubw + GAP),   (float)uy, (float)ubw, HUD_TP_UPG_H};
+        ui->upg_rate_btn  = (Rectangle){(float)(right_x + (ubw+GAP)*2), (float)uy, (float)ubw, HUD_TP_UPG_H};
+        uy += HUD_TP_UPG_H + HUD_TP_GAP;
+        ui->target_btn       = (Rectangle){(float)right_x,                 (float)uy, (float)ubw, HUD_TP_ROW_H};
+        ui->repair_tower_btn = (Rectangle){(float)(right_x + ubw + GAP),   (float)uy, (float)ubw, HUD_TP_ROW_H};
+        ui->sell_btn         = (Rectangle){(float)(right_x + (ubw+GAP)*2), (float)uy,
+                                           (float)(max_w - (ubw + GAP) * 2), HUD_TP_ROW_H};
+        uy += HUD_TP_ROW_H + HUD_TP_GAP;
+        ui->apply_mat_btn    = (Rectangle){(float)right_x, (float)uy, (float)max_w, HUD_TP_MAT_H};
 
-        /* Boutons achat de slots — bas du panneau GAUCHE (déplacés du panneau droit) */
+        /* Boutons achat de slots — bas du panneau GAUCHE */
         {
-            const int bspx = M + 2;
-            const int bsw  = UI_LEFT_PANEL_W - M * 2 - 4;
             /* Ancrés sur le bas du HUD : unités en bas, tours juste au-dessus */
-            ui->buy_tower_slot_btn = (Rectangle){(float)bspx,
-                                                 (float)(HUD_Y + UI_HUD_HEIGHT - 54),
-                                                 (float)bsw, 22.0f};
-            ui->buy_unit_slot_btn  = (Rectangle){(float)bspx,
-                                                 (float)(HUD_Y + UI_HUD_HEIGHT - 28),
-                                                 (float)bsw, 22.0f};
+            const int uy0 = HUD_Y + UI_HUD_HEIGHT - HUD_SEC_Y - HUD_SLOT_BTN_H;
+            ui->buy_unit_slot_btn  = (Rectangle){(float)HUD_LX, (float)uy0,
+                                                 (float)HUD_LW, HUD_SLOT_BTN_H};
+            ui->buy_tower_slot_btn = (Rectangle){(float)HUD_LX,
+                                                 (float)(uy0 - HUD_SLOT_BTN_H - GAP),
+                                                 (float)HUD_LW, HUD_SLOT_BTN_H};
         }
 
         /* Vente unité (panneau droit, bas) */
@@ -115,6 +119,12 @@ void hud_input_layout(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y) {
 
         (void)ubw; (void)uy;
     }
+}
+
+/* Recalcule la mise en page des boutons du HUD et suit le glisser des
+   overlays (avant tout clic de la frame). */
+void hud_input_layout(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y) {
+    hud_layout_buttons(ui, HUD_Y);
 
     // Visibilité bouton matériau (+ vérif que la tour est encore active)
     {
@@ -135,16 +145,11 @@ void hud_input_layout(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y) {
     // ── Overlays déplaçables ──────────────────────────────────
     {
         // Initialisation des positions par défaut au 1er frame
-        if (ui->overlay_tl_pos.x < 0.0f) {
-            ui->overlay_tl_pos = (Vector2){
-                (float)(g_map_x_off + 8),
-                8.0f
-            };
+        if (ui->overlay_tr_pos.x < 0.0f) {
             ui->overlay_tr_pos = (Vector2){
                 (float)(g_map_x_off + g_canvas_virt_w_base - 8 - OVERLAY_W),
                 8.0f
             };
-            overlay_avoid_marks(&ui->overlay_tl_pos, OVERLAY_W, OVERLAY_TL_H, gs, +1);
             overlay_avoid_marks(&ui->overlay_tr_pos, OVERLAY_W, OVERLAY_TR_H, gs, -1);
         }
         if (ui->overlay_bl_pos.x < 0.0f) {
@@ -163,9 +168,7 @@ void hud_input_layout(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y) {
         if (ui->dragging_overlay >= 0) {
             Vector2 *pos;
             float oh, ow;
-            if (ui->dragging_overlay == 0) {
-                pos = &ui->overlay_tl_pos; oh = OVERLAY_TL_H; ow = OVERLAY_W;
-            } else if (ui->dragging_overlay == 1) {
+            if (ui->dragging_overlay == 1) {
                 pos = &ui->overlay_tr_pos; oh = OVERLAY_TR_H; ow = OVERLAY_W;
             } else {
                 pos = &ui->overlay_bl_pos;

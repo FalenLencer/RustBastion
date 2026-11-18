@@ -100,6 +100,10 @@ int adaptive_fs(int base_fs);
 // (2 octets) découpé s'affichait « ?? ».
 void ui_draw_tracked(const char *s, float cx, int y, int fs, float spacing, Color col);
 
+// Version du jeu + tampon de build (engine/version.h), base du texte à
+// `bottom` ; x = bord DROIT (centered = 0, écran titre) ou CENTRE (pause).
+void ui_draw_version(int x, int bottom, int fs, Color col, int centered);
+
 // Retire un caractère UTF-8 INCOMPLET en fin de chaîne (snprintf tronqué au
 // milieu d'un accent → « ? » à l'écran). Sans effet si la fin est saine.
 void ui_utf8_fix_tail(char *s);

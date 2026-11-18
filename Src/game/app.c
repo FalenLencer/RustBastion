@@ -78,23 +78,40 @@ void app_init(AppContext *ctx) {
 // ════════════════════════════════════════════════════════════════
 // SAVE / CLEANUP
 // ════════════════════════════════════════════════════════════════
-/* ── Sauvegarde de sortie (fermeture fenêtre ou Alt+F4) ─────── */
-void app_save_on_exit(const AppContext *ctx) {
-    if (ctx->screen != SCREEN_GAME) return;
-    if (ctx->active_slot < 0) return;
-    if (ctx->gs.phase == PHASE_GAMEOVER) return;
+/* ── Sauvegarde de la partie en cours (sortie, Alt+F4, fin de vague) ── */
+int app_save_on_exit(const AppContext *ctx) {
+    if (ctx->screen != SCREEN_GAME) return 0;
+    if (ctx->active_slot < 0) return 0;
+    if (ctx->gs.phase == PHASE_GAMEOVER) return 0;
     if (ctx->gs.is_campaign) {
         /* Campagne : sauvegarde même si un interlude est actif */
-        campaign_save_write(&ctx->gs, ctx->active_slot,
-                            (int)ctx->interlude,
-                            ctx->interlude_scrap,
-                            ctx->interlude_stars,
-                            ctx->interlude_last);
-    } else {
-        /* Arcade/endless : sauvegarde uniquement hors interlude */
-        if (ctx->interlude == INTER_NONE)
-            save_write(&ctx->gs, ctx->active_slot);
+        return campaign_save_write(&ctx->gs, ctx->active_slot,
+                                   (int)ctx->interlude,
+                                   ctx->interlude_scrap,
+                                   ctx->interlude_stars,
+                                   ctx->interlude_last);
     }
+    /* Arcade/endless : sauvegarde uniquement hors interlude */
+    if (ctx->interlude == INTER_NONE)
+        return save_write(&ctx->gs, ctx->active_slot);
+    return 0;
+}
+
+/* Sauvegarde AUTOMATIQUE à chaque fin de vague (vague → préparation) : un
+   plantage ou une coupure ne coûte plus l'acte entier. Pas en multijoueur
+   (pas d'emplacement) ni en tutoriel ; un interlude ouvert cette frame
+   (extraction) a déjà sa propre sauvegarde. */
+static void game_autosave(AppContext *ctx) {
+    static int prev_phase = -1;
+    int ph = (int)ctx->gs.phase;
+    if (prev_phase == PHASE_WAVE && ph == PHASE_PREP && !ctx->mp_in_game &&
+        !ctx->tutorial_active && ctx->interlude == INTER_NONE) {
+        int ok = app_save_on_exit(ctx);
+        TraceLog(ok ? LOG_INFO : LOG_WARNING, "SAUVEGARDE AUTO : vague %d, emplacement %d : %s",
+                 ctx->gs.wave_manager.number, ctx->active_slot, ok ? "ok" : "ECHEC");
+        if (ok) ui_push_notif(&ctx->gs.ui, "Partie sauvegardée", (Color){150, 165, 180, 255});
+    }
+    prev_phase = ph;
 }
 
 void app_cleanup(AppContext *ctx) {
@@ -264,6 +281,7 @@ static void game_do_update(AppContext *ctx, float dt) {
         ctx->gs.endless_pending_extract = 1;
         ctx->interlude = INTER_EXTRACT;
     }
+    game_autosave(ctx);
 }
 
 /* ════════════════════════════════════════════════════════════════

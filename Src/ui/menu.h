@@ -118,6 +118,9 @@ typedef struct {
 void opts_hero_defaults(AppOptions *o);
 // Nom lisible d'un code de touche raylib → out ("ESPACE", "W", "F3"…).
 void opts_key_name(int key, char *out, int outsz);
+// Code de la touche qui imprime la lettre `c` selon la disposition du clavier
+// (raccourcis « Ctrl+Z » réels sur AZERTY) ; `fallback` si introuvable.
+int  opts_key_for_char(char c, int fallback);
 
 typedef struct {
     MenuScreen  screen;
