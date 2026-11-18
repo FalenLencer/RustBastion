@@ -131,9 +131,10 @@ void hud_render_world_marks(const UIState *ui, const GameState *gs) {
                               (c_range > 0 && gs->gold >= c_range) ||
                               (c_rate  > 0 && gs->gold >= c_rate);
                 if (!can_upg) continue;
-                /* Flèche verte pulsante en haut-droit de la tuile */
-                float dot_x = tw->tile_x * TILE_SIZE + TILE_SIZE - 7.0f;
-                float dot_y = tw->tile_y * TILE_SIZE + 8.0f;
+                /* Flèche verte pulsante en BAS-droit de la tuile : en haut,
+                   elle couvrait la tourelle 3D (et masquait sa rotation). */
+                float dot_x = tw->tile_x * TILE_SIZE + TILE_SIZE - 6.0f;
+                float dot_y = tw->tile_y * TILE_SIZE + TILE_SIZE - 3.0f;
                 draw_upgrade_arrow(dot_x, dot_y, pa);
             }
         }

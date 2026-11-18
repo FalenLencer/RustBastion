@@ -8,7 +8,6 @@
  *
  *  Contient :
  *    draw_title          — Écran d'accueil (JOUER / OPTIONS / QUITTER)
- *    draw_play_hub       — Hub de sélection de mode
  *    draw_slot_list      — Liste des emplacements de sauvegarde (arcade & campagne)
  *    draw_new_campaign   — Configuration d'une nouvelle campagne
  *    draw_new_arcade     — Sélection de thème pour une partie arcade
@@ -225,268 +224,6 @@ MenuAction draw_title(MenuState *m, int vw, int vh) {
 }
 
 // ════════════════════════════════════════════════════
-// HUB JOUER — cascade d'entrée + compteur + badge
-// ════════════════════════════════════════════════════
-#define SLOT_HUB          2       // slot ui_timer : entrée du hub
-#define SLOT_HUB_PULSE    3       // slot ui_timer : pulse du bestiaire
-#define HUB_BTN_DUR       0.25f   // glissement d'un nav-bouton (s)
-#define HUB_BTN_STEP      0.04f   // décalage entre boutons (s)
-#define HUB_BTN_SLIDE     18.0f   // distance de glissement vertical (px)
-#define HUB_SCRAP_ROLL    0.4f    // durée du compteur roulant (s)
-#define HUB_PULSE_PERIOD  0.8f    // période d'une pulsation bestiaire (s)
-#define HUB_PULSE_COUNT   3       // nombre de pulsations
-
-// Nav-bouton à entrée animée : glisse de +18px vers le haut en fondu.
-// Réplique simplifiée de draw_nav_btn (qui n'expose pas d'alpha) pendant
-// l'anim ; clics IGNORÉS tant que l'entrée n'est pas finie, puis délègue
-// au vrai draw_nav_btn (hover, press, reflet…). Hitbox finale intacte.
-static int fade_nav_btn(const char *icon, const char *title,
-                        const char *desc, Color col,
-                        int x, int y, int w, int h,
-                        float t, float delay) {
-    if (t >= delay + HUB_BTN_DUR)
-        return draw_nav_btn(icon, title, desc, col, x, y, w, h);
-
-    float k = (t <= delay) ? 0.0f : ea_out_cubic((t - delay) / HUB_BTN_DUR);
-    if (k > 0.0f) {
-        int yd = y + (int)((1.0f - k) * HUB_BTN_SLIDE);
-        Rectangle rd  = {(float)x, (float)yd, (float)w, (float)h};
-        float     rnd = (float)BTN_R / h;
-        unsigned char a = (unsigned char)(k * 255.0f);
-        DrawRectangleRounded(rd, rnd, 6, (Color){14, 9, 4, a});   // C_PANEL
-        DrawRectangleRoundedLinesEx(rd, rnd, 6, 1.2f,
-            (Color){col.r/3, col.g/3, col.b/3, (unsigned char)(180.0f * k)});
-        DrawRectangleRounded(
-            (Rectangle){(float)x, (float)(yd+4), 4, (float)(h-8)},
-            0.5f, 4, (Color){col.r, col.g, col.b, (unsigned char)(110.0f * k)});
-        dtxt(icon, x + M_PAD + 4, yd + h/2 - fh(26)/2, 26,
-             (Color){col.r, col.g, col.b, a});
-        dtxt(title, x + M_PAD + 36, yd + M_IN + 2, 16,
-             (Color){C_TEXT.r, C_TEXT.g, C_TEXT.b, a});
-        char dbuf[72];
-        clip_text(desc, w - M_PAD - 36 - M_IN, 10, dbuf, sizeof(dbuf));
-        dtxt(dbuf, x + M_PAD + 36, yd + M_IN + 22, 10,
-             (Color){130, 110, 72, a});
-    }
-    return 0;   // pas de clic pendant l'entrée
-}
-
-MenuAction draw_play_hub(MenuState *m, const MetaProgress *meta,
-                         int vw, int vh)
-{
-    MenuAction act = {0};
-    int cx = vw/2;
-
-    /* ── P0.1 : PREMIER LANCEMENT — proposer le tutoriel ─────────
-       Modale par-dessus le hub ; répondre sauve la méta (le fichier
-       existe alors → la question ne sera plus jamais posée). */
-    if (m->first_run_ask) {
-        draw_bg(m, vw, vh);
-        draw_header("BIENVENUE", vw);
-        DrawRectangle(0, 0, vw, vh, (Color){0, 0, 0, 165});
-
-        int pw2 = 470, ph2 = 190;
-        int px2 = cx - pw2/2, py2 = vh/2 - ph2/2 - 30;
-        DrawRectangleRounded(
-            (Rectangle){(float)px2, (float)py2, (float)pw2, (float)ph2},
-            0.08f, 6, C_PANEL);
-        DrawRectangleRoundedLinesEx(
-            (Rectangle){(float)px2, (float)py2, (float)pw2, (float)ph2},
-            0.08f, 6, 1.6f, C_GOLD);
-
-        const char *q = "PREMIÈRE FOIS ?";
-        dtxt(q, cx - mtxt(q, 16)/2, py2 + 18, 16, C_GOLD);
-        const char *l1 = "Apprends les bases en 2 minutes :";
-        const char *l2 = "tours, vagues, minerais, pause tactique.";
-        dtxt(l1, cx - mtxt(l1, 11)/2, py2 + 18 + fh(16) + 10, 11, C_TEXT);
-        dtxt(l2, cx - mtxt(l2, 11)/2, py2 + 18 + fh(16) + 10 + fh(11) + 3,
-             11, C_TEXT);
-
-        int bw3 = 200, bh3 = 40;
-        int byb = py2 + ph2 - bh3 - 16;
-        if (draw_btn("OUI, APPRENDRE", px2 + pw2/2 - bw3 - 10, byb,
-                     bw3, bh3, C_GOLD, 1)) {
-            m->first_run_ask = 0;
-            meta_save(meta);          /* marque « a répondu » */
-            act.start_tutorial = 1;
-        }
-        if (draw_btn("JE CONNAIS", px2 + pw2/2 + 10, byb,
-                     bw3, bh3, C_DIM, 1)) {
-            m->first_run_ask = 0;
-            meta_save(meta);
-        }
-        return act;   /* le hub attend la réponse */
-    }
-
-    /* Détection d'arrivée (même principe que l'écran titre) */
-    {
-        static float prev_trans = 1e9f;
-        if (m->trans_t < prev_trans) ui_timer(SLOT_HUB, 1);
-        prev_trans = m->trans_t;
-    }
-    float t = ui_timer(SLOT_HUB, 0);
-
-    draw_bg(m, vw, vh);
-    draw_header("CHOISIR UN MODE", vw);
-
-    /* ── P0.1 : hiérarchie — la CAMPAGNE est le mode-roi ─────────
-       Un grand bouton principal (CONTINUER si une run est en cours),
-       puis les autres modes plus petits sous « AUTRES MODES ». */
-    int run_active = 0;
-    for (int i = 0; i < SAVE_SLOT_COUNT; i++)
-        if (m->campaign_slots[i].exists) run_active = 1;
-
-    int bw  = 520, gap = M_IN + 2;
-    int bh1 = 92;   /* bouton principal (campagne)      */
-    int bh2 = 56;   /* boutons secondaires              */
-    int bx  = cx - bw/2;
-    int by  = M_PAD + 70;
-
-    if (fade_nav_btn("C",
-                     run_active ? "CONTINUER LA CAMPAGNE" : "CAMPAGNE",
-                     run_active
-                       ? "Reprenez votre progression sur la carte."
-                       : "Carte de progression — 5 chapitres, 15 actes.",
-                     C_GOLD, bx, by, bw, bh1, t, 0*HUB_BTN_STEP)) {
-        push_back_screen(m);
-        m->selected_campaign_act = -1;   // reset : aucun acte pre-selectionne
-        m->screen      = MENU_WORLD_MAP;
-        m->back_screen = MENU_PLAY_HUB;
-    }
-    by += bh1 + gap + 4;
-
-    /* Séparateur « AUTRES MODES » */
-    {
-        const char *sep = "AUTRES MODES";
-        int sw2 = mtxt(sep, 10);
-        dtxt(sep, cx - sw2/2, by, 10, C_DIM);
-        DrawRectangle(bx, by + fh(10)/2, cx - sw2/2 - bx - 8, 1, C_DIM);
-        DrawRectangle(cx + sw2/2 + 8, by + fh(10)/2,
-                      bx + bw - (cx + sw2/2 + 8), 1, C_DIM);
-        by += fh(10) + 6;
-    }
-
-    if (fade_nav_btn("A", "ARCADE",
-                     "Choisissez un environnement et jouez librement.",
-                     C_BLUE, bx, by, bw, bh2, t, 1*HUB_BTN_STEP)) {
-        push_back_screen(m);
-        m->screen = MENU_ARCADE;
-        m->back_screen = MENU_PLAY_HUB;
-    }
-    by += bh2 + gap;
-
-    if (fade_nav_btn("T", "TUTORIEL",
-                     "Apprenez les bases : tours, vagues, minerais, pause, zoom.",
-                     (Color){120, 200, 230, 255}, bx, by, bw, bh2,
-                     t, 2*HUB_BTN_STEP)) {
-        act.start_tutorial = 1;   // lancé par app.c
-    }
-    by += bh2 + gap;
-
-    if (fade_nav_btn("X", "PARTIE PERSO",
-                     "Carte, spawns, bases, terrain et difficulté sur mesure.",
-                     C_ORANGE, bx, by, bw, bh2, t, 3*HUB_BTN_STEP)) {
-        push_back_screen(m);
-        m->screen = MENU_CUSTOM;
-        m->back_screen = MENU_PLAY_HUB;
-    }
-    by += bh2 + gap;
-
-    if (fade_nav_btn("H", "MODE HÉROS 3D (beta)",
-                     "Incarnez un héros sur le terrain : tirez, recrutez, bâtissez.",
-                     (Color){235, 130, 60, 255}, bx, by, bw, bh2,
-                     t, 4*HUB_BTN_STEP)) {
-        act.start_hero = 1;       // lancé par app.c
-    }
-    by += bh2 + gap;
-
-    if (fade_nav_btn("M", "MULTIJOUEUR (beta)",
-                     "Jouez ensemble ou l'un contre l'autre (code de session).",
-                     C_GREEN, bx, by, bw, bh2, t, 5*HUB_BTN_STEP)) {
-        push_back_screen(m);
-        m->screen      = MENU_MP_HUB;
-        m->back_screen = MENU_PLAY_HUB;
-        m->mp_role = 0;
-        if (m->mp_mode == MP_NONE) m->mp_mode = MP_COURSE;
-    }
-    by += bh2 + gap;
-
-    /* Compteur ferraille « roulant » : la valeur affichée court vers la
-       vraie valeur en ~HUB_SCRAP_ROLL s (au moins 1 unite/s). */
-    {
-        static float disp_scrap = -1.0f;
-        if (disp_scrap < 0.0f) disp_scrap = (float)meta->scrap;  // 1er passage
-        float target = (float)meta->scrap;
-        float diff   = target - disp_scrap;
-        if (diff != 0.0f) {
-            float speed = fabsf(diff) / HUB_SCRAP_ROLL;          // unités/s
-            if (speed < 1.0f) speed = 1.0f;
-            float step = speed * ui_dt();
-            if (fabsf(diff) <= step) disp_scrap = target;
-            else disp_scrap += (diff > 0.0f) ? step : -step;
-        }
-        char upg_desc[80];
-        snprintf(upg_desc, sizeof(upg_desc),
-                 "Dépensez vos %d ferrailles pour améliorer vos défenses.",
-                 (int)(disp_scrap + 0.5f));
-        if (fade_nav_btn("*", "AMÉLIORATIONS", upg_desc,
-                         C_ORANGE, bx, by, bw, bh2, t, 6*HUB_BTN_STEP)) {
-            push_back_screen(m);
-            m->screen = MENU_UPGRADES;
-            m->back_screen = MENU_PLAY_HUB;
-        }
-    }
-    by += bh2 + gap;
-
-    int nb_disc = 0;
-    for (int i = 0; i < ENEMY_TYPE_COUNT; i++)
-        if (meta->bestiary_discovered[i]) nb_disc++;
-    char best_desc[80];
-    snprintf(best_desc, sizeof(best_desc),
-             "%d/%d ennemis identifies. Résistances et faiblesses.",
-             nb_disc, ENEMY_TYPE_COUNT);
-    if (fade_nav_btn("B", "BESTIAIRE", best_desc,
-                     C_RED, bx, by, bw, bh2, t, 7*HUB_BTN_STEP)) {
-        push_back_screen(m);
-        m->screen      = MENU_BESTIARY;
-        m->back_screen = MENU_PLAY_HUB;
-        if (m->sel_bestiary < 0) m->sel_bestiary = 0;
-    }
-
-    /* Badge bestiaire : nouvelles découvertes depuis la dernière visite
-       → la bordure pulse HUB_PULSE_COUNT fois puis s'arrête. */
-    {
-        static int prev_disc = -1;
-        static int pulsing   = 0;
-        if (prev_disc < 0) prev_disc = nb_disc;          // 1er passage : muet
-        if (nb_disc > prev_disc) {
-            pulsing   = 1;
-            prev_disc = nb_disc;
-            ui_timer(SLOT_HUB_PULSE, 1);
-        }
-        if (pulsing) {
-            float pt = ui_timer(SLOT_HUB_PULSE, 0);
-            if (pt >= HUB_PULSE_PERIOD * HUB_PULSE_COUNT) {
-                pulsing = 0;
-            } else {
-                /* (1-cos)/2 : part de 0, culmine à mi-période */
-                float ph = (1.0f - cosf(pt * 2.0f * PI / HUB_PULSE_PERIOD)) * 0.5f;
-                Rectangle br = {(float)bx, (float)by, (float)bw, (float)bh2};
-                DrawRectangleRoundedLinesEx(br, (float)BTN_R/bh2, 6, 2.5f,
-                    (Color){C_RED.r, C_RED.g, C_RED.b,
-                            (unsigned char)(ph * 200.0f)});
-            }
-        }
-    }
-
-    if (draw_back_btn(vw, vh)) {
-        m->screen = m->paused ? MENU_PAUSE : m->back_screen;
-        if (!m->paused) pop_back_screen(m);
-    }
-    return act;
-}
-
-// ════════════════════════════════════════════════════
 // LISTE DE SLOTS
 // ════════════════════════════════════════════════════
 MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
@@ -571,6 +308,7 @@ MenuAction draw_slot_list(MenuState *m, int vw, int vh, int is_campaign) {
             }
             if (draw_btn("EFFACER", bx_del, by2, bw_del, bh2, C_RED, 0)) {
                 m->confirm_del_slot = i;
+                push_back_screen(m);   /* le RETOUR de la liste reste intact */
                 m->back_screen = is_campaign ? MENU_CAMPAIGN : MENU_ARCADE;
                 m->screen = MENU_CONFIRM_DEL;
             }
@@ -799,15 +537,14 @@ MenuAction draw_confirm_del(MenuState *m, int vw, int vh) {
         else
             save_delete(m->confirm_del_slot);
         menu_refresh_slots(m);
-        m->screen = (m->back_screen == MENU_CAMPAIGN ||
-                     m->back_screen == MENU_ARCADE   ||
-                     m->back_screen == MENU_WORLD_MAP)
-                    ? m->back_screen : MENU_PLAY_HUB;
+        m->screen = m->back_screen;   /* liste ou carte d'où l'on vient */
+        pop_back_screen(m);
         set_msg(m, "Partie effacée.");
-    }
-    if (draw_btn("ANNULER", cx + M_IN/2, by2, bw2, bh2, C_TEXT, 0) ||
-        IsKeyPressed(KEY_ESCAPE))
+    } else if (draw_btn("ANNULER", cx + M_IN/2, by2, bw2, bh2, C_TEXT, 0) ||
+               IsKeyPressed(KEY_ESCAPE)) {
         m->screen = m->back_screen;
+        pop_back_screen(m);
+    }
 
     return act;
 }

@@ -71,7 +71,7 @@ void hud_render_overlays(const UIState *ui, const GameState *gs) {
                                (Color){239, 170, 60, 255});   // accent or = ressources
 
             int tx = ox + OV_P;
-            int ty = oy + OV_P + 4;  // +4 pour la poignée
+            int ty = oy + OV_P + OVERLAY_GRIP_H;
 
             // ── Or « vivant » : compteur roulant + flash gain/perte ──
             {
@@ -216,7 +216,7 @@ void hud_render_overlays(const UIState *ui, const GameState *gs) {
             draw_overlay_frame(ox, oy, ow, oh, dragging_tr,
                                UI_DANGER);    // accent rouge = menace
 
-            int tx = ox + OV_P, ty = oy + OV_P + 4;
+            int tx = ox + OV_P, ty = oy + OV_P + OVERLAY_GRIP_H;
             int inner_w = ow - OV_P * 2;
 
             // Vague (X/min en campagne pour indiquer la progression)

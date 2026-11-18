@@ -28,6 +28,11 @@
    des ennemis (render3d_enemies.c). */
 #define R3D_LIGHT_DIR (Vector3){ -0.45f, -0.80f, -0.40f }
 
+/* Pied des modèles 3D d'UNITÉS / d'ENNEMIS : posé à size × R3D_ENT_FOOT_DY
+   sous leur position logique (x, y) — partagé par le cadrage (render3d_skin.h),
+   l'ombre de contact et les effets au sol (renderer_entities.c, entity_fx.c). */
+#define R3D_ENT_FOOT_DY 0.6f
+
 /* Brouillard de distance (MODE HÉROS) : les fragments sont mélangés vers
    `col` (couleur d'horizon) selon la profondeur vue. density 0 = coupé —
    les pré-passes 2D le remettent à 0 à chaque frame. */
@@ -77,9 +82,25 @@ void      render3d_prepass(const TowerPool *tp, const EnemyPool *ep);
 Texture2D render3d_tower_tex(int tower_index);
 
 /* Rectangle de destination pour blitter la texture 3D de la tour i (centre
-   case cx,cy ; tile = TILE_SIZE). Carré pour la Mitrailleuse ; HAUT et ancré
-   par le bas pour le Sniper (le sprite dépasse au-dessus de la case). */
+   case cx,cy ; tile = TILE_SIZE) : le PIED du modèle est posé sur le centre
+   de la case, à l'échelle commune des 4 tours (emprise au sol identique). */
 Rectangle render3d_tower_dst(int tower_index, float cx, float cy, float tile);
+
+/* Blitte la texture 3D de la tour i dans `dst` (grain pixel art + contour
+   sombre d'1 pixel d'art, comme les sprites peints du décor). */
+void      render3d_tower_blit(int tower_index, Rectangle dst, Color tint);
+/* Même blit (contour d'1 pixel d'art) pour toute RT 3D : unités, ennemis.
+   flash (0..1) : éclair de dégât qui blanchit la SILHOUETTE du modèle. */
+void      render3d_blit_outlined(Texture2D tex, Rectangle dst, Color tint, float flash);
+
+/* Position monde de la BOUCHE du canon de la tour i (orbe pour la Tesla),
+   pour un blit en `dst`. next = 1 : bouche du PROCHAIN tir (départ des
+   balles émises cette frame) ; 0 : celle du dernier tir (éclair). 0 = pas
+   de modèle 3D. */
+int       render3d_tower_muzzle(int tower_index, Rectangle dst, int next, Vector2 *out);
+
+/* Progression de l'animation de tir de la tour i : 1 au coup → 0. */
+float     render3d_tower_fire_k(int tower_index);
 
 /* MODE HÉROS : dessine la tour `type` (TowerType) DIRECTEMENT dans la scène
    3D courante (BeginMode3D actif), tourelle orientée selon map_angle

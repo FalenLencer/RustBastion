@@ -21,13 +21,6 @@
 #include "../map/map_gen.h"
 #include "../map/theme.h"
 
-struct TowerPool;
-
-// Ombres portées courtes vers le SUD-EST (lumière NO) des tours (les
-// ruines portent la leur). À appeler APRÈS le terrain et AVANT
-// bases/minerais/tours.
-void tile_art_draw_shadows(const Map *map, const struct TowerPool *tp);
-
 // Dessine tous les spawns (portails d'invasion clignotants).
 void tile_art_draw_spawns(const Map *map);
 
@@ -37,11 +30,4 @@ void tile_art_draw_spawns(const Map *map);
 void tile_art_draw_base(int px, int py, ThemeID theme,
                         Color accent, int destroyed);
 
-// Filon de minerai actif : remplit toute la tuile (matrice rocheuse opaque
-// + amas de cristaux + halo animé). Remplace visuellement la tuile.
-//   mat_type : MaterialType (0=fer … 4=nano).  t : GetTime() pour l'animation.
-void tile_art_draw_deposit(int px, int py, int mat_type, float t);
-
-// Roche minée (filon épuisé) : cratère + éboulis. Signale une tuile
-// difficilement constructible (la ruine sous-jacente applique le coût x2).
-void tile_art_draw_mined_rock(int px, int py);
+// (Filons de minerai : terrain_draw_ore / terrain_draw_ore_icon, terrain.h.)

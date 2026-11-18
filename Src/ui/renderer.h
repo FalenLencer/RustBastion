@@ -65,11 +65,33 @@ void render_paths        (const PathSet *ps);
 void render_enemies      (const EnemyPool *pool);
 void render_towers       (const TowerPool *tp);
 void render_spawn_exclusion_zones(const Map *map);
+/* Projectiles : départ à la bouche du canon 3D, traçante par type, impacts
+   (renderer_tower_fx.c). */
 void render_projectiles  (const TowerPool *tp);
+/* Sol des tours (renderer_tower_fx.c) : socle peint + ombre de contact +
+   poussière/onde de la POSE. Appelé 1×/frame par render_map (entre le sol et
+   les ruines), donc AVANT render_towers : suit les tours apparues. */
+void tower_fx_draw_ground(const TowerPool *tp, const Map *map);
+/* Pose de la tour i (chute, écrasement) : décalage vertical, échelles X/Y
+   autour du pied, opacité. Tour posée → 0, 1, 1, 1. */
+void tower_fx_drop       (int i, float *dy, float *sx, float *sy, float *alpha);
+/* Effets partagés tours / unités / ennemis (renderer_tower_fx.c) :
+   étincelles d'impact (big = gros coup / explosion) et poussière au sol
+   (u = progression 0→1, scale 1 = pose d'une tour). */
+void  render_fx_impact    (float x, float y, int dmg_type, int big);
+void  render_fx_dust      (float cx, float cy, float u, unsigned seed, float scale, Color col);
+Color render_fx_dust_color(ThemeID th);
 void render_units        (const UnitPool *up);
 void render_tower_preview(const Map *map, const TowerPool *tp,
                           TowerType type, int tile_x, int tile_y);
 void render_hud          (const GameState *gs);
+/* Corps d'une tour / entité après sa transformation de pose (chute dy,
+   écrasement sx/sy) AUTOUR DE SON PIED (fx, fy) : on s'écrase SUR le sol. */
+static inline Rectangle renderer_squash_rect(Rectangle r, float fx, float fy,
+                                             float dy, float sx, float sy) {
+    return (Rectangle){ fx + (r.x - fx) * sx, fy + (r.y - fy) * sy + dy,
+                        r.width * sx, r.height * sy };
+}
 // Interne aux renderer*.c : texture centrée dans une box, ratio conservé
 // (1 = dessinée, 0 = texture absente). Défini dans renderer_entities.c.
 int  renderer_sprite_fit (Texture2D tex, float cx, float cy,

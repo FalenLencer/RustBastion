@@ -154,7 +154,7 @@ int main(int argc, char **argv) {
             render3d_prepass(&ctx.gs.towers, &ctx.gs.enemies);
             if (g_units_3d) {
                 render3d_units_prepass(&ctx.gs.units, &ctx.gs.enemies);   /* mode de vue 3D */
-                render3d_enemies_prepass(&ctx.gs.enemies);
+                render3d_enemies_prepass(&ctx.gs.enemies, &ctx.gs.units, &ctx.gs.towers);
             }
         }
 

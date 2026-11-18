@@ -148,8 +148,8 @@ static void draw_tool_btn(const Rectangle *r, ToolID id,
 }
 
 /* Base des notifications flottantes, au-dessus de HUD_Y : le panneau
-   d'aperçu monte jusqu'à ~HUD_Y-34 (45 px + 6 px d'écart sur LANCER). */
-#define NOTIF_ABOVE_PREVIEW 58
+   d'aperçu monte jusqu'à ~HUD_Y-39 (50 px + 6 px d'écart sur LANCER). */
+#define NOTIF_ABOVE_PREVIEW 64
 
 // ════════════════════════════════════════════════════
 // RENDU
@@ -245,15 +245,23 @@ void ui_render(const UIState *ui, const GameState *gs) {
         /* Démarre AU-DESSUS du panneau « Prochaine vague » (ancré sur le
            bouton LANCER, ~45 px de haut) : partir de HUD_Y-12 le recouvrait. */
         int base_y = HUD_Y - NOTIF_ABOVE_PREVIEW;
-        for (int i = 0; i < ui->notif_count; i++) {
+        /* Empilement SANS chevauchement : la plus récente en bas, chaque
+           plus ancienne au moins un pas au-dessus de la suivante (les
+           anciennes ont déjà dérivé vers le haut : un simple i×pas les
+           faisait se croiser avec les nouvelles). */
+        const int step = fh(12) + 6;
+        int ny_below = base_y + step;
+        for (int i = ui->notif_count - 1; i >= 0; i--) {
             const FloatNotif *n = &ui->notifs[i];
             float alpha_f = n->timer > 0.5f ? 1.0f : n->timer / 0.5f;
             unsigned char alpha = (unsigned char)(alpha_f * 235.0f);
-            int ny = base_y - (int)n->y_off - i * (fh(12) + 4);
+            int ny = base_y - (int)n->y_off;
+            if (ny > ny_below - step) ny = ny_below - step;
+            ny_below = ny;
             if (ny < 4) continue;
             int tw2 = mtxt(n->text, 12);
             DrawRectangleRounded(
-                (Rectangle){nx - tw2/2 - 9, ny - 4, tw2 + 18, 19},
+                (Rectangle){nx - tw2/2 - 9, ny - 3, tw2 + 18, fh(12) + 2},
                 0.3f, 4,
                 (Color){4, 3, 1, (unsigned char)(alpha_f * 185.0f)});
             dtxt(n->text, nx - tw2/2, ny, 12,

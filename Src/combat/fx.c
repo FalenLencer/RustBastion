@@ -33,7 +33,12 @@ void fx_reset(void) {
     g_fx.enabled = en;
 }
 
+static double g_fx_clock = 0.0;     // cf. fx_clock (hors g_fx : fx_reset l'ignore)
+
+double fx_clock(void) { return g_fx_clock; }
+
 void fx_update(float dt) {
+    if (dt > 0.0f) g_fx_clock += dt; // temps de sim RÉEL (avant le plafond ci-dessous)
     if (dt > 0.1f) dt = 0.1f;       // robustesse (gros hoquet de frame)
 
     if (g_fx3d_update) g_fx3d_update(dt);   // tick des FX 3D (mode héros)

@@ -15,6 +15,7 @@
 #include "render3d.h"   // rendu 3D des tours (textures pré-rendues)
 #include "render3d_units.h"   // rendu 3D des unités (mode de vue 3D)
 #include "render3d_enemies.h" // rendu 3D des ennemis (mode de vue 3D)
+#include "entity_fx.h"        // apparition, fente d'attaque (pose des entités)
 #include "../engine/assets.h"  // splash arts tours/unités
 #include "raylib.h"
 #include "ui_utils.h"   // DrawText/MeasureText → g_font (support accents)
@@ -43,6 +44,14 @@
 /* Opacité du nom d'ennemi (option « noms des entités ») : en dessous de
    l'opaque pour ne pas concurrencer la barre de vie et les sprites. */
 #define ENEMY_NAME_ALPHA    205
+
+/* Vue 3D (F4) : ombre de contact au pied du modèle, anneaux au sol,
+   éclair de dégât (× size). */
+#define ENT_SHADOW_RX       1.15f
+#define ENT_SHADOW_RY       0.45f
+#define ENT_SHADOW_A        95
+#define ENT_RING_R3D        1.7f
+#define ENT_FLASH_K3D       0.85f   /* hit_flash → blanchiment de la silhouette */
 
 // ── Dessine une texture centrée dans une box, ratio conservé ──
 // Retourne 1 si une image a été dessinée, 0 si texture absente.
@@ -84,10 +93,22 @@ void render_enemies(const EnemyPool *pool) {
         int i = order[o];
         const Enemy *e = &pool->enemies[i];
 
-        // Ombre
-        DrawEllipse((int)e->x + 2, (int)e->y + (int)e->size,
-                    (int)(e->size * 0.8f), (int)(e->size * 0.3f),
-                    (Color){0,0,0,80});
+        /* Vue 3D (F4) : modèle pré-rendu, pied posé au sol (render3d_skin.h). */
+        Texture2D t3d = (g_units_3d && !e->is_boss && render3d_enemy_has_model(e->type))
+                      ? render3d_enemy_tex(i) : (Texture2D){0};
+        int use3d = (t3d.id != 0);
+        EntBody eb;
+        ent_fx_enemy_body(i, &eb);
+
+        // Ombre : de contact au pied du modèle 3D, sous le sprite en 2D
+        if (use3d)
+            DrawEllipse((int)e->x, (int)(e->y + e->size * R3D_ENT_FOOT_DY),
+                        e->size * ENT_SHADOW_RX * eb.sx, e->size * ENT_SHADOW_RY * eb.sx,
+                        (Color){0, 0, 0, ENT_SHADOW_A});
+        else
+            DrawEllipse((int)e->x + 2, (int)e->y + (int)e->size,
+                        (int)(e->size * 0.8f), (int)(e->size * 0.3f),
+                        (Color){0,0,0,80});
 
         // ════════════════════════════════════════════════
         // BOSS — rendu dédié (corps massif, couronne, aura, grande barre)
@@ -194,34 +215,41 @@ void render_enemies(const EnemyPool *pool) {
                             (Color){231, 76, 60, 80});
         }
 
-        // ── Corps : modèle 3D animé (mode vue 3D) sinon splash art 2D ─
-        int e_drawn = 0;
-        if (g_units_3d && render3d_enemy_has_model(e->type)) {
-            Texture2D t3d = render3d_enemy_tex(i);
-            if (t3d.id != 0) {
-                Rectangle dst = render3d_enemy_dst(i, e->x, e->y, e->size);
-                DrawTexturePro(t3d,
-                    (Rectangle){0, 0, (float)t3d.width, -(float)t3d.height},
-                    dst, (Vector2){0, 0}, 0.0f, tint);   // tint = gel/spectre
-                e_drawn = 1;
-            }
+        // ── Corps : modèle 3D animé (mode vue 3D) sinon splash art 2D,
+        //    transformé par l'apparition (surgit du sol) et la fente d'attaque.
+        tint.a = (unsigned char)((float)tint.a * eb.alpha);
+        float ex = e->x + eb.ox, ey = e->y + eb.oy;
+        float head_y  = e->y - e->size * ENEMY_SPRITE_HALF;   // sommet (barre de vie)
+        float body_cy = ey;                                   // centre (éclair de dégât)
+        int   e_drawn = 0;
+        if (use3d) {
+            float     fy   = ey + e->size * R3D_ENT_FOOT_DY;
+            Rectangle body = renderer_squash_rect(render3d_enemy_dst(i, ex, ey, e->size),
+                                                  ex, fy, eb.dy, eb.sx, eb.sy);
+            /* tint = gel/spectre ; l'éclair de dégât blanchit la silhouette */
+            render3d_blit_outlined(t3d, body, tint, e->hit_flash * ENT_FLASH_K3D);
+            head_y  = render3d_enemy_head_y(i, body);
+            body_cy = (head_y + fy) * 0.5f;
+            e_drawn = 1;
         }
-        if (!e_drawn && e->type < ENEMY_TYPE_COUNT)
-            e_drawn = renderer_sprite_fit(g_enemy_splash[e->type], e->x, e->y,
-                                      e->size * ENEMY_SPRITE_SCALE,
-                                      e->size * ENEMY_SPRITE_SCALE, tint);
+        if (!e_drawn && e->type < ENEMY_TYPE_COUNT) {
+            float     bs  = e->size * ENEMY_SPRITE_SCALE;
+            Rectangle box = renderer_squash_rect((Rectangle){ex - bs*0.5f, ey - bs*0.5f, bs, bs},
+                                                 ex, ey + bs*0.5f, eb.dy, eb.sx, eb.sy);
+            e_drawn = renderer_sprite_fit(g_enemy_splash[e->type], box.x + box.width*0.5f,
+                                          box.y + box.height*0.5f, box.width, box.height, tint);
+        }
         if (!e_drawn) {
-            DrawCircle((int)e->x, (int)e->y, (int)e->size,
-                       (Color){col.r, col.g, col.b, body_alpha});
-            DrawCircleLines((int)e->x, (int)e->y, (int)e->size,
+            DrawCircle((int)ex, (int)ey, (int)e->size,
+                       (Color){col.r, col.g, col.b, tint.a});
+            DrawCircleLines((int)ex, (int)ey, (int)e->size,
                             (Color){255,255,255,60});
         }
 
-        // ── Éclair blanc de dégât (feedback de jus) ───────────
-        if (e->hit_flash > 0.0f) {
+        // ── Éclair blanc de dégât (feedback de jus) — en 3D : dans le blit ──
+        if (e->hit_flash > 0.0f && !use3d) {
             unsigned char fa = (unsigned char)(e->hit_flash * 170.0f);
-            DrawCircle((int)e->x, (int)e->y, e->size + 1.0f,
-                       (Color){255, 255, 255, fa});
+            DrawCircle((int)ex, (int)body_cy, e->size + 1.0f, (Color){255, 255, 255, fa});
         }
 
         // ── Marqueurs (au-dessus du sprite) ───────────────────
@@ -246,7 +274,7 @@ void render_enemies(const EnemyPool *pool) {
             float ratio = e->hp / e->max_hp;
             int   bw    = (int)(e->size * 2.5f);
             int   bx    = (int)e->x - bw / 2;
-            int   by    = (int)e->y - (int)(e->size * ENEMY_SPRITE_HALF) - 6;  // au-dessus du sprite
+            int   by    = (int)head_y - 6;   // au-dessus du sprite / du modèle 3D
             DrawRectangle(bx, by, bw, 3, (Color){30,10,10,200});
             Color hp_col = ratio > 0.6f ? (Color){46,204,113,255}
                          : ratio > 0.3f ? (Color){243,156,18,255}
@@ -293,6 +321,17 @@ void render_units(const UnitPool *up) {
         Color col = (u->type < UNIT_TYPE_COUNT) ? UNIT_FILL[u->type]
                   : (Color){200, 200, 50, 255};
 
+        /* Vue 3D (F4) : modèle pré-rendu, pied posé au sol ; pose animée. */
+        Texture2D t3d = (g_units_3d && render3d_unit_has_model(u->type))
+                      ? render3d_unit_tex(i) : (Texture2D){0};
+        int   use3d = (t3d.id != 0);
+        float rad   = u->size * UNIT_SPRITE_HALF;   // demi-taille visuelle du sprite
+        float fy    = u->y + u->size * R3D_ENT_FOOT_DY;   // pied du modèle 3D
+        EntBody ub;
+        ent_fx_unit_body(i, &ub);
+        /* Sommet (barres) : calculé au dessin du corps ; défaut = sprite 2D. */
+        float head_y = u->y - rad;
+
         // ── Ouvrier : halo et barre de collecte ──────────
         if (u->type == UNIT_WORKER) {
             // Note: ligne pointillée vers dépôt non implémentée
@@ -311,7 +350,10 @@ void render_units(const UnitPool *up) {
                 float ratio = 1.0f - (u->collect_timer / u->collect_duration);
                 int   bw    = (int)(u->size * 3.0f);
                 int   bx    = (int)u->x - bw/2;
-                int   by    = (int)u->y - (int)(u->size * UNIT_SPRITE_HALF) - 10;
+                /* au-dessus de la barre de vie (sommet du sprite / du modèle 3D) */
+                float top   = use3d ? render3d_unit_head_y(i, render3d_unit_dst(i, u->x, u->y, u->size))
+                                    : u->y - rad;
+                int   by    = (int)top - 10;
                 /* Ambre pour le déblaiement, cyan pour la collecte : deux
                    chantiers distincts doivent se lire d'un coup d'oeil. */
                 int   clearing = (u->state == USTATE_CLEARING);
@@ -345,54 +387,68 @@ void render_units(const UnitPool *up) {
             }
         }
 
-        // ── Ombre au sol ──────────────────────────────────
-        float rad = u->size * UNIT_SPRITE_HALF;   // demi-taille visuelle du sprite
-        DrawEllipse((int)u->x+1, (int)(u->y + rad),
-                    (int)(rad*0.8f), (int)(rad*0.3f),
-                    (Color){0,0,0,70});
+        // ── Ombre au sol (de contact au pied du modèle 3D) ────────
+        if (use3d)
+            DrawEllipse((int)u->x, (int)fy, u->size * ENT_SHADOW_RX * ub.sx,
+                        u->size * ENT_SHADOW_RY * ub.sx, (Color){0, 0, 0, ENT_SHADOW_A});
+        else
+            DrawEllipse((int)u->x+1, (int)(u->y + rad),
+                        (int)(rad*0.8f), (int)(rad*0.3f),
+                        (Color){0,0,0,70});
 
-        // ── Corps : modèle 3D animé (mode vue 3D) sinon splash art 2D ──
+        // ── Corps : modèle 3D animé (mode vue 3D) sinon splash art 2D,
+        //    transformé par le déploiement (chute) et la fente d'attaque. ──
+        Color tint = {255, 255, 255, (unsigned char)(255.0f * ub.alpha)};
+        float ux = u->x + ub.ox, uy = u->y + ub.oy;
         int drawn = 0;
-        if (g_units_3d && render3d_unit_has_model(u->type)) {
-            Texture2D t3d = render3d_unit_tex(i);
-            if (t3d.id != 0) {
-                Rectangle dst = render3d_unit_dst(i, u->x, u->y, u->size);
-                DrawTexturePro(t3d,
-                    (Rectangle){0, 0, (float)t3d.width, -(float)t3d.height},
-                    dst, (Vector2){0, 0}, 0.0f, WHITE);
-                drawn = 1;
-            }
+        if (use3d) {
+            Rectangle body = renderer_squash_rect(render3d_unit_dst(i, ux, uy, u->size),
+                                                  ux, fy + ub.oy, ub.dy, ub.sx, ub.sy);
+            render3d_blit_outlined(t3d, body, tint, 0.0f);
+            head_y = render3d_unit_head_y(i, body);
+            drawn  = 1;
         }
-        if (!drawn && u->type < UNIT_TYPE_COUNT)
-            drawn = renderer_sprite_fit(g_unit_splash[u->type], u->x, u->y,
-                                    u->size * UNIT_SPRITE_SCALE,
-                                    u->size * UNIT_SPRITE_SCALE, WHITE);
+        if (!drawn && u->type < UNIT_TYPE_COUNT) {
+            float     bs  = u->size * UNIT_SPRITE_SCALE;
+            Rectangle box = renderer_squash_rect((Rectangle){ux - bs*0.5f, uy - bs*0.5f, bs, bs},
+                                                 ux, uy + bs*0.5f, ub.dy, ub.sx, ub.sy);
+            drawn = renderer_sprite_fit(g_unit_splash[u->type], box.x + box.width*0.5f,
+                                        box.y + box.height*0.5f, box.width, box.height, tint);
+        }
         if (!drawn) {
-            DrawCircle((int)u->x, (int)u->y, (int)u->size, col);
-            DrawCircleLines((int)u->x, (int)u->y, (int)u->size,
+            DrawCircle((int)ux, (int)uy, (int)u->size, (Color){col.r, col.g, col.b, tint.a});
+            DrawCircleLines((int)ux, (int)uy, (int)u->size,
                             (Color){255,255,255,80});
         }
 
         // ── Anneaux (DESSUS du sprite, encerclent le corps) ───────
-        // Sélection : anneau blanc
-        if (up->selected_unit == i)
-            DrawCircleLines((int)u->x, (int)u->y, rad + 2.0f,
-                            (Color){255,255,255,200});
-        // Comportement : anneau coloré
-        if (u->type != UNIT_WORKER && u->behavior != UBEH_PATROL) {
-            static const Color BCOLS[5] = {
-                {0,0,0,0},{192,57,43,220},{200,200,50,220},
-                {82,155,200,220},{231,76,60,220}
-            };
-            int _bidx = (int)u->behavior;
-            if (_bidx < 0 || _bidx >= 5) _bidx = 0;
-            DrawCircleLines((int)u->x, (int)u->y, rad + 4.0f, BCOLS[_bidx]);
+        // En vue 3D : anneaux AU SOL autour du pied (ellipses, sol en 3/4).
+        static const Color BCOLS[5] = {
+            {0,0,0,0},{192,57,43,220},{200,200,50,220},
+            {82,155,200,220},{231,76,60,220}
+        };
+        int   ring_b = (u->type != UNIT_WORKER && u->behavior != UBEH_PATROL);
+        int   _bidx  = (int)u->behavior;
+        if (_bidx < 0 || _bidx >= 5) _bidx = 0;
+        if (use3d) {
+            float rr = u->size * ENT_RING_R3D;
+            if (up->selected_unit == i)
+                DrawEllipseLines((int)u->x, (int)fy, rr, rr * 0.5f, (Color){255,255,255,200});
+            if (ring_b)
+                DrawEllipseLines((int)u->x, (int)fy, rr + 2.0f, rr * 0.5f + 1.0f, BCOLS[_bidx]);
+        } else {
+            // Sélection : anneau blanc ; comportement : anneau coloré
+            if (up->selected_unit == i)
+                DrawCircleLines((int)u->x, (int)u->y, rad + 2.0f,
+                                (Color){255,255,255,200});
+            if (ring_b)
+                DrawCircleLines((int)u->x, (int)u->y, rad + 4.0f, BCOLS[_bidx]);
         }
 
-        // ── Barre de vie (au-dessus du sprite) ────────────────────
+        // ── Barre de vie (au-dessus du sprite / du modèle 3D) ─────
         int bw = (int)(u->size*2.5f);
         int bx = (int)u->x - bw/2;
-        int by = (int)(u->y - rad) - 6;
+        int by = (int)head_y - 6;
         DrawRectangle(bx, by, bw, 3, (Color){10,30,10,200});
         float ratio = u->hp / u->max_hp;
         DrawRectangle(bx, by, (int)(bw*ratio), 3,

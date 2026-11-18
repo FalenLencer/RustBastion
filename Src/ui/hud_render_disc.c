@@ -12,8 +12,7 @@
 #include "hud_internal.h"
 #include "ui_anim.h"                 // horloge + hover animés de l'UI
 #include "ui_palette.h"              // palette UI (source unique)
-#include "tile_art.h"                 // pixel-art du filon (fiche minerai)
-#include "rlgl.h"                     // rlPushMatrix/rlScalef (filon agrandi)
+#include "terrain.h"                  // filon peint (fiche minerai)
 #include "../game/campaign_data.h"   // campaign_difficulty_stage (aperçu de vague)
 
 #define SLOT_DISC        4        // slot ui_timer (0-3 : menus)
@@ -209,7 +208,7 @@ void hud_render_discovery(const UIState *ui, const GameState *gs) {
         else if (de->type == DISC_UNIT)  spl = &g_unit_splash [de->idx];
         /* DISC_MATERIAL : aucun splash art n'existe pour un minerai. On
            dessine le PIXEL-ART DU FILON (celui de la carte, source
-           unique tile_art_draw_deposit) agrandi — avant, le repli
+           unique terrain_draw_ore_icon) agrandi — avant, le repli
            affichait un rectangle de couleur plat de 160 px, illisible
            comme « illustration ». */
 
@@ -233,21 +232,12 @@ void hud_render_discovery(const UIState *ui, const GameState *gs) {
                                     (float)splash_sz,(float)splash_sz},
                         1.5f, (Color){cat_col.r, cat_col.g, cat_col.b, sa});
                 } else if (de->type == DISC_MATERIAL) {
-                    /* Filon agrandi : la tuile fait TILE_SIZE, on met à
-                       l'échelle du portrait. rlPushMatrix (et NON
-                       BeginMode2D, qui remettrait la matrice à l'identité
-                       et casserait un décalage de canvas éventuel). */
-                    float sc = (float)splash_sz / (float)TILE_SIZE;
-                    rlPushMatrix();
-                        rlTranslatef((float)sxo, (float)spl_y, 0.0f);
-                        rlScalef(sc, sc, 1.0f);
-                        tile_art_draw_deposit(0, 0, de->idx, (float)GetTime());
-                    rlPopMatrix();
-                    /* Le pixel-art est opaque : on rejoue le fondu
-                       d'apparition par un voile sombre décroissant. */
-                    if (sa < 255)
-                        DrawRectangle(sxo, spl_y, splash_sz, splash_sz,
-                                      (Color){8, 5, 2, (unsigned char)(255 - sa)});
+                    /* Filon de la carte (sprite peint, source unique
+                       terrain_draw_ore_icon) agrandi sur un fond sombre. */
+                    Rectangle box = {(float)sxo, (float)spl_y,
+                                     (float)splash_sz, (float)splash_sz};
+                    DrawRectangleRec(box, (Color){16, 12, 9, sa});
+                    terrain_draw_ore_icon(box, de->idx, (float)GetTime(), sa);
                     DrawRectangleLinesEx(
                         (Rectangle){(float)sxo,(float)spl_y,
                                     (float)splash_sz,(float)splash_sz},

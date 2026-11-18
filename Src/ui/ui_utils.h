@@ -27,6 +27,10 @@ static inline void dtxt(const char *text, int x, int y, int fontSize, Color colo
 static inline int mtxt(const char *text, int fontSize) {
     return (int)MeasureTextEx(g_font, text, (float)fontSize * FONT_SCALE, 1.0f).x;
 }
+// Texte centré horizontalement sur cx (source unique).
+static inline void dtxt_c(const char *text, int cx, int y, int fontSize, Color color) {
+    dtxt(text, cx - mtxt(text, fontSize) / 2, y, fontSize, color);
+}
 // Hauteur réelle d'un texte rendu à fontSize (pour le centrage vertical)
 static inline int fh(int fontSize) {
     return (int)((float)fontSize * FONT_SCALE + 0.5f);

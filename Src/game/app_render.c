@@ -19,6 +19,7 @@
 #include "../engine/window.h"
 #include "../ui/renderer.h"
 #include "../ui/tile_art.h"
+#include "../ui/entity_fx.h"  // vie des unités/ennemis : apparitions, attaques, tirs
 #include "../ui/ambient.h"    // météo d'ambiance 2D par thème
 #include "../ui/hud.h"
 #include "../ui/interlude.h"
@@ -54,19 +55,22 @@ int app_game_render(AppContext *ctx) {
     map_cam.offset = (Vector2){_mo.x + fx_shake_dx(), _mo.y + fx_shake_dy()};
     map_cam.zoom   = map_eff_scale();
     BeginMode2D(map_cam);
-        render_map(&gs->map, &gs->towers, 1);   // tour sur ruine → sol déblayé
+        render_map(&gs->map, &gs->towers, 1);   // tour sur ruine → sol déblayé, socles
         hazard_render(&gs->map);          // tronçons piégés (braises, mare…)
         tile_art_draw_spawns(&gs->map);   // portails d'invasion
-        tile_art_draw_shadows(&gs->map, &gs->towers);  // ombres SE ruines+tours
         render_spawn_exclusion_zones(&gs->map);
         render_bases(&gs->map);
         render_deposits(&gs->map, &gs->towers, gs->ui.hovered_tile_x,
                         gs->ui.hovered_tile_y, gs->wave_manager.number);
         render_dropped_mats(gs->dropped_mats, gs->dropped_mat_count);
+        /* Vie des entités : apparitions + coups portés, poussière au sol */
+        ent_fx_update(&gs->units, &gs->enemies, &gs->towers, &gs->map);
+        ent_fx_draw_ground(&gs->units, &gs->enemies);
         render_towers(&gs->towers);
         render_units(&gs->units);
         render_enemies(&gs->enemies);
         render_projectiles(&gs->towers);
+        render_combat_fx();   // tirs des unités et des ennemis
         fx_render_world();   // particules + popups d'or (jus)
         hazard_render_label(&gs->map, gs->ui.hovered_tile_x, gs->ui.hovered_tile_y);
     EndMode2D();
@@ -131,9 +135,12 @@ int app_game_render(AppContext *ctx) {
                 ly += fh(10) + 4;
             }
         } else {
+            /* Coin bas-droit de la carte : en haut à droite, il chevauchait
+               le panneau flottant « Vague ». */
             const char *hint = "[H] Aide";
             int hw = mtxt(hint, 9);
-            dtxt(hint, g_map_x_off + g_canvas_virt_w_base - hw - 12, 8, 9,
+            dtxt(hint, g_map_x_off + g_canvas_virt_w_base - hw - 12,
+                 g_canvas_virt_h - UI_HUD_HEIGHT - fh(9) - 4, 9,
                  (Color){120, 140, 165, 200});
         }
     }

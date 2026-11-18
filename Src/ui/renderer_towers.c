@@ -6,8 +6,8 @@
 
 /*  renderer_towers.c ─ Rendu 2D des tours, projectiles et aperçu de pose.
  *
- *  Extrait de renderer.c (règle projet : fichiers < 500 lignes) ; fonctions
- *  déplacées à l'identique.
+ *  Extrait de renderer.c (règle projet : fichiers < 500 lignes). Les
+ *  projectiles, le socle et l'animation de pose : renderer_tower_fx.c.
  */
 
 #include "renderer.h"
@@ -16,6 +16,7 @@
 #include "render3d_units.h"   // rendu 3D des unités (mode de vue 3D)
 #include "render3d_enemies.h" // rendu 3D des ennemis (mode de vue 3D)
 #include "../engine/assets.h"  // splash arts tours/unités
+#include "terrain.h"   // socle peint (aperçu de pose)
 #include "raylib.h"
 #include "ui_utils.h"   // DrawText/MeasureText → g_font (support accents)
 #include "ui_palette.h" // palette UI (source unique) : UI_DANGER…
@@ -74,6 +75,38 @@ static void draw_tesla_arcs(float ox, float oy, float tile, int idx, float phase
     }
 }
 
+/* Recul + éclair de bouche (vus depuis la carte, par-dessus le modèle 3D). */
+#define TWR_KICK_PX    1.6f    // la tour tressaille à l'opposé du tir (px)
+#define TWR_FLASH_MIN  0.35f   // fenêtre de l'éclair 2D (part de fire_k)
+#define TWR_PREVIEW_PAD_A 0.45f // opacité du socle fantôme (aperçu de pose)
+
+/* Éclair de bouche 2D (mitrailleuse/sniper), lueur du lance-flammes, arcs
+   de la Tesla autour de son orbe — tous calés sur la VRAIE bouche 3D. */
+static void draw_muzzle_fx(const Tower *tw, int i, Rectangle dst, float fk) {
+    Vector2 m;
+    if (!render3d_tower_muzzle(i, dst, 0, &m)) return;
+    if (tw->type == TOWER_TESLA) {
+        float phase = (tw->fire_rate > 0.0f) ? tw->fire_timer * tw->fire_rate : 0.0f;
+        draw_tesla_arcs(m.x, m.y, (float)TILE_SIZE, i, phase);
+        return;
+    }
+    if (fk <= TWR_FLASH_MIN) return;
+    float k = (fk - TWR_FLASH_MIN) / (1.0f - TWR_FLASH_MIN);
+    if (tw->type == TOWER_FLAME) {
+        DrawCircleV(m, 4.0f + 5.0f * k, (Color){255, 140, 40, (unsigned char)(90.0f * k)});
+        return;
+    }
+    float ca = cosf(tw->angle), sa = sinf(tw->angle);
+    float big = (tw->type == TOWER_SNIPER) ? 1.5f : 1.0f;
+    DrawCircleV(m, (3.0f + 6.0f * k) * big, (Color){255, 200, 110, (unsigned char)(120.0f * k)});
+    DrawLineEx(m, (Vector2){m.x + ca * (4.0f + 9.0f * k) * big, m.y + sa * (4.0f + 9.0f * k) * big},
+               2.0f, (Color){255, 236, 170, (unsigned char)(230.0f * k)});
+    for (int s = -1; s <= 1; s += 2)
+        DrawLineEx(m, (Vector2){m.x - sa * s * (2.0f + 4.0f * k), m.y + ca * s * (2.0f + 4.0f * k)},
+                   1.4f, (Color){255, 220, 150, (unsigned char)(200.0f * k)});
+    DrawCircleV(m, (1.2f + 2.2f * k) * big, (Color){255, 252, 230, (unsigned char)(255.0f * k)});
+}
+
 void render_towers(const TowerPool *tp) {
     /* Tri par profondeur (cy croissant) : les tours à l'AVANT (cy grand) sont
        dessinées EN DERNIER, donc au-dessus. Indispensable depuis que le Sniper
@@ -101,32 +134,33 @@ void render_towers(const TowerPool *tp) {
 
         float cx = tw->cx, cy = tw->cy;
 
+        /* Pose en cours : chute + écrasement autour du pied (renderer_tower_fx). */
+        float ddy, dsx, dsy, dal;
+        tower_fx_drop(i, &ddy, &dsx, &dsy, &dal);
+        Color tint = {255, 255, 255, (unsigned char)(255.0f * dal)};
+
         // Corps : modèle 3D live si disponible (tourelle orientée vers la cible),
-        // sinon socle sombre + splash art (repli rect coloré).
+        // sinon splash art (repli rect coloré), posés sur le socle peint.
         Texture2D t3d   = render3d_tower_tex(i);
         int       drew3d = 0;
         if (t3d.id != 0) {
-            // RenderTexture raylib : verticalement retournée → hauteur source négative.
-            // Destination calculée par render3d (carré pour la Mitrailleuse, HAUT
-            // ancré par le bas pour le Sniper qui dépasse au-dessus de la case).
+            // Destination : pied du modèle sur le centre de la case (render3d).
             Rectangle dst = render3d_tower_dst(i, cx, cy, (float)s);
-            DrawTexturePro(t3d,
-                (Rectangle){0, 0, (float)t3d.width, -(float)t3d.height},
-                dst,
-                (Vector2){0, 0}, 0.0f, WHITE);
-            drew3d = 1;
-            // Tesla : éclairs électriques qui crépitent autour de l'orbe.
-            if (tw->type == TOWER_TESLA) {
-                float ox    = dst.x + dst.width  * 0.5f;
-                float oy    = dst.y + dst.height * 0.27f;   // ~position de l'orbe
-                float phase = (tw->fire_rate > 0.0f) ? tw->fire_timer * tw->fire_rate : 0.0f;
-                draw_tesla_arcs(ox, oy, (float)s, i, phase);
+            float fk = render3d_tower_fire_k(i);
+            if (tw->type == TOWER_GUN || tw->type == TOWER_SNIPER) {
+                dst.x -= cosf(tw->angle) * TWR_KICK_PX * fk;   /* recul */
+                dst.y -= sinf(tw->angle) * TWR_KICK_PX * fk;
             }
+            render3d_tower_blit(i, renderer_squash_rect(dst, cx, cy, ddy, dsx, dsy), tint);
+            drew3d = 1;
+            if (dal >= 1.0f && ddy == 0.0f) draw_muzzle_fx(tw, i, dst, fk);
         } else {
-            DrawRectangle(px+2, py+2, s-4, s-4, (Color){30,20,10,255});
-            if (!renderer_sprite_fit(g_tower_splash[tw->type], cx, cy,
-                                 (float)(s-8), (float)(s-8), WHITE)) {
-                DrawRectangle(px+6, py+6, s-12, s-12, col);
+            Rectangle box = renderer_squash_rect((Rectangle){cx - (s-8)*0.5f, cy - (s-8)*0.5f,
+                                                          (float)(s-8), (float)(s-8)},
+                                              cx, cy + (s-8)*0.5f, ddy, dsx, dsy);
+            if (!renderer_sprite_fit(g_tower_splash[tw->type], box.x + box.width*0.5f,
+                                     box.y + box.height*0.5f, box.width, box.height, tint)) {
+                DrawRectangleRec(box, col);
             }
         }
 
@@ -136,7 +170,6 @@ void render_towers(const TowerPool *tp) {
             float ey = cy + sinf(tw->angle) * (s*0.4f);
             DrawLineEx((Vector2){cx,cy}, (Vector2){ex,ey}, 3.0f, col);
             DrawCircle((int)ex, (int)ey, 2.5f, col);
-            DrawRectangleLines(px+6, py+6, s-12, s-12, (Color){255,255,255,40});
         }
 
         for (int l = 0; l < tw->level && l < 3; l++)
@@ -162,55 +195,6 @@ void render_towers(const TowerPool *tp) {
                           (Color){80, 150, 255, (unsigned char)(35 + sp * 45)});
             DrawCircleLines((int)cx, (int)cy, s * 0.4f, (Color){130, 200, 255, 210});
             dtxt("Z", (int)cx - 3, py + 2, 9, (Color){160, 215, 255, 235});
-        }
-    }
-}
-
-void render_projectiles(const TowerPool *tp) {
-    /* Dimensionné par DAMAGE_TYPE_COUNT : DMG_FIRE (= 5, ajouté après coup)
-       lisait hors tableau à chaque projectile de lance-flammes. */
-    static const Color DMG_COLORS[DAMAGE_TYPE_COUNT] = {
-        [DMG_PHYSICAL] = {255, 200, 100, 255},
-        [DMG_POISON]   = { 80, 220,  60, 255},
-        [DMG_ELECTRIC] = {180, 100, 255, 255},
-        [DMG_CRYO]     = {140, 220, 255, 255},
-        [DMG_NANO]     = {220, 100, 220, 255},
-        [DMG_FIRE]     = {255, 107,  53, 255},   /* = PROJ_COLOR[TOWER_FLAME] */
-    };
-
-    for (int i = 0; i < MAX_PROJECTILES; i++) {
-        const Projectile *p = &tp->projectiles[i];
-        if (!p->active) continue;
-
-        // Couleur selon type de dégâts si matériau appliqué,
-        // sinon couleur de base de la tour
-        Color col;
-        if (p->dmg_type != DMG_PHYSICAL ||
-            p->origin == TOWER_FLAME ||
-            p->origin == TOWER_TESLA) {
-            col = DMG_COLORS[p->dmg_type];
-        } else {
-            col = PROJ_COLOR[p->origin];
-        }
-
-        // ── Traçante lumineuse : traînée orientée vers la cible +
-        //    halo coloré + cœur brillant (animation de balle).
-        float dx = p->tx - p->x, dy = p->ty - p->y;
-        float len = sqrtf(dx*dx + dy*dy);
-        if (len < 0.001f) len = 0.001f;
-        float ux = dx/len, uy = dy/len;
-        Vector2 head = { p->x, p->y };
-        Vector2 tail = { p->x - ux*16.0f, p->y - uy*16.0f };
-
-        DrawLineEx(tail, head, 2.4f, (Color){col.r, col.g, col.b, 110});
-        if (p->splash) {
-            DrawCircleV(head, 8.0f, (Color){col.r, col.g, col.b, 90});
-            DrawCircleV(head, 5.0f, col);
-            DrawCircleV(head, 2.5f, (Color){255, 255, 235, 255});
-        } else {
-            DrawCircleV(head, 6.0f, (Color){col.r, col.g, col.b, 90});
-            DrawCircleV(head, 3.2f, col);
-            DrawCircleV(head, 1.6f, (Color){255, 255, 235, 255});
         }
     }
 }
@@ -253,6 +237,9 @@ void render_tower_preview(const Map *map, const TowerPool *tp,
         ? (Color){230, 126, 34, 120}   // orange = surcoût
         : (Color){col.r, col.g, col.b, 100};
 
+    /* Socle fantôme : montre où et comment la tour s'ancrera au décor */
+    terrain_draw_tower_pad(map->theme, px + TILE_SIZE * 0.5f, py + TILE_SIZE * 0.5f, 1.0f,
+                           TWR_PREVIEW_PAD_A, 0u);
     DrawRectangle(px+6, py+6, TILE_SIZE-12, TILE_SIZE-12, preview_col);
 
     float range_px = st->range * TILE_SIZE;

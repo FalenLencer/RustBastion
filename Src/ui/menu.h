@@ -33,6 +33,7 @@ typedef enum {
     MENU_MP_CONFIG_ADV,  // multijoueur : config AVANCÉE (menu complet de personnalisation)
     MENU_MP_LOBBY,       // multijoueur : salon (code, ready-up, lancement)
     MENU_JOURNAL,        // journal de campagne : relire le récit des actes joués
+    MENU_FREE_PLAY,      // sous-menu « PARTIE LIBRE » : arcade, perso, héros, tutoriel
 } MenuScreen;
 
 // ── Modes multijoueur (valeur = octet `mode` du protocole réseau) ──

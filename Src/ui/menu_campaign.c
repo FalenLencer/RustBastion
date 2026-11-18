@@ -401,6 +401,7 @@ MenuAction draw_world_map(MenuState *m, const MetaProgress *meta,
             }
             if (draw_btn("EFFACER", bx_del2, by2, bw_del2, bh2, C_RED, 0)) {
                 m->confirm_del_slot = s;
+                push_back_screen(m);   /* le RETOUR de la carte reste intact */
                 m->back_screen      = MENU_WORLD_MAP;
                 m->screen           = MENU_CONFIRM_DEL;
             }

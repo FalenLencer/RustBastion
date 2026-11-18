@@ -417,7 +417,7 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
         // ── Scalabilité ───────────────────────────────────────
         draw_sep(COL_PARAM_X, y, COL_PARAM_W, C_BORDER);
         y += M_IN;
-        dtxt("Scalabilite des ennemis", COL_PARAM_X, y, 12, C_GOLD);
+        dtxt("Scalabilité des ennemis", COL_PARAM_X, y, 12, C_GOLD);
         y += fh(12) + 4;
 
         // Puissance max
@@ -460,15 +460,15 @@ MenuAction draw_custom_config(MenuState *m, int vw, int vh)
         const char *th_name = (cfg->theme == THEME_COUNT)
             ? "Aléatoire"
             : theme_get((ThemeID)cfg->theme)->name;
-        const char *dep_str = (cfg->forced_deposits <= 0) ? "dep.alea"
-                            : TextFormat("%ddep.", cfg->forced_deposits);
-        int eff_w = (cfg->map_w > 0) ? cfg->map_w : MAP_W;
-        int eff_h = (cfg->map_h > 0) ? cfg->map_h : MAP_H;
-        dtxt(TextFormat(
-            "%s  |  %dsp.  |  %dbase(s)  |  %s  |  %dx%d  |  dist%d  |  capx%.0f  |  x%.1fennemis",
+        char sum[200], sum_clip[200];   /* mots entiers, rogné à la colonne */
+        snprintf(sum, sizeof(sum), "%s  |  %d spawn(s)  |  %d base(s)  |  dépôts : %s"
+            "  |  %dx%d  |  distance %d  |  plafond x%.0f  |  ennemis x%.1f",
             th_name, cfg->forced_spawns, cfg->forced_bases,
-            dep_str, eff_w, eff_h, cfg->min_dist, cfg->scale_cap, cfg->count_mult),
-             COL_PARAM_X, y, 9, C_DIM);
+            cfg->forced_deposits <= 0 ? "aléa." : TextFormat("%d", cfg->forced_deposits),
+            (cfg->map_w > 0) ? cfg->map_w : MAP_W, (cfg->map_h > 0) ? cfg->map_h : MAP_H,
+            cfg->min_dist, cfg->scale_cap, cfg->count_mult);
+        clip_text(sum, COL_PARAM_W, 10, sum_clip, sizeof(sum_clip));
+        dtxt(sum_clip, COL_PARAM_X, y, 10, C_TEXT);
     }
 
     // ─────────────────────────────────────────────────────────

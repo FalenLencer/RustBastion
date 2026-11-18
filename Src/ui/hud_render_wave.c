@@ -141,7 +141,10 @@ void hud_render_wave_button(const UIState *ui, const GameState *gs) {
                 int hw     = mtxt(hdr, 10);
                 int stripw = npv*ic + (npv-1)*ig;
                 int pw     = (stripw > hw ? stripw : hw) + ip*2;
-                int ph     = ic + 16 + ip;
+                /* En-tête à sa hauteur réelle fh(10) : avec 15 px, les
+                   vignettes mordaient sur le libellé. */
+                const int hdr_h = 4 + fh(10) + 1;
+                int ph     = hdr_h + ic + ip;
                 int ppx    = wx - pw/2;
                 int ppy    = (int)wb->y - ph - 6 + dy;
                 DrawRectangleRounded((Rectangle){(float)ppx,(float)ppy,(float)pw,(float)ph},
@@ -154,7 +157,7 @@ void hud_render_wave_button(const UIState *ui, const GameState *gs) {
                 Color hdr_c = boss_next ? UI_DANGER : (Color){150, 120, 70, 255};
                 hdr_c.a = (unsigned char)(255.0f * pk);
                 dtxt(hdr, ppx + pw/2 - hw/2, ppy + 4, 10, hdr_c);
-                int ix = ppx + (pw - stripw)/2, iy = ppy + 15;
+                int ix = ppx + (pw - stripw)/2, iy = ppy + hdr_h;
                 for (int k = 0; k < npv; k++) {
                     /* Cascade : icône k pope avec k×0.05 s de délai */
                     float kj = (pv_t - WAVE_PV_ICON_STEP * (float)k)

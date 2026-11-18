@@ -4,11 +4,13 @@
  * Unauthorized copying or distribution is prohibited.
  */
 
+/*  interlude.c ─ Écrans de fin de partie et d'extraction (endless).
+ *  (Briefing / bilan : interlude_story.c ; butin / boutique : interlude_loot.c.)
+ */
 #include "interlude.h"
 #include "ui_utils.h"
-#include "ui_anim.h"
 #include "ui_palette.h"   /* palette UI (source unique) */
-#include "perk_art.h"
+#include "ui_plate.h"     /* plaques de métal (game over) */
 #include "../game/campaign_data.h"
 #include "../game/meta.h"
 #include "../game/runperks.h"
@@ -17,82 +19,88 @@
 #include <math.h>
 #include <stdio.h>   // snprintf
 
-// ── Réglages de la mise en scène (butin / boutique) ───────────
-#define IL_OPEN_DUR    0.25f   // slide-up + fondu du panneau (s)
-#define IL_OPEN_RISE   20.0f   // hauteur du slide-up (px)
-#define IL_HDR_T0      0.10f   // apparition de l'en-tête (s)
-#define IL_HDR_DUR     0.15f   // durée de son fondu (s)
-#define IL_RIVET_STEP  0.02f   // délai entre rivets (s)
-#define IL_RIVET_DUR   0.10f   // fondu d'un rivet (s)
-#define IL_CARD_T0     0.15f   // 1re carte (s)
-#define IL_CARD_STEP   0.08f   // délai entre cartes (s)
-#define IL_CARD_DUR    0.22f   // entrée du contenu d'une carte (s)
-#define IL_CARD_SLIDE  14.0f   // glissement du contenu (px)
-#define IL_SHIM_PERIOD 2.2f    // période du shimmer épique (s)
-#define IL_SHIM_CROSS  0.6f    // durée de la traversée (s)
-#define IL_SHIM_W      24      // largeur de la bande (px)
-
-// ── Helpers pixel-art partagés (butin / boutique) ─────────────
-// Rivets : apparaissent un par un (délai idx*IL_RIVET_STEP sur t).
-static void il_rivets_h(int x0, int x1, int y, Color c, float t) {
-    int idx = 0;
-    for (int x = x0; x <= x1; x += 24, idx++) {
-        float k = (t - (float)idx * IL_RIVET_STEP) / IL_RIVET_DUR;
-        if (k <= 0.0f) continue;
-        if (k > 1.0f) k = 1.0f;
-        DrawRectangle(x, y, 2, 2,
-                      (Color){c.r, c.g, c.b, (unsigned char)((float)c.a * k)});
-    }
-}
-static void il_brackets(Rectangle r, Color c, int L) {
-    int x0=(int)r.x+4, y0=(int)r.y+4, x1=(int)(r.x+r.width)-4, y1=(int)(r.y+r.height)-4;
-    Color cc={c.r,c.g,c.b,(unsigned char)(225.0f * ((float)c.a / 255.0f))};
-    DrawRectangle(x0,y0,L,2,cc); DrawRectangle(x0,y0,2,L,cc);
-    DrawRectangle(x1-L,y0,L,2,cc); DrawRectangle(x1-2,y0,2,L,cc);
-    DrawRectangle(x0,y1-2,L,2,cc); DrawRectangle(x0,y1-L,2,L,cc);
-    DrawRectangle(x1-L,y1-2,L,2,cc); DrawRectangle(x1-2,y1-L,2,L,cc);
-}
-static void il_keycap(int x, int y, int w, int h, const char *lbl, Color col, int hot) {
-    Rectangle k = {(float)x,(float)y,(float)w,(float)h};
-    DrawRectangleRounded(k, 0.3f, 4,
-        hot ? (Color){(unsigned char)(col.r/2),(unsigned char)(col.g/2),(unsigned char)(col.b/2),255}
-            : (Color){22,17,9,255});
-    DrawRectangleRoundedLinesEx(k, 0.3f, 4, 1.5f, col);
-    int tw = mtxt(lbl, 12);
-    dtxt(lbl, x + w/2 - tw/2, y + h/2 - fh(12)/2, 12, hot ? UI_TEXT : col);
-}
-/* (il_cat_glyph supprimé : le compteur Renfort utilise désormais
-   l'icône ferraille g_icon_scrap — c'était son seul site d'appel.) */
-// Petite caisse de ravitaillement (icône d'en-tête).
-static void il_crate(int cx, int cy, Color col) {
-    Color sh = {(unsigned char)(col.r/2),(unsigned char)(col.g/2),(unsigned char)(col.b/2),col.a};
-    DrawRectangle(cx-8, cy-7, 16, 14, sh);
-    DrawRectangleLines(cx-8, cy-7, 16, 14, col);
-    DrawLine(cx-8, cy-7, cx+8, cy+7, col);
-    DrawLine(cx+8, cy-7, cx-8, cy+7, col);
-}
-
-// Shimmer épique : bande claire qui balaye la carte toutes les
-// IL_SHIM_PERIOD s (clip manuel aux bords — pas de scissor, il opère
-// en coordonnées écran et se désalignerait du canvas virtuel).
-static void il_shimmer(Rectangle r, float t) {
-    float ph = fmodf(t, IL_SHIM_PERIOD);
-    if (ph >= IL_SHIM_CROSS) return;
-    float sx  = r.x + (r.width + IL_SHIM_W) * (ph / IL_SHIM_CROSS) - IL_SHIM_W;
-    int   sx0 = (int)sx, sx1 = sx0 + IL_SHIM_W;
-    if (sx0 < (int)r.x) sx0 = (int)r.x;
-    if (sx1 > (int)(r.x + r.width)) sx1 = (int)(r.x + r.width);
-    if (sx1 > sx0)
-        DrawRectangle(sx0, (int)r.y + 1, sx1 - sx0, (int)r.height - 2,
-                      (Color){255, 255, 255, 18});
-}
-
 // ── Constantes layout ────────────────────────────────────────
 #define M   16
 #define M_S  8
 
-static void txt_c(const char *s, int cx, int y, int fs, Color col) {
-    dtxt(s, cx - mtxt(s, fs)/2, y, fs, col);
+// ── Game over : plaque de métal (ui_plate.h) ────────────────
+#define GO_PW          460     /* largeur du panneau                       */
+#define GO_PH_DIVERGE  250     /* campagne : repli / reprise               */
+#define GO_PH_RECAP    290     /* récapitulatif                            */
+#define GO_HDR_H       38      /* bandeau du titre                         */
+#define GO_HAZARD_W    30      /* rayures de danger aux bouts du bandeau   */
+#define GO_BTN_H       38
+#define GO_STAT_W      300     /* bloc des statistiques                    */
+#define GO_STAT_FS     11
+#define GO_LINER_A     0.65f
+#define GO_RED         ((Color){200,  40,  20, 255})   /* défaite             */
+#define GO_AMBER       ((Color){214, 140,  30, 255})   /* revers (bifurcation) */
+#define GO_CONTINUE    ((Color){120, 210,  90, 255})
+#define GO_ABANDON     ((Color){185,  95,  70, 255})
+#define GO_NEUTRAL     ((Color){170, 150, 112, 255})
+
+// ── Extraction (endless) ─────────────────────────────────────
+#define EX_PW          420
+#define EX_PH          260
+#define EX_BTN_W       190     /* libellé + touche ESPACE sans toucher les prises */
+#define EX_BTN_H       32
+#define EX_OUT_H       52      /* case « conséquence » au-dessus d'un bouton */
+#define EX_BEACON_HZ   1.2f    /* pulsation des balises (Hz)                */
+#define EX_ACC         ((Color){ 90, 170, 220, 255})   /* point d'extraction */
+#define EX_GO          ((Color){110, 200,  90, 255})   /* extraire           */
+#define EX_STAY        ((Color){ 90, 160, 230, 255})   /* continuer          */
+
+/* Balise d'extraction : boîtier sombre et feu qui pulse. */
+static void beacon(int cx, int cy, Color col) {
+    float p = 0.5f + 0.5f * sinf((float)GetTime() * EX_BEACON_HZ * 2.0f * PI);
+    DrawRectangle(cx - 7, cy - 9, 14, 18, PLATE_FRAME_D);
+    DrawRectangle(cx - 6, cy - 8, 12, 16, PLATE_FRAME);
+    DrawCircle(cx, cy, 9.0f + 4.0f * p, (Color){col.r, col.g, col.b, (unsigned char)(40.0f + 50.0f * p)});
+    DrawCircle(cx, cy, 4.0f, (Color){col.r, col.g, col.b, (unsigned char)(150.0f + 105.0f * p)});
+    DrawCircle(cx - 1, cy - 1, 1.5f, (Color){255, 255, 255, (unsigned char)(120.0f + 100.0f * p)});
+}
+
+/* Bandeau de titre : teinte, rayures de danger (alerte) OU balises
+   (extraction), titre, filet. */
+static void go_header(Rectangle pr, const char *title, Color acc, int alert) {
+    int x = (int)(pr.x + PLATE_BORDER + 2), w = (int)(pr.width - 2.0f * (PLATE_BORDER + 2));
+    int y = (int)(pr.y + PLATE_BORDER + 1);
+    DrawRectangle(x, y, w, GO_HDR_H, (Color){(unsigned char)(acc.r / 6), (unsigned char)(acc.g / 6),
+                                            (unsigned char)(acc.b / 6), 255});
+    if (alert) {
+        Color stripe = {(unsigned char)(acc.r * 0.6f), (unsigned char)(acc.g * 0.6f), (unsigned char)(acc.b * 0.6f), 255};
+        plate_hazard(x, y, GO_HAZARD_W, GO_HDR_H, stripe);
+        plate_hazard(x + w - GO_HAZARD_W, y, GO_HAZARD_W, GO_HDR_H, stripe);
+    } else {
+        beacon(x + GO_HAZARD_W / 2, y + GO_HDR_H / 2, acc);
+        beacon(x + w - GO_HAZARD_W / 2, y + GO_HDR_H / 2, acc);
+    }
+    dtxt_o(title, (int)(pr.x + pr.width * 0.5f) - mtxt(title, 22) / 2,
+           y + (GO_HDR_H - fh(22)) / 2, 22, acc);
+    DrawRectangleGradientH(x, y + GO_HDR_H, w / 2, 1, (Color){acc.r, acc.g, acc.b, 0}, acc);
+    DrawRectangleGradientH(x + w / 2, y + GO_HDR_H, w - w / 2, 1, acc, (Color){acc.r, acc.g, acc.b, 0});
+}
+
+/* Bouton de fin de partie (plaque) ; `key` optionnelle. Retourne le survol. */
+static int go_button(Rectangle b, const char *lbl, const char *key, Color acc, Vector2 vm) {
+    int hov = CheckCollisionPointRec(vm, b);
+    plate_button(b, acc, hov, 1);
+    int lw = mtxt(lbl, 11), kw = key ? mtxt(key, 9) + 10 + 8 : 0;
+    int x  = (int)(b.x + (b.width - (float)(lw + kw)) * 0.5f);
+    dtxt(lbl, x, (int)(b.y + (b.height - (float)fh(11)) * 0.5f), 11, hov ? acc : UI_TEXT);
+    if (key) plate_keycap(x + lw + 8, (int)(b.y + (b.height - (float)(fh(9) + 4)) * 0.5f) - 1, key, acc);
+    return hov;
+}
+
+/* Une ligne du bloc de statistiques : libellé à gauche, valeur à droite. */
+static int go_stat(int x, int y, int w, const char *label, const char *value, Color vc,
+                   Texture2D icon) {
+    int ic = fh(GO_STAT_FS);
+    dtxt(label, x + 10, y, GO_STAT_FS, UI_TEXT_DIM);
+    int vw = mtxt(value, GO_STAT_FS);
+    dtxt(value, x + w - 10 - vw, y, GO_STAT_FS, vc);
+    if (icon.id) draw_icon(icon, x + w - 10 - vw - ic - 4, y, ic, WHITE);
+    return y + fh(GO_STAT_FS) + 4;
 }
 
 // ════════════════════════════════════════════════════
@@ -113,535 +121,167 @@ int interlude_render_gameover(const GameState *gs, Vector2 vm,
     }
 
     /* P0.2 : le panneau non-bifurquant est un RÉCAP (stats + boutons) */
-    int pw = 460, ph = diverge ? 250 : 290;
+    int pw = GO_PW, ph = diverge ? GO_PH_DIVERGE : GO_PH_RECAP;
     int choice = 0;
-    float rnd = 5.0f/(float)ph;
-    Color border = diverge ? (Color){214, 140, 30, 255} : (Color){200, 40, 20, 255};
-    DrawRectangleRounded(
-        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        rnd, 8, (Color){20, 8, 4, 252});
-    DrawRectangleRoundedLinesEx(
-        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        rnd, 8, 2.0f, border);
+    Color acc = diverge ? GO_AMBER : GO_RED;
+    Rectangle pr = {cx - pw/2.0f, cy - ph/2.0f, (float)pw, (float)ph};
+    plate_panel(pr, PLATE_CHAMFER, acc, GO_LINER_A);
+    go_header(pr, diverge ? "POSITION PERDUE" : "BASTION TOMBÉ", acc, 1);
 
-    int py = cy - ph/2 + M;
-
-    txt_c(diverge ? "POSITION PERDUE" : "BASTION TOMBÉ", cx, py, 22, border);
-    py += fh(22) + 4;   /* (ancien « +32 » < fh(22) : la ligne suivante mordait le titre) */
-
+    int py = (int)pr.y + (int)PLATE_BORDER + 1 + GO_HDR_H + 8;
     if (gs->is_campaign) {
         const ActData *ad = campaign_act_get(gs->campaign_stage);
         char buf[80];
         clip_text(ad->subtitle, pw - M*2, 10, buf, sizeof(buf));
-        txt_c(buf, cx, py, 10, (Color){100,80,50,255});
-        py += 16;
+        dtxt_c(buf, cx, py, 10, (Color){150, 122, 78, 255});
+        py += 18;
     }
 
     if (diverge) {
-        txt_c(TextFormat("Vague %d  |  Ennemis éliminés : %d",
-                         gs->wave_manager.number, gs->kills),
-              cx, py, 11, (Color){120,80,60,255});
-        py += 22;
+        /* Bilan du revers dans une feuillure, puis la porte de sortie. */
+        int sw = GO_STAT_W, sx = cx - sw/2, sh = fh(GO_STAT_FS) + 8;
+        DrawRectangle(sx, py, sw, sh, PLATE_WELL);
+        DrawRectangleLines(sx, py, sw, sh, PLATE_FRAME);
+        dtxt_c(TextFormat("Vague %d   ·   Ennemis éliminés : %d",
+                          gs->wave_manager.number, gs->kills),
+               cx, py + 4, GO_STAT_FS, UI_TEXT_SEC);
+        py += sh + 10;
         const char *flavor = (dm == DEFEAT_RETREAT)
             ? "Repli possible : la mission se poursuit ailleurs."
             : "Tout n'est pas perdu — un nouvel assaut est possible.";
-        txt_c(flavor, cx, py, 10, (Color){150, 170, 150, 255});
+        dtxt_c(flavor, cx, py, 10, (Color){160, 186, 160, 255});
 
-        /* Boutons cliquables (avant : raccourcis clavier SEULS, alors que le
-           récap arcade propose des boutons). Raccourcis rappelés dessous. */
+        /* Boutons cliquables + raccourcis rappelés dessous (en touches). */
         const char *opt1 = (dm == DEFEAT_RETREAT) ? "SE REPLIER" : "REPRENDRE (AFFAIBLI)";
-        int bw2 = 200, bh2 = 38, gap2 = 12;
-        int byb = cy + ph/2 - M - bh2 - fh(9) - 4;
-        Rectangle cb = {(float)(cx - bw2 - gap2/2), (float)byb, (float)bw2, (float)bh2};
-        Rectangle ab = {(float)(cx + gap2/2),       (float)byb, (float)bw2, (float)bh2};
-        int hc = CheckCollisionPointRec(vm, cb);
-        int ha = CheckCollisionPointRec(vm, ab);
-        il_keycap((int)cb.x, (int)cb.y, bw2, bh2, opt1, (Color){120, 210, 90, 255}, hc);
-        il_keycap((int)ab.x, (int)ab.y, bw2, bh2, "ABANDONNER LA RUN",
-                  (Color){185, 95, 70, 255}, ha);
-        txt_c("ESPACE : continuer    ÉCHAP : abandonner (sauvegarde effacée)",
-              cx, byb + bh2 + 4, 9, (Color){130, 110, 80, 255});
+        int bw2 = 200, gap2 = 12;
+        int byb = cy + ph/2 - M - GO_BTN_H - fh(9) - 6;
+        Rectangle cb = {(float)(cx - bw2 - gap2/2), (float)byb, (float)bw2, (float)GO_BTN_H};
+        Rectangle ab = {(float)(cx + gap2/2),       (float)byb, (float)bw2, (float)GO_BTN_H};
+        int hc = go_button(cb, opt1, NULL, GO_CONTINUE, vm);
+        int ha = go_button(ab, "ABANDONNER LA RUN", NULL, GO_ABANDON, vm);
+        const char *t1 = "continuer", *t2 = "abandonner (sauvegarde effacée)";
+        int w1 = plate_key_hint(0, 0, "ESPACE", t1, 0);
+        int hx = cx - (w1 + 22 + plate_key_hint(0, 0, "ÉCHAP", t2, 0)) / 2;
+        plate_key_hint(hx, byb + GO_BTN_H + 6, "ESPACE", t1, 1);
+        plate_key_hint(hx + w1 + 22, byb + GO_BTN_H + 6, "ÉCHAP", t2, 1);
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             if (hc)      choice = GO_CHOICE_CONTINUE;
             else if (ha) choice = GO_CHOICE_ABANDON;
         }
     } else {
         /* ── P0.2 : RÉCAP — sobre et encourageant ────────────────
-           « Tenu N vagues » + record, kills, or final, perks (camp.),
-           puis [REJOUER] / [MENU] (campagne : [RETOUR A LA CARTE]). */
+           « Tenu N vagues » + record, puis le bloc de statistiques
+           (kills, or final, perks en campagne) et [REJOUER] / [MENU]
+           (campagne : [RETOUR À LA CARTE]). */
         int waves = gs->wave_manager.number;
-        txt_c(TextFormat("Tenu %d vague%s", waves, waves > 1 ? "s" : ""),
-              cx, py, 16, UI_TEXT);
+        dtxt_c(TextFormat("Tenu %d vague%s", waves, waves > 1 ? "s" : ""),
+               cx, py, 16, UI_TEXT);
         py += fh(16) + 4;
 
         if (gs->is_endless) {
             int best = gs->meta.endless_best_wave;
             if (waves >= best && waves > 0)
-                txt_c("NOUVEAU RECORD !", cx, py, 12, UI_SUCCESS);
+                dtxt_c("NOUVEAU RECORD !", cx, py, 12, UI_SUCCESS);
             else
-                txt_c(TextFormat("Record : %d vagues", best),
-                      cx, py, 12, UI_TEXT_DIM);
+                dtxt_c(TextFormat("Record : %d vagues", best),
+                       cx, py, 12, UI_TEXT_DIM);
             py += fh(12) + 6;
         }
 
-        txt_c(TextFormat("Ennemis éliminés : %d", gs->kills),
-              cx, py, 11, UI_TEXT_SEC);
-        py += fh(11) + 3;
-
-        {   /* Or final : icône + valeur (centrés ensemble) */
-            char gb[28];
-            snprintf(gb, sizeof(gb), "Or final : %d", gs->gold);
-            int ic  = fh(11);
-            int tw2 = mtxt(gb, 11) + ic + 4;
-            draw_icon(g_icon_gold, cx - tw2/2, py, ic, WHITE);
-            dtxt(gb, cx - tw2/2 + ic + 4, py, 11, UI_TEXT_SEC);
-            py += fh(11) + 3;
-        }
-
+        int rows = gs->is_campaign ? 3 : 2;
+        int sw = GO_STAT_W, sx = cx - sw/2, sh = rows * (fh(GO_STAT_FS) + 4) + 8;
+        DrawRectangle(sx, py, sw, sh, PLATE_WELL);
+        DrawRectangleLines(sx, py, sw, sh, PLATE_FRAME);
+        DrawRectangle(sx, py, 3, sh, acc);                       /* repère */
+        int ry = py + 5;
+        ry = go_stat(sx, ry, sw, "Ennemis éliminés", TextFormat("%d", gs->kills), UI_TEXT, (Texture2D){0});
+        ry = go_stat(sx, ry, sw, "Or final", TextFormat("%d", gs->gold), UI_TEXT, g_icon_gold);
         if (gs->is_campaign) {
             int np = 0;
             for (int i = 0; i < PERK_COUNT; i++)
                 if (gs->run.count[i] > 0) np++;
-            txt_c(TextFormat("Perks de la run : %d", np),
-                  cx, py, 11, UI_TEXT_SEC);
-            py += fh(11) + 3;
+            go_stat(sx, ry, sw, "Perks de la run", TextFormat("%d", np), UI_TEXT, (Texture2D){0});
         }
 
         /* Boutons (clic détecté ici, action exécutée par app.c) */
-        int bw2 = 170, bh2 = 38;
-        int byb = cy + ph/2 - M - bh2;
+        int bw2 = 170;
+        int byb = cy + ph/2 - M - GO_BTN_H;
         if (allow_replay) {
-            Rectangle rb = {(float)(cx - bw2 - 8), (float)byb,
-                            (float)bw2, (float)bh2};
-            Rectangle mb = {(float)(cx + 8), (float)byb,
-                            (float)bw2, (float)bh2};
-            int hr = CheckCollisionPointRec(vm, rb);
-            int hm = CheckCollisionPointRec(vm, mb);
-            il_keycap((int)rb.x, (int)rb.y, bw2, bh2, "REJOUER",
-                      UI_ACCENT, hr);
-            il_keycap((int)mb.x, (int)mb.y, bw2, bh2, "MENU",
-                      UI_BORDER, hm);
+            Rectangle rb = {(float)(cx - bw2 - 8), (float)byb, (float)bw2, (float)GO_BTN_H};
+            Rectangle mb = {(float)(cx + 8),       (float)byb, (float)bw2, (float)GO_BTN_H};
+            int hr = go_button(rb, "REJOUER", NULL, UI_ACCENT, vm);
+            int hm = go_button(mb, "MENU", "ESPACE", GO_NEUTRAL, vm);
             if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                 if (hr) choice = GO_CHOICE_REPLAY;
                 else if (hm) choice = GO_CHOICE_MENU;
             }
         } else {
             const char *lbl = gs->is_campaign ? "RETOUR À LA CARTE" : "MENU";
-            int bwl = 230;
-            Rectangle mb = {(float)(cx - bwl/2), (float)byb,
-                            (float)bwl, (float)bh2};
-            int hm = CheckCollisionPointRec(vm, mb);
-            il_keycap((int)mb.x, (int)mb.y, bwl, bh2, lbl, UI_BORDER, hm);
-            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && hm) choice = GO_CHOICE_MENU;
+            int bwl = 240;
+            Rectangle mb = {(float)(cx - bwl/2), (float)byb, (float)bwl, (float)GO_BTN_H};
+            if (go_button(mb, lbl, "ESPACE", GO_NEUTRAL, vm) &&
+                IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) choice = GO_CHOICE_MENU;
         }
     }
-    (void)py;
     return choice;
 }
 
 // ════════════════════════════════════════════════════
 // ÉCRAN EXTRACTION ENDLESS
 // ════════════════════════════════════════════════════
+void interlude_extract_buttons(int vw, int vh, Rectangle *extract, Rectangle *cont) {
+    int cx = vw/2, cy = vh/2;
+    float by = (float)(cy + EX_PH/2 - M_S - EX_BTN_H);
+    *extract = (Rectangle){(float)(cx - EX_BTN_W - M_S), by, EX_BTN_W, EX_BTN_H};
+    *cont    = (Rectangle){(float)(cx + M_S),            by, EX_BTN_W, EX_BTN_H};
+}
+
+/* Case « conséquence » au-dessus d'un bouton : ce que ce choix rapporte. */
+static void ex_outcome(Rectangle b, const char *caption, const char *value, Color col,
+                       Texture2D icon) {
+    int x = (int)b.x, y = (int)b.y - M_S - EX_OUT_H, w = (int)b.width;
+    DrawRectangle(x, y, w, EX_OUT_H, PLATE_WELL);
+    DrawRectangleLines(x, y, w, EX_OUT_H, PLATE_FRAME);
+    DrawRectangle(x, y, 3, EX_OUT_H, col);
+    dtxt(caption, x + 10, y + 6, 9, UI_TEXT_DIM);
+    int ic = icon.id ? fh(13) + 4 : 0;
+    if (icon.id) draw_icon(icon, x + 10, y + 8 + fh(9), fh(13), WHITE);
+    dtxt(value, x + 10 + ic, y + 8 + fh(9), 13, col);
+}
+
 void interlude_render_extract(const GameState *gs, int vw, int vh,
                               Vector2 vmouse)
 {
     int cx = vw/2, cy = vh/2;
     DrawRectangle(0, 0, vw, vh, (Color){0,0,0,170});
 
-    int pw = 420, ph = 260;
-    float rnd = 5.0f / ph;
-    DrawRectangleRounded(
-        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        rnd, 8, UI_PANEL_BG);
-    DrawRectangleRoundedLinesEx(
-        (Rectangle){cx-pw/2.0f, cy-ph/2.0f, (float)pw, (float)ph},
-        rnd, 8, 2.0f, UI_ACCENT);
+    Rectangle pr = {cx - EX_PW/2.0f, cy - EX_PH/2.0f, (float)EX_PW, (float)EX_PH};
+    plate_panel(pr, PLATE_CHAMFER, EX_ACC, GO_LINER_A);
+    go_header(pr, "POINT D'EXTRACTION", EX_ACC, 0);
 
-    int px = cx - pw/2 + M;
-    int py = cy - ph/2 + M;
-    int iw = pw - M*2;
+    /* Où en est la run */
+    int py = (int)pr.y + (int)PLATE_BORDER + 1 + GO_HDR_H + 10;
+    int sw = GO_STAT_W, sx = cx - sw/2, sh = 3 * (fh(GO_STAT_FS) + 4) + 8;
+    DrawRectangle(sx, py, sw, sh, PLATE_WELL);
+    DrawRectangleLines(sx, py, sw, sh, PLATE_FRAME);
+    DrawRectangle(sx, py, 3, sh, EX_ACC);
+    int ry = py + 5;
+    ry = go_stat(sx, ry, sw, "Série", TextFormat("%d", gs->endless_series + 1), UI_TEXT, (Texture2D){0});
+    ry = go_stat(sx, ry, sw, "Vague", TextFormat("%d", gs->wave_manager.number), UI_TEXT, (Texture2D){0});
+    go_stat(sx, ry, sw, "Multiplicateur", TextFormat("x%.1f", gs->endless_multiplier), EX_ACC, (Texture2D){0});
 
-    /* Titre */
-    txt_c("POINT D'EXTRACTION", cx, py, 18, UI_ACCENT);
-    py += 24;
-    DrawLine(px, py, px+iw, py, (Color){60,40,12,180}); py += 10;
-
-    /* Infos */
-    dtxt(TextFormat("Série          : %d",  gs->endless_series+1),
-             px, py, 12, UI_TEXT_SEC); py += 16;
-    dtxt(TextFormat("Vague          : %d",  gs->wave_manager.number),
-             px, py, 12, UI_TEXT_SEC); py += 16;
-    dtxt(TextFormat("Multiplicateur : x%.1f", gs->endless_multiplier),
-             px, py, 12, UI_ACCENT); py += 16;
-
-    int score = meta_endless_score(gs->wave_manager.number, gs->endless_multiplier);
-    int scrap  = score / 10 > 200 ? 200 : score / 10;
-    dtxt(TextFormat("Ferraille si extrait : +%d", scrap),
-             px, py, 12, (Color){118,188,45,255}); py += 16;
-    dtxt(TextFormat("Continuer -> mult. x%.1f", gs->endless_multiplier * 1.5f),
-             px, py, 10, (Color){100,160,220,255}); py += 20;
-    DrawLine(px, py, px+iw, py, (Color){40,28,8,140}); py += 10;
-
-    /* Boutons */
-    int bw = 160, bh = 32;
-    int by2 = cy + ph/2 - M_S - bh;
-    int bx1 = cx - bw - M_S;
-    int bx2 = cx + M_S;
-
-    /* [E] EXTRAIRE */
-    {
-        Rectangle r = {(float)bx1,(float)by2,(float)bw,(float)bh};
-        int hov = CheckCollisionPointRec(vmouse, r);
-        DrawRectangleRounded(r, 5.0f/bh, 6,
-            hov ? (Color){8,28,8,255} : (Color){4,16,4,255});
-        DrawRectangleRoundedLinesEx(r, 5.0f/bh, 6, 1.5f,
-            hov ? UI_SUCCESS : (Color){20,80,40,255});
-        const char *lbl = "E -- EXTRAIRE";
-        dtxt(lbl, bx1+bw/2-mtxt(lbl,13)/2, by2+bh/2-7,
-                 13, UI_SUCCESS);
-    }
-    /* [ESPACE] CONTINUER */
-    {
-        Rectangle r = {(float)bx2,(float)by2,(float)bw,(float)bh};
-        int hov = CheckCollisionPointRec(vmouse, r);
-        DrawRectangleRounded(r, 5.0f/bh, 6,
-            hov ? (Color){6,18,32,255} : (Color){4,12,20,255});
-        DrawRectangleRoundedLinesEx(r, 5.0f/bh, 6, 1.5f,
-            hov ? (Color){52,140,210,255} : (Color){24,70,110,255});
-        const char *lbl = "ESPACE -- CONTINUER";
-        dtxt(lbl, bx2+bw/2-mtxt(lbl,11)/2, by2+bh/2-7,
-                 11, (Color){52,140,210,255});
-    }
-    (void)py;
+    /* Les deux portes : ce que chacune rapporte, puis le bouton. */
+    Rectangle eb, cb;
+    interlude_extract_buttons(vw, vh, &eb, &cb);
+    float next = meta_endless_next_mult(gs->endless_multiplier);
+    ex_outcome(eb, "EN EXTRAYANT",
+               TextFormat("+%d ferraille", meta_endless_scrap(gs->wave_manager.number,
+                                                              gs->endless_multiplier)),
+               EX_GO, g_icon_scrap);
+    ex_outcome(cb, "EN CONTINUANT",
+               next >= ENDLESS_MULT_MAX ? TextFormat("mult. x%.1f (max)", next)
+                                        : TextFormat("mult. x%.1f", next),
+               EX_STAY, (Texture2D){0});
+    go_button(eb, "EXTRAIRE", "E", EX_GO, vmouse);
+    go_button(cb, "CONTINUER", "ESPACE", EX_STAY, vmouse);
 }
-
-// ════════════════════════════════════════════════════
-// BUTIN ROGUE-LITE — choisir 1 perk parmi N (après chaque acte)
-// ════════════════════════════════════════════════════
-// Layout partagé (rendu + détection de clic) — une seule source de vérité.
-typedef struct { int cx, cy, pw, ph, px, iw, py0, row, n; } DraftL;
-static DraftL draft_layout(const RunBuild *rb, int vw, int vh) {
-    DraftL L; L.cx = vw/2; L.cy = vh/2;
-    int n = rb->draft_n;
-    if (n < 0) n = 0;
-    if (n > MAX_DRAFT_OFFER) n = MAX_DRAFT_OFFER;
-    L.n  = n;  L.row = 58;  L.pw = 580;  L.ph = 92 + n*L.row + 22;
-    L.px = L.cx - L.pw/2 + M;  L.iw = L.pw - M*2;
-    L.py0 = (L.cy - L.ph/2 + M) + 28 + 18 + M_S;   // y de la 1re ligne d'offre
-    return L;
-}
-
-void interlude_render_draft(const RunBuild *rb, Vector2 vm, int vw, int vh) {
-    DraftL L = draft_layout(rb, vw, vh);
-
-    /* ── Timer d'ouverture : nouvelle offre → rejoue la mise en scène.
-       HITBOX INTACTES : draft_layout reste la seule source des rects
-       cliquables ; seuls dessins internes, alphas et scales bougent. */
-    static int   prev_o0 = -999, prev_nn = -999;
-    static float open_t  = 1e9f;
-    if (rb->draft_offer[0] != prev_o0 || rb->draft_n != prev_nn) {
-        prev_o0 = rb->draft_offer[0];
-        prev_nn = rb->draft_n;
-        open_t  = 0.0f;
-    }
-    open_t += ui_dt();
-
-    float pa = open_t / IL_OPEN_DUR;                 // panneau (slide + fondu)
-    if (pa > 1.0f) pa = 1.0f;
-    int   pdy = -(int)(IL_OPEN_RISE * (1.0f - ea_out_cubic(pa)));
-    float ha  = (open_t - IL_HDR_T0) / IL_HDR_DUR;   // en-tête
-    ha = ha < 0.0f ? 0.0f : ha > 1.0f ? 1.0f : ha;
-
-    DrawRectangle(0, 0, vw, vh, (Color){0,0,0,(unsigned char)(212.0f * pa)});
-    Color accent = (Color){232,200,80,(unsigned char)(255.0f * ha)};
-    /* Le CADRE glisse (pdy) ; les cartes restent aux positions du layout. */
-    Rectangle pr = {L.cx-L.pw/2.0f, L.cy-L.ph/2.0f + (float)pdy,
-                    (float)L.pw, (float)L.ph};
-
-    // Corps métal + volume (fondus avec pa)
-    DrawRectangleRounded(pr, 6.0f/L.ph, 8,
-                         (Color){13,10,5,(unsigned char)(253.0f * pa)});
-    DrawRectangle((int)pr.x+3, (int)pr.y+3, L.pw-6, L.ph/3,
-                  (Color){255,255,255,(unsigned char)(6.0f * pa)});
-    DrawRectangle((int)pr.x+3, (int)pr.y+L.ph-L.ph/4, L.pw-6, L.ph/4-3,
-                  (Color){0,0,0,(unsigned char)(45.0f * pa)});
-    DrawRectangleRoundedLinesEx(pr, 6.0f/L.ph, 8, 2.0f,
-        (Color){232,200,80,(unsigned char)(255.0f * pa)});
-
-    // En-tête : bandeau + caisse + titre + rivets + équerres (dès 0.10 s)
-    int hy = (int)pr.y;
-    if (ha > 0.0f) {
-        DrawRectangle((int)pr.x+3, hy+3, L.pw-6, 30,
-                      (Color){(unsigned char)(accent.r/6),(unsigned char)(accent.g/6),10,
-                              (unsigned char)(255.0f * ha)});
-        DrawRectangle((int)pr.x+3, hy+33, L.pw-6, 1, accent);
-        il_rivets_h((int)pr.x+14, (int)pr.x+L.pw-14, hy+9,
-                    (Color){(unsigned char)(232/2),(unsigned char)(200/2),20,200},
-                    open_t - IL_HDR_T0);
-        il_crate(L.px+14, hy+18 + pdy, accent);
-        txt_c("BUTIN DE GUERRE", L.cx, hy+9, 18, accent);
-        il_brackets(pr, accent, 12);
-        txt_c("Récupère un renfort  —  clic ou touches 1-3",
-              L.cx, hy+38, 10,
-              (Color){175,150,100,(unsigned char)(235.0f * ha)});
-    }
-
-    for (int i = 0; i < L.n; i++) {
-        int id = rb->draft_offer[i];
-        if (id < 0 || id >= PERK_COUNT) continue;
-        const PerkDef *pd = &RUN_PERKS[id];
-        RunColor rc = runperk_rarity_color(pd->rarity);
-        int ry = L.py0 + i*L.row, ch = L.row - 6;
-        Rectangle r = {(float)L.px, (float)ry, (float)L.iw, (float)ch};
-        int hov = CheckCollisionPointRec(vm, r);
-
-        /* Cadre : fondu commun dès IL_CARD_T0 ; contenu : cascade par carte */
-        float fa = (open_t - IL_CARD_T0) / 0.10f;
-        fa = fa < 0.0f ? 0.0f : fa > 1.0f ? 1.0f : fa;
-        float kc = (open_t - (IL_CARD_T0 + (float)i * IL_CARD_STEP)) / IL_CARD_DUR;
-        kc = kc < 0.0f ? 0.0f : kc > 1.0f ? 1.0f : kc;
-        int  cdx = -(int)(IL_CARD_SLIDE * (1.0f - ea_out_cubic(kc)));
-        unsigned char ca = (unsigned char)(255.0f * kc);
-        Color cc = {rc.r, rc.g, rc.b, ca};
-
-        if (fa <= 0.0f) continue;
-
-        /* Fond : éclaircissement progressif au survol (ui_hover_t) */
-        float hk = ui_hover_t(L.px, ry, hov);
-        DrawRectangleRounded(r, 0.16f, 5,
-            (Color){(unsigned char)(rc.r/9 + (rc.r/4 - rc.r/9) * hk),
-                    (unsigned char)(rc.g/9 + (rc.g/4 - rc.g/9) * hk),
-                    (unsigned char)(rc.b/9 + (rc.b/4 - rc.b/9) * hk),
-                    (unsigned char)(255.0f * fa)});
-        DrawRectangleRoundedLinesEx(r, 0.16f, 5, 1.5f + 0.9f * hk,
-            (Color){rc.r, rc.g, rc.b, (unsigned char)(255.0f * fa)});
-        /* Liseré de rareté : grandit du haut vers le bas */
-        DrawRectangle(L.px+2, ry+2, 4, (int)((float)(ch-4) * kc), cc);
-        if (pd->rarity >= RAR_EPIC)   // reflet épique / clé de voûte (remplace le pulse)
-            il_shimmer(r, open_t);
-
-        if (kc > 0.0f) {
-            il_keycap(L.px+12 + cdx, ry+ch/2-11, 22, 22,
-                      TextFormat("%d", i+1), cc, hov);
-            int psz = (int)(11.0f * (1.0f + 0.15f * ea_out_back(hk)) + 0.5f);
-            perk_art_draw(id, L.px+52 + cdx, ry+ch/2, psz, cc);
-            dtxt(pd->name, L.px+70 + cdx, ry+6, 13, cc);
-
-            const char *rn = runperk_rarity_name(pd->rarity);
-            int rw = mtxt(rn, 10) + 10;
-            DrawRectangleRounded(
-                (Rectangle){(float)(L.px+L.iw-rw-6 + cdx), (float)(ry+5),
-                            (float)rw, 14.0f},
-                0.45f, 4,
-                (Color){(unsigned char)(rc.r/3),(unsigned char)(rc.g/3),
-                        (unsigned char)(rc.b/3),ca});
-            dtxt(rn, L.px+L.iw-rw-1 + cdx, ry+7, 10, cc);
-
-            char db[96]; clip_text(pd->desc, L.iw-72-rw-10, 10, db, sizeof(db));
-            dtxt(db, L.px+70 + cdx, ry+24, 10, (Color){185,168,135,ca});
-        }
-
-        /* Feedback de sélection : flash 1 frame (app.c ferme l'écran) */
-        if (hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-            DrawRectangleRounded(r, 0.16f, 5, (Color){255,255,255,120});
-            DrawCircleLines((int)(r.x + r.width/2), ry + ch/2, 26,
-                            (Color){255,255,255,180});
-        }
-    }
-
-    txt_c("La rareté dépend de la voie choisie.", L.cx, L.cy+L.ph/2-M-16, 10,
-          (Color){115,98,62,(unsigned char)(235.0f * pa)});
-}
-
-int interlude_draft_pick_at(const RunBuild *rb, Vector2 vm, int vw, int vh) {
-    DraftL L = draft_layout(rb, vw, vh);
-    for (int i = 0; i < L.n; i++) {
-        Rectangle r = {(float)L.px, (float)(L.py0+i*L.row), (float)L.iw, (float)(L.row-6)};
-        if (CheckCollisionPointRec(vm, r)) return i;
-    }
-    return -1;
-}
-
-// ════════════════════════════════════════════════════
-// BOUTIQUE ROGUE-LITE — dépenser le Renfort (entre chapitres)
-// ════════════════════════════════════════════════════
-typedef struct { int cx, cy, pw, ph, px, iw, py0, row, n, reroll_y, done_y; } ShopL;
-static ShopL shop_layout(const RunBuild *rb, int vw, int vh) {
-    ShopL L; L.cx = vw/2; L.cy = vh/2;
-    int n = rb->shop_n;
-    if (n < 0) n = 0;
-    if (n > MAX_SHOP_OFFER) n = MAX_SHOP_OFFER;
-    L.n  = n;  L.row = 56;  L.pw = 600;  L.ph = 118 + n*L.row + 28;
-    L.px = L.cx - L.pw/2 + M;  L.iw = L.pw - M*2;
-    L.py0 = (L.cy - L.ph/2 + M) + 28 + 22 + M_S;
-    L.reroll_y = L.cy + L.ph/2 - M - 28;   // bande "relancer"
-    L.done_y   = L.cy + L.ph/2 - M - 12;   // bande "partir"
-    return L;
-}
-
-void interlude_render_shop(const RunBuild *rb, int reroll_cost, Vector2 vm, int vw, int vh) {
-    ShopL L = shop_layout(rb, vw, vh);
-
-    /* ── Timer d'ouverture (cf. draft) : hitbox du layout intactes ── */
-    static int   prev_s0 = -999, prev_sn = -999;
-    static float open_t  = 1e9f;
-    if (rb->shop_offer[0] != prev_s0 || rb->shop_n != prev_sn) {
-        prev_s0 = rb->shop_offer[0];
-        prev_sn = rb->shop_n;
-        open_t  = 0.0f;
-    }
-    open_t += ui_dt();
-
-    float pa = open_t / IL_OPEN_DUR;
-    if (pa > 1.0f) pa = 1.0f;
-    int   pdy = -(int)(IL_OPEN_RISE * (1.0f - ea_out_cubic(pa)));
-    float ha  = (open_t - IL_HDR_T0) / IL_HDR_DUR;
-    ha = ha < 0.0f ? 0.0f : ha > 1.0f ? 1.0f : ha;
-
-    DrawRectangle(0, 0, vw, vh, (Color){0,0,0,(unsigned char)(214.0f * pa)});
-    Color accent = (Color){120,200,140,(unsigned char)(255.0f * ha)};
-    Color gold   = (Color){232,200,80,(unsigned char)(255.0f * ha)};
-    Rectangle pr = {L.cx-L.pw/2.0f, L.cy-L.ph/2.0f + (float)pdy,
-                    (float)L.pw, (float)L.ph};
-
-    DrawRectangleRounded(pr, 6.0f/L.ph, 8,
-                         (Color){10,12,6,(unsigned char)(253.0f * pa)});
-    DrawRectangle((int)pr.x+3, (int)pr.y+3, L.pw-6, L.ph/3,
-                  (Color){255,255,255,(unsigned char)(6.0f * pa)});
-    DrawRectangle((int)pr.x+3, (int)pr.y+L.ph-L.ph/4, L.pw-6, L.ph/4-3,
-                  (Color){0,0,0,(unsigned char)(45.0f * pa)});
-    DrawRectangleRoundedLinesEx(pr, 6.0f/L.ph, 8, 2.0f,
-        (Color){120,200,140,(unsigned char)(255.0f * pa)});
-
-    // En-tête (dès 0.10 s)
-    int hy = (int)pr.y;
-    if (ha > 0.0f) {
-        DrawRectangle((int)pr.x+3, hy+3, L.pw-6, 30,
-                      (Color){(unsigned char)(accent.r/7),(unsigned char)(accent.g/7),
-                              (unsigned char)(accent.b/7),(unsigned char)(255.0f * ha)});
-        DrawRectangle((int)pr.x+3, hy+33, L.pw-6, 1, accent);
-        il_rivets_h((int)pr.x+14, (int)pr.x+L.pw-14, hy+9,
-                    (Color){(unsigned char)(120/2),(unsigned char)(200/2),
-                            (unsigned char)(140/2),200},
-                    open_t - IL_HDR_T0);
-        il_crate(L.px+14, hy+18 + pdy, accent);
-        txt_c("RAVITAILLEMENT", L.cx, hy+9, 18, accent);
-        il_brackets(pr, accent, 12);
-    }
-
-    // Compteur de Renfort (pièce + valeur) + aide — fondus avec l'en-tête
-    int rny = hy + 40;
-    if (ha > 0.0f) {
-        /* Icône ferraille (monnaie Renfort) + valeur */
-        draw_icon(g_icon_scrap, L.px+6, rny, fh(12), WHITE);
-        dtxt(TextFormat("RENFORT  %d", rb->renfort), L.px+10+fh(12), rny, 12, gold);
-        const char *h = "clic / touches 1-4   ·   [R] relancer   ·   [ESPACE] partir";
-        dtxt(h, L.px+L.iw - mtxt(h,10), rny+3, 10,
-             (Color){135,130,100,(unsigned char)(235.0f * ha)});
-    }
-
-    for (int i = 0; i < L.n; i++) {
-        int id = rb->shop_offer[i];
-        if (id < 0 || id >= PERK_COUNT) continue;
-        const PerkDef *pd = &RUN_PERKS[id];
-        RunColor rc = runperk_rarity_color(pd->rarity);
-        int maxed  = (rb->count[id] >= pd->max_stack);
-        int afford = (rb->renfort >= pd->shop_cost) && !maxed;
-        int ry = L.py0 + i*L.row, ch = L.row - 6;
-        Rectangle r = {(float)L.px, (float)ry, (float)L.iw, (float)ch};
-        int hov = CheckCollisionPointRec(vm, r);
-
-        float fa = (open_t - IL_CARD_T0) / 0.10f;
-        fa = fa < 0.0f ? 0.0f : fa > 1.0f ? 1.0f : fa;
-        float kc = (open_t - (IL_CARD_T0 + (float)i * IL_CARD_STEP)) / IL_CARD_DUR;
-        kc = kc < 0.0f ? 0.0f : kc > 1.0f ? 1.0f : kc;
-        int  cdx = -(int)(IL_CARD_SLIDE * (1.0f - ea_out_cubic(kc)));
-        unsigned char ca = (unsigned char)(255.0f * kc);
-        Color cc = {rc.r, rc.g, rc.b, ca};
-        Color tc = afford ? cc : (Color){100,100,100,(unsigned char)(225.0f * kc)};
-
-        if (fa <= 0.0f) continue;
-
-        float hk = ui_hover_t(L.px, ry, hov);
-        DrawRectangleRounded(r, 0.16f, 5,
-            (Color){(unsigned char)(rc.r/9 + (rc.r/5 - rc.r/9) * hk),
-                    (unsigned char)(rc.g/9 + (rc.g/5 - rc.g/9) * hk),
-                    (unsigned char)(rc.b/9 + (rc.b/5 - rc.b/9) * hk),
-                    (unsigned char)(255.0f * fa)});
-        DrawRectangleRoundedLinesEx(r, 0.16f, 5, 1.3f + 0.9f * hk,
-            afford ? (Color){rc.r, rc.g, rc.b, (unsigned char)(255.0f * fa)}
-                   : (Color){70,70,70,(unsigned char)(210.0f * fa)});
-        DrawRectangle(L.px+2, ry+2, 4, (int)((float)(ch-4) * kc),
-                      afford ? cc : (Color){80,80,80,(unsigned char)(200.0f * kc)});
-        if (afford && pd->rarity >= RAR_EPIC)
-            il_shimmer(r, open_t);
-
-        if (kc <= 0.0f) continue;
-        il_keycap(L.px+12 + cdx, ry+ch/2-10, 20, 20,
-                  TextFormat("%d", i+1), tc, hov && afford);
-        int psz = (int)(11.0f * (1.0f + 0.15f * ea_out_back(hk)) + 0.5f);
-        perk_art_draw(id, L.px+48 + cdx, ry+ch/2, psz, tc);
-        dtxt(pd->name, L.px+66 + cdx, ry+5, 12, tc);
-
-        /* Feedback de sélection (achat possible seulement) */
-        if (afford && hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-            DrawRectangleRounded(r, 0.16f, 5, (Color){255,255,255,120});
-            DrawCircleLines((int)(r.x + r.width/2), ry + ch/2, 26,
-                            (Color){255,255,255,180});
-        }
-
-        const char *cs = maxed ? "MAX" : TextFormat("%d", pd->shop_cost);
-        Color costc = maxed  ? (Color){120,120,120,(unsigned char)(225.0f * kc)}
-                    : afford ? (Color){232,200,80,ca}
-                             : (Color){150,110,60,(unsigned char)(225.0f * kc)};
-        int cw = mtxt(cs, 10) + (maxed ? 0 : mtxt(" RNF", 10));
-        DrawRectangleRounded((Rectangle){(float)(L.px+L.iw-cw-16 + cdx),(float)(ry+5),(float)(cw+12),14.0f},
-                             0.45f, 4, (Color){18,18,10,(unsigned char)(230.0f * kc)});
-        dtxt(cs, L.px+L.iw-cw-10 + cdx, ry+6, 10, costc);
-        if (!maxed) dtxt(" RNF", L.px+L.iw-cw-10+mtxt(cs,10) + cdx, ry+7, 10, costc);
-
-        char db[96]; clip_text(pd->desc, L.iw-66-cw-18, 10, db, sizeof(db));
-        dtxt(db, L.px+66 + cdx, ry+23, 10, (Color){165,160,140,ca});
-    }
-
-    // Boutons Relancer / Partir (pleine largeur des bandes cliquables ;
-    // positions FIXES — seul le fondu d'ouverture s'applique)
-    {
-        unsigned char ba2 = (unsigned char)(255.0f * pa);
-        Rectangle rrr = {(float)L.px, (float)(L.reroll_y-3), (float)L.iw, 16.0f};
-        int rrhov = CheckCollisionPointRec(vm, rrr);
-        Color rcol = (rb->renfort >= reroll_cost)
-                   ? (Color){205,172,92,ba2}
-                   : (Color){110,95,60,(unsigned char)(220.0f * pa)};
-        DrawRectangleRounded(rrr, 0.45f, 4,
-            rrhov ? (Color){36,28,10,(unsigned char)(235.0f * pa)}
-                  : (Color){18,14,7,(unsigned char)(190.0f * pa)});
-        DrawRectangleRoundedLinesEx(rrr, 0.45f, 4, rrhov ? 1.6f : 1.0f, rcol);
-        char rr[56]; snprintf(rr, sizeof(rr), "[R]  Relancer les offres  (%d RNF)", reroll_cost);
-        txt_c(rr, L.cx, L.reroll_y, 10, rcol);
-
-        Rectangle dnr = {(float)L.px, (float)(L.done_y-3), (float)L.iw, 16.0f};
-        int dnhov = CheckCollisionPointRec(vm, dnr);
-        DrawRectangleRounded(dnr, 0.45f, 4,
-            dnhov ? (Color){10,40,16,(unsigned char)(235.0f * pa)}
-                  : (Color){8,20,10,(unsigned char)(190.0f * pa)});
-        DrawRectangleRoundedLinesEx(dnr, 0.45f, 4, dnhov ? 1.6f : 1.0f,
-            (Color){120,200,140,ba2});
-        txt_c("[ESPACE]  Partir au combat", L.cx, L.done_y, 11,
-              (Color){120,200,140,ba2});
-    }
-}
-
-int interlude_shop_pick_at(const RunBuild *rb, Vector2 vm, int vw, int vh) {
-    ShopL L = shop_layout(rb, vw, vh);
-    for (int i = 0; i < L.n; i++) {
-        Rectangle r = {(float)L.px, (float)(L.py0+i*L.row), (float)L.iw, (float)(L.row-6)};
-        if (CheckCollisionPointRec(vm, r)) return i;
-    }
-    Rectangle rrr = {(float)L.px, (float)(L.reroll_y-3), (float)L.iw, 16.0f};
-    if (CheckCollisionPointRec(vm, rrr)) return -2;
-    Rectangle dnr = {(float)L.px, (float)(L.done_y-3), (float)L.iw, 16.0f};
-    if (CheckCollisionPointRec(vm, dnr)) return -3;
-    return -1;
-}
-

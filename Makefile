@@ -19,21 +19,21 @@ SRC = Src/main.c                                                              \
       Src/combat/enemy.c       Src/combat/wave.c      Src/combat/tower.c    \
       Src/combat/unit.c        Src/combat/projectile.c Src/combat/material.c \
       Src/combat/fx.c          Src/combat/move.c                             \
-      Src/ui/renderer.c Src/ui/terrain_bake.c Src/ui/terrain_ground.c Src/ui/terrain_ruins.c Src/ui/pixel_paint.c Src/ui/hazard_art.c Src/ui/renderer_entities.c Src/ui/renderer_towers.c        Src/ui/ui_utils.c      Src/ui/tile_art.c     \
+      Src/ui/renderer.c Src/ui/terrain_bake.c Src/ui/terrain_ground.c Src/ui/terrain_pad.c Src/ui/terrain_ruins.c Src/ui/terrain_ore.c Src/ui/pixel_paint.c Src/ui/hazard_art.c Src/ui/renderer_entities.c Src/ui/entity_fx.c Src/ui/renderer_tower_fx.c Src/ui/renderer_towers.c        Src/ui/ui_utils.c Src/ui/ui_plate.c Src/ui/tile_art.c \
       Src/ui/tile_art_decor.c  Src/ui/ambient.c                              \
       Src/ui/ui_anim.c                                                       \
       Src/ui/render3d.c        Src/ui/render3d_units.c Src/ui/render3d_enemies.c \
       Src/ui/render3d_world.c  Src/ui/render3d_terrain.c Src/ui/render3d_fx.c \
       Src/ui/perk_art.c                                                     \
       Src/ui/hud.c             Src/ui/hud_input.c Src/ui/hud_input_layout.c Src/ui/hud_input_click.c Src/ui/hud_input_map.c     Src/ui/hud_render.c Src/ui/hud_render_info.c Src/ui/hud_render_wave.c Src/ui/hud_render_sel.c Src/ui/hud_render_sel_tower.c Src/ui/hud_render_ovl.c Src/ui/hud_render_world.c Src/ui/hud_render_disc.c   \
-      Src/ui/menu.c            Src/ui/menu_screens.c  Src/ui/menu_campaign.c Src/ui/menu_campaign_info.c Src/ui/menu_journal.c \
-      Src/ui/menu_anim.c                                                     \
+      Src/ui/menu.c            Src/ui/menu_hub.c Src/ui/menu_screens.c  Src/ui/menu_campaign.c Src/ui/menu_campaign_info.c Src/ui/menu_journal.c \
+      Src/ui/menu_anim.c       Src/ui/menu_anim_worker.c Src/ui/menu_anim_poses.c \
       Src/ui/menu_options.c    Src/ui/menu_upgrades.c Src/ui/menu_bestiary.c \
       Src/ui/menu_custom_config.c                                             \
       Src/ui/menu_keys.c                                                     \
       Src/ui/menu_mp.c                                                       \
-      Src/ui/interlude.c                                                     \
-      Src/ui/story_portraits.c Src/ui/story_vignettes.c                      \
+      Src/ui/interlude.c       Src/ui/interlude_loot.c                       \
+      Src/ui/story_portraits.c Src/ui/story_portraits_paint.c Src/ui/story_vignettes.c \
       Src/ui/story_scene.c     Src/ui/interlude_story.c                      \
       Src/net/net_transport.c  Src/net/net_session.c   Src/net/net_upnp.c     \
       Src/net/net_relay.c                                                     \

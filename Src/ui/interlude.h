@@ -47,6 +47,8 @@ typedef enum {
 int  interlude_render_gameover(const GameState *gs, Vector2 vm,
                                int vw, int vh, int allow_replay);
 void interlude_render_extract(const GameState *gs, int vw, int vh, Vector2 vmouse);
+// Boutons de l'écran d'extraction (SOURCE UNIQUE : rendu + clic dans app_flow.c).
+void interlude_extract_buttons(int vw, int vh, Rectangle *extract, Rectangle *cont);
 
 // ── Rogue-lite ────────────────────────────────────────────────
 struct RunBuild;

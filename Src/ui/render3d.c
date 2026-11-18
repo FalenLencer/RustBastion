@@ -29,175 +29,11 @@
 #include "render3d.h"
 #include "render3d_skin.h"   /* skin_set_fog / skin_apply_vc */
 #include "rlgl.h"
+#include "raymath.h"          /* Vector3RotateByAxisAngle (position de la bouche) */
 #include <math.h>
 #include <stddef.h>
 
-/* ── Réglages TOWER_GUN ──────────────────────────────────────────── */
-#define R3D_RT_SIZE     168
-#define R3D_ORTHO       4.7f
-#define R3D_YAW_OFF     0.0f
-#define R3D_YAW_PIVOT_Y 0.92f
-#define R3D_GUN_HEIGHT  24.0f
-#define R3D_PITCH_MAX   26.0f
-#define R3D_RECOIL      0.18f       /* recul d'un canon (un peu plus visible)  */
-#define R3D_RECOIL_DUR  0.14f       /* fenêtre recul+flash par balle émise      */
-#define R3D_FLASH_DUR   0.05f
-static const Vector3 CAM_POS    = { -3.6f, 3.0f, -4.0f };
-static const Vector3 CAM_TGT    = {  0.0f, 1.00f, 0.0f };
-static const Vector3 GUN_PIVOT  = {  0.0f, 0.557f, -0.58f };
-static const Vector3 MUZZLE     = {  0.0f, 0.305f, -1.544f };
-static const Vector3 RECOIL_DIR = {  0.0f, -0.105f, 0.995f };
-static const float   BARREL_X[3] = { -0.40f, 0.0f, 0.40f };
-
-/* ── Réglages TOWER_SNIPER ───────────────────────────────────────── */
-#define SN_RT_W         224
-#define SN_RT_H         304
-#define SN_ORTHO        8.7f
-#define SN_YAW_OFF      0.0f
-#define SN_GUN_HEIGHT   40.0f          /* hauteur tube (px) pour l'élévation   */
-#define SN_PITCH_MAX    22.0f
-#define SN_PITCH_SIGN   (-1.0f)        /* bouche-haut (signe rot Z, à régler)  */
-#define SN_RECOIL       0.24f
-#define SN_RECOIL_DUR   0.14f
-#define SN_FLASH_DUR    0.05f
-#define SN_DST_SCALE    2.55f          /* largeur dst = box*SN_DST_SCALE        */
-#define SN_DST_YANCHOR  0.84f          /* part de la hauteur dst sous le bas case*/
-static const Vector3 SN_CAM_POS     = { -6.0f, 8.2f, -7.0f };
-static const Vector3 SN_CAM_TGT     = {  0.0f, 3.25f, 0.0f };
-static const Vector3 SN_YAW_PIVOT   = {  0.32f, 5.06f, 0.0f };  /* Y-up           */
-static const Vector3 SN_PITCH_PIVOT = {  0.51f, 0.46f, 0.0f };  /* rel. yaw, Y-up */
-static const Vector3 SN_MUZZLE      = {  1.83f, 0.02f, 0.0f };  /* rel. pitch     */
-static const Vector3 SN_RECOIL_DIR  = { -1.0f, 0.0f, 0.0f };
-
-/* ── Réglages TOWER_TESLA ────────────────────────────────────────── */
-#define TE_RT_W         200
-#define TE_RT_H         248
-#define TE_ORTHO        4.9f
-#define TE_DST_SCALE    1.70f          /* largeur dst = box*TE_DST_SCALE        */
-#define TE_DST_YANCHOR  0.98f          /* base ≈ bas de la case (grounded)      */
-#define TE_ORB_PULSE    0.05f          /* amplitude de pulsation de l'orbe      */
-static const Vector3 TE_CAM_POS = { -4.2f, 4.7f, -5.2f };
-static const Vector3 TE_CAM_TGT = {  0.0f, 2.40f, 0.0f };  /* base ~ bas du RT  */
-static const Vector3 TE_ORB_POS = {  0.0f, 3.00f, 0.0f };  /* centre orbe (Y-up) */
-
-/* ── Réglages TOWER_FLAME ────────────────────────────────────────── */
-#define FL_RT_W         236
-#define FL_RT_H         236
-#define FL_ORTHO        6.2f            /* large : doit contenir le balayage du  */
-                                        /* canon + le jet dans toute direction   */
-#define FL_YAW_OFF      0.0f            /* canon +X comme le sniper (offset 0)   */
-#define FL_DST_SCALE    2.50f           /* largeur dst = box*FL_DST_SCALE        */
-#define FL_DST_YANCHOR  0.78f           /* base ≈ bas de la case (grounded)      */
-/* Fenêtre du jet : DOIT dépasser la période de tir (fire_rate=3.0 → 0.333 s)
-   sinon le jet clignote entre deux tirs. Réarmée à chaque tir → jet CONTINU
-   tant que la tour tire, qui ne s'éteint que ~FL_FIRE_DUR après le dernier. */
-#define FL_FIRE_DUR     0.42f
-static const Vector3 FL_CAM_POS  = { -4.6f, 4.5f, -5.5f };
-static const Vector3 FL_CAM_TGT  = {  0.0f, 1.05f, 0.0f };  /* axe → balayage centré */
-/* Bouche du canon + axe de tir (Y-up, repère tourelle local, yaw=0).
-   Bouche monde Z-up=(1.692,0.169,1.47) → Y-up=(x,z,-y). Axe canon Z-up
-   d=(cos6,0,sin6) → Y-up=(cos6,sin6,0). */
-static const Vector3 FL_MUZZLE   = {  1.692f, 1.470f, -0.169f };
-static const Vector3 FL_FIRE_DIR = {  0.9945f, 0.1045f, 0.0f };
-
-/* (Lumière directionnelle : R3D_LIGHT_DIR, partagée — cf. render3d.h) */
-
-/* Orientation au repos (angle sol raylib) de l'AVANT de chaque modèle, pour le
-   helper de visée render3d_yaw_for_aim : la mitrailleuse pointe -Z (π), le
-   sniper et la flamme pointent +X (π/2). Si la visée est décalée d'un angle
-   CONSTANT en jeu, ajuster le *_YAW_OFF correspondant (offset en degrés). */
-#define R3D_REST_PHI  3.14159265f
-#define SN_REST_PHI   1.57079633f
-#define FL_REST_PHI   1.57079633f
-
-/* ── Shader éclairage directionnel — teinte plate (TOWER_GUN) ────── */
-static const char *VS =
-"#version 330\n"
-"in vec3 vertexPosition;\n"
-"in vec2 vertexTexCoord;\n"
-"in vec3 vertexNormal;\n"
-"uniform mat4 mvp;\n"
-"uniform mat4 matNormal;\n"
-"out vec2 fragTexCoord;\n"
-"out vec3 fragNormal;\n"
-"out float fragDist;\n"
-"void main(){\n"
-"    fragTexCoord = vertexTexCoord;\n"
-"    fragNormal = normalize(vec3(matNormal*vec4(vertexNormal,1.0)));\n"
-"    gl_Position = mvp*vec4(vertexPosition,1.0);\n"
-"    fragDist = gl_Position.w;\n"   /* profondeur vue (persp.) ; 1 en ortho */
-"}\n";
-static const char *FS =
-"#version 330\n"
-"in vec2 fragTexCoord;\n"
-"in vec3 fragNormal;\n"
-"in float fragDist;\n"
-"uniform sampler2D texture0;\n"
-"uniform vec4 colDiffuse;\n"
-"uniform vec3 lightDir;\n"
-"uniform vec3 fogColor;\n"
-"uniform float fogDensity;\n"
-"out vec4 finalColor;\n"
-"void main(){\n"
-"    vec4 base = texture(texture0, fragTexCoord)*colDiffuse;\n"
-"    float d = max(dot(normalize(fragNormal), normalize(-lightDir)), 0.0);\n"
-"    float l = 0.38 + 0.62*d;\n"
-"    float fog = clamp(1.0 - exp(-fogDensity*fragDist), 0.0, 1.0);\n"
-"    finalColor = vec4(mix(base.rgb*l, fogColor, fog), 1.0);\n"
-"}\n";
-
-/* ── Shader VERTEX-COLOR (TOWER_SNIPER) ──────────────────────────── */
-static const char *VS_VC =
-"#version 330\n"
-"in vec3 vertexPosition;\n"
-"in vec3 vertexNormal;\n"
-"in vec4 vertexColor;\n"
-"uniform mat4 mvp;\n"
-"uniform mat4 matNormal;\n"
-"out vec3 fragNormal;\n"
-"out vec4 fragColor;\n"
-"out float fragDist;\n"
-"void main(){\n"
-"    fragNormal = normalize(vec3(matNormal*vec4(vertexNormal,1.0)));\n"
-"    fragColor = vertexColor;\n"
-"    gl_Position = mvp*vec4(vertexPosition,1.0);\n"
-"    fragDist = gl_Position.w;\n"
-"}\n";
-static const char *FS_VC =
-"#version 330\n"
-"in vec3 fragNormal;\n"
-"in vec4 fragColor;\n"
-"in float fragDist;\n"
-"uniform vec3 lightDir;\n"
-"uniform vec3 fogColor;\n"
-"uniform float fogDensity;\n"
-"out vec4 finalColor;\n"
-"void main(){\n"
-"    float d = max(dot(normalize(fragNormal), normalize(-lightDir)), 0.0);\n"
-"    float l = 0.42 + 0.58*d;\n"
-"    float fog = clamp(1.0 - exp(-fogDensity*fragDist), 0.0, 1.0);\n"
-"    finalColor = vec4(mix(fragColor.rgb*l, fogColor, fog), 1.0);\n"
-"}\n";
-
-/* ── Shader ÉMISSIF (orbe Tesla : plasma violet brillant, pulsé) ─── */
-static const char *VS_EMIT =
-"#version 330\n"
-"in vec3 vertexPosition;\n"
-"in vec4 vertexColor;\n"
-"uniform mat4 mvp;\n"
-"out vec4 fragColor;\n"
-"void main(){\n"
-"    fragColor = vertexColor;\n"
-"    gl_Position = mvp*vec4(vertexPosition,1.0);\n"
-"}\n";
-static const char *FS_EMIT =
-"#version 330\n"
-"in vec4 fragColor;\n"
-"uniform float glow;\n"
-"out vec4 finalColor;\n"
-"void main(){\n"
-"    finalColor = vec4(fragColor.rgb*glow + vec3(0.10,0.03,0.16), 1.0);\n"
-"}\n";
+#include "render3d_tower_cfg.h"   /* réglages + shaders (interne) */
 
 /* ── État ───────────────────────────────────────────────────────── */
 static int             g_loaded     = 0;
@@ -210,6 +46,9 @@ static Model           g_sn_base, g_sn_mount, g_sn_barrel;
 static Model           g_te_base, g_te_orb;
 static Model           g_fl_base, g_fl_turret;
 static Shader          g_shader, g_shader_vc, g_shader_emit;
+static Shader          g_outline;               /* blit : contour d'1 pixel d'art */
+static int             g_loc_texel = -1;
+static int             g_loc_flash = -1;
 static Camera3D        g_cam, g_cam_sn, g_cam_te, g_cam_fl;
 static RenderTexture2D g_rt[MAX_TOWERS];
 static int             g_rt_kind[MAX_TOWERS];   /* -1 aucun, 0 gun, 1 sniper, 2 tesla, 3 flamme */
@@ -217,6 +56,14 @@ static int             g_used[MAX_TOWERS];
 static float           g_prev_ft[MAX_TOWERS];
 static float           g_fire_t [MAX_TOWERS];
 static int             g_barrel [MAX_TOWERS];   /* canon courant (Mitrailleuse) */
+static float           g_alert  [MAX_TOWERS];   /* 0 veille (balayage) → 1 cible à portée */
+static Vector2         g_muz_fire[MAX_TOWERS];  /* bouche du dernier tir (px RT)   */
+static Vector2         g_muz_next[MAX_TOWERS];  /* bouche du PROCHAIN tir (px RT)  */
+static double          g_clock_last = -1.0;     /* pré-passe : r3d_anim_step       */
+
+/* Cadrage par type : taille de RT, échelle RT→monde, pied projeté (px RT). */
+typedef struct { int rt_w, rt_h; float k; Vector2 anchor; } KindFrame;
+static KindFrame g_kf[R3D_KINDS];
 
 static void tint_model(Model *m, Color c) {
     for (int i = 0; i < m->materialCount; i++) {
@@ -244,6 +91,22 @@ void render3d_set_fog(Color col, float density) {
     skin_set_fog(g_shader_vc, col, density);
 }
 
+/* Cadrage d'un type : échelle telle que l'emprise au sol du socle (boîte
+   englobante X/Z) fasse R3D_FOOT_PX, RT dimensionnée à R3D_RT_PER_PX ×
+   la taille affichée (même rapport L/H qu'avant → même cadrage caméra),
+   pied = projection de l'origine du modèle dans la RT. */
+static void frame_kind(int kind, Camera3D cam, const Model *base, int asp_w, int asp_h) {
+    BoundingBox b = GetModelBoundingBox(*base);
+    float foot = fmaxf(b.max.x - b.min.x, b.max.z - b.min.z);
+    if (foot < 0.1f) foot = 1.0f;
+    float px_per_unit = R3D_FOOT_PX / foot;                    /* écran (px monde) */
+    KindFrame *f = &g_kf[kind];
+    f->rt_h   = (int)ceilf(cam.fovy * px_per_unit * R3D_RT_PER_PX);
+    f->rt_w   = (int)ceilf((float)f->rt_h * (float)asp_w / (float)asp_h);
+    f->k      = 1.0f / R3D_RT_PER_PX;                          /* px RT → px monde */
+    f->anchor = GetWorldToScreenEx((Vector3){0, 0, 0}, cam, f->rt_w, f->rt_h);
+}
+
 void render3d_init(void) {
     g_loaded = 0; g_have_gun = 0; g_have_snipr = 0; g_have_tesla = 0; g_have_flame = 0;
 
@@ -251,15 +114,27 @@ void render3d_init(void) {
     g_shader_vc   = LoadShaderFromMemory(VS_VC, FS_VC);
     g_shader_emit = LoadShaderFromMemory(VS_EMIT, FS_EMIT);
     set_light(g_shader); set_light(g_shader_vc);
+    g_outline     = LoadShaderFromMemory(NULL, FS_OUTLINE);   /* VS par défaut */
+    g_loc_texel   = GetShaderLocation(g_outline, "texel");
+    g_loc_flash   = GetShaderLocation(g_outline, "flash");
+    {
+        Color   oc = R3D_OUTLINE_COL;
+        float   ov[4] = { oc.r / 255.0f, oc.g / 255.0f, oc.b / 255.0f, oc.a / 255.0f };
+        int     lo = GetShaderLocation(g_outline, "outlineCol");
+        if (lo >= 0) SetShaderValue(g_outline, lo, ov, SHADER_UNIFORM_VEC4);
+    }
 
     /* TOWER_GUN */
     g_base   = LoadModel("assets/3d/3D_Tours/tower_base.glb");
     g_turret = LoadModel("assets/3d/3D_Tours/tower_turret.glb");
     g_gun    = LoadModel("assets/3d/3D_Tours/tower_gun.glb");
     if (g_base.meshCount && g_turret.meshCount && g_gun.meshCount) {
-        tint_model(&g_base,   (Color){150, 72, 42, 255});
-        tint_model(&g_turret, (Color){ 92, 90, 98, 255});
-        tint_model(&g_gun,    (Color){ 62, 60, 66, 255});
+        /* Tourelle et canons éclaircis (acier) : en grain pixel art, le gris
+           presque noir se confondait avec le contour et on ne voyait plus
+           la tourelle tourner. */
+        tint_model(&g_base,   (Color){150,  72,  42, 255});
+        tint_model(&g_turret, (Color){132, 130, 140, 255});
+        tint_model(&g_gun,    (Color){ 98,  96, 106, 255});
         g_have_gun = 1;
     }
 
@@ -305,14 +180,20 @@ void render3d_init(void) {
     g_cam_fl.up         = (Vector3){0,1,0};
     g_cam_fl.fovy       = FL_ORTHO;   g_cam_fl.projection = CAMERA_ORTHOGRAPHIC;
 
+    if (g_have_gun)   frame_kind(0, g_cam,    &g_base,    R3D_RT_SIZE, R3D_RT_SIZE);
+    if (g_have_snipr) frame_kind(1, g_cam_sn, &g_sn_base, SN_RT_W, SN_RT_H);
+    if (g_have_tesla) frame_kind(2, g_cam_te, &g_te_base, TE_RT_W, TE_RT_H);
+    if (g_have_flame) frame_kind(3, g_cam_fl, &g_fl_base, FL_RT_W, FL_RT_H);
+
     for (int i = 0; i < MAX_TOWERS; i++) {
         g_rt[i].id   = 0;  g_rt_kind[i] = -1;  g_used[i] = 0;
-        g_prev_ft[i] = 0;  g_fire_t[i]  = 0;   g_barrel[i] = 0;
+        g_prev_ft[i] = 0;  g_fire_t[i]  = 0;   g_barrel[i] = 0;   g_alert[i] = 0;
     }
     g_loaded = (g_have_gun || g_have_snipr || g_have_tesla || g_have_flame);
 }
 
 void render3d_shutdown(void) {
+    if (g_outline.id != 0) { UnloadShader(g_outline); g_outline.id = 0; }   /* aussi sans tours */
     if (!g_loaded) return;
     for (int i = 0; i < MAX_TOWERS; i++)
         if (g_rt[i].id != 0) UnloadRenderTexture(g_rt[i]);
@@ -326,14 +207,58 @@ void render3d_shutdown(void) {
 
 int render3d_available(void) { return g_loaded; }
 
-/* (Ré)alloue le RT du slot i pour le type voulu (carré=gun, haut=sniper). */
+/* (Ré)alloue le RT du slot i aux dimensions du type (cadrage g_kf). Grain
+   pixel art (agrandie) → filtre « nearest » ; sur-échantillonnée → bilinéaire. */
 static void ensure_rt(int i, int kind) {
     if (g_rt_kind[i] == kind && g_rt[i].id != 0) return;
     if (g_rt[i].id != 0) UnloadRenderTexture(g_rt[i]);
-    int w = (kind == 1) ? SN_RT_W : (kind == 2) ? TE_RT_W : (kind == 3) ? FL_RT_W : R3D_RT_SIZE;
-    int h = (kind == 1) ? SN_RT_H : (kind == 2) ? TE_RT_H : (kind == 3) ? FL_RT_H : R3D_RT_SIZE;
-    g_rt[i] = LoadRenderTexture(w, h);
+    g_rt[i] = LoadRenderTexture(g_kf[kind].rt_w, g_kf[kind].rt_h);
+    SetTextureFilter(g_rt[i].texture,
+                     R3D_RT_PER_PX < 1.0f ? TEXTURE_FILTER_POINT : TEXTURE_FILTER_BILINEAR);
     g_rt_kind[i] = kind;
+}
+
+/* Un ennemi visible est-il à portée de tir ? (veille ↔ alerte) */
+static int enemy_in_range(const Tower *tw, const EnemyPool *ep) {
+    if (!ep) return 0;
+    float rng = tw->range * TILE_SIZE, rng2 = rng * rng;
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        const Enemy *e = &ep->enemies[i];
+        if (!e->active || e->dead || e->spawn_delay > 0.0f || e->invisible) continue;
+        float dx = e->x - tw->cx, dy = e->y - tw->cy;
+        if (dx*dx + dy*dy <= rng2) return 1;
+    }
+    return 0;
+}
+
+/* Rotation d'un point autour d'un axe (degrés, même sens que rlRotatef). */
+static Vector3 rot3(Vector3 v, Vector3 axis, float deg) {
+    return Vector3RotateByAxisAngle(v, axis, deg * DEG2RAD);
+}
+
+/* Bouche du canon en repère MODÈLE (Y-up) : mêmes enchaînements que les
+   draw_*_model (translations puis rotations, de l'intérieur vers
+   l'extérieur). barrel : canon de la mitrailleuse (0..2). Tesla = orbe. */
+static Vector3 muzzle_model(int kind, float yaw, float pitch, int barrel) {
+    const Vector3 AY = {0, 1, 0}, AX = {1, 0, 0}, AZ = {0, 0, 1};
+    Vector3 p;
+    switch (kind) {
+        case 0:
+            p = (Vector3){BARREL_X[barrel] + MUZZLE.x, MUZZLE.y, MUZZLE.z};
+            p = rot3(p, AX, pitch);
+            p = Vector3Add(p, GUN_PIVOT);
+            p = rot3(p, AY, yaw);
+            return Vector3Add(p, (Vector3){0, R3D_YAW_PIVOT_Y, 0});
+        case 1:
+            p = rot3(SN_MUZZLE, AZ, pitch);
+            p = Vector3Add(p, SN_PITCH_PIVOT);
+            p = rot3(p, AY, yaw);
+            return Vector3Add(p, SN_YAW_PIVOT);
+        case 3:
+            return rot3(FL_MUZZLE, AY, yaw);
+        default:
+            return TE_ORB_POS;
+    }
 }
 
 /* Dépression vers l'ennemi le plus proche (canon au-dessus du sol). */
@@ -457,7 +382,8 @@ static void draw_flame_model(float yaw_deg, float fire_t, float t) {
 void render3d_prepass(const TowerPool *tp, const EnemyPool *ep) {
     if (!g_loaded || tp == NULL) return;
     render3d_set_fog(BLANK, 0.0f);   /* mode 2D : jamais de brouillard */
-    float dt = GetFrameTime();
+    float dt   = r3d_anim_step(&g_clock_last);   /* temps de SIMULATION (×vitesse, pause) */
+    float tnow = (float)fx_clock();              /* balayage, arcs Tesla, jet de flamme  */
     for (int i = 0; i < MAX_TOWERS; i++) {
         const Tower *tw = &tp->towers[i];
         int kind = -1;
@@ -481,37 +407,53 @@ void render3d_prepass(const TowerPool *tp, const EnemyPool *ep) {
         g_fire_t[i] -= dt;
         if (g_fire_t[i] < 0.0f) g_fire_t[i] = 0.0f;
 
+        /* Veille : sans ennemi à portée, la tourelle balaie lentement autour
+           de sa dernière visée (purement visuel : tw->angle n'est pas touché). */
+        float alert = enemy_in_range(tw, ep) ? 1.0f : 0.0f;
+        g_alert[i] += (alert - g_alert[i]) * fminf(1.0f, dt * R3D_ALERT_RATE);
+        float aim = tw->angle + (1.0f - g_alert[i]) * R3D_IDLE_SWEEP
+                              * sinf(tnow * R3D_IDLE_FREQ + (float)i * 1.3f);
+
         /* Yaw CORRECT pour la caméra oblique (cf. render3d_yaw_for_aim) : on
-           projette la visée tw->angle via la caméra du type. Chaque type a sa
-           caméra et son orientation au repos. */
-        float yaw;
-        if      (kind == 1) yaw = render3d_yaw_for_aim(g_cam_sn, tw->angle, SN_REST_PHI) + SN_YAW_OFF;
-        else if (kind == 3) yaw = render3d_yaw_for_aim(g_cam_fl, tw->angle, FL_REST_PHI) + FL_YAW_OFF;
-        else                yaw = render3d_yaw_for_aim(g_cam,    tw->angle, R3D_REST_PHI) + R3D_YAW_OFF;
+           projette la visée via la caméra du type. Chaque type a sa caméra et
+           son orientation au repos. */
+        float yaw, pitch = 0.0f;
+        Camera3D cam;
+        if (kind == 1) {
+            cam   = g_cam_sn;
+            yaw   = render3d_yaw_for_aim(cam, aim, SN_REST_PHI) + SN_YAW_OFF;
+            pitch = SN_PITCH_SIGN * pitch_to_enemy(tw, ep, SN_GUN_HEIGHT, SN_PITCH_MAX);
+        } else if (kind == 3) {
+            cam = g_cam_fl;
+            yaw = render3d_yaw_for_aim(cam, aim, FL_REST_PHI) + FL_YAW_OFF;
+        } else if (kind == 2) {
+            cam = g_cam_te;
+            yaw = 0.0f;
+        } else {
+            cam   = g_cam;
+            yaw   = render3d_yaw_for_aim(cam, aim, R3D_REST_PHI) + R3D_YAW_OFF;
+            pitch = pitch_to_enemy(tw, ep, R3D_GUN_HEIGHT, R3D_PITCH_MAX);
+        }
 
         ensure_rt(i, kind);
         BeginTextureMode(g_rt[i]);
             ClearBackground(BLANK);
-            if (kind == 3) {
-                BeginMode3D(g_cam_fl);
-                    draw_flame_model(yaw, g_fire_t[i], (float)GetTime());
-                EndMode3D();
-            } else if (kind == 2) {
-                BeginMode3D(g_cam_te);
-                    draw_tesla_model((float)GetTime());
-                EndMode3D();
-            } else if (kind == 1) {
-                BeginMode3D(g_cam_sn);
-                    float pitch = SN_PITCH_SIGN * pitch_to_enemy(tw, ep, SN_GUN_HEIGHT, SN_PITCH_MAX);
-                    draw_sniper_model(yaw, pitch, g_fire_t[i]);
-                EndMode3D();
-            } else {
-                BeginMode3D(g_cam);
-                    float pitch = pitch_to_enemy(tw, ep, R3D_GUN_HEIGHT, R3D_PITCH_MAX);
-                    draw_tower_model(yaw, pitch, g_barrel[i], g_fire_t[i]);
-                EndMode3D();
-            }
+            BeginMode3D(cam);
+                if      (kind == 3) draw_flame_model(yaw, g_fire_t[i], tnow);
+                else if (kind == 2) draw_tesla_model(tnow);
+                else if (kind == 1) draw_sniper_model(yaw, pitch, g_fire_t[i]);
+                else                draw_tower_model(yaw, pitch, g_barrel[i], g_fire_t[i]);
+            EndMode3D();
         EndTextureMode();
+
+        /* Bouches projetées dans la RT : celle du dernier tir (éclair) et
+           celle du PROCHAIN (les balles émises cette frame partent de là :
+           la pré-passe tourne AVANT la simulation). */
+        const KindFrame *f = &g_kf[kind];
+        g_muz_fire[i] = GetWorldToScreenEx(muzzle_model(kind, yaw, pitch, g_barrel[i]),
+                                           cam, f->rt_w, f->rt_h);
+        g_muz_next[i] = GetWorldToScreenEx(muzzle_model(kind, yaw, pitch, (g_barrel[i] + 1) % 3),
+                                           cam, f->rt_w, f->rt_h);
         g_used[i] = 1;
     }
 }
@@ -523,27 +465,51 @@ Texture2D render3d_tower_tex(int tower_index) {
 }
 
 Rectangle render3d_tower_dst(int tower_index, float cx, float cy, float tile) {
-    float box = tile - 8.0f;
+    (void)tile;   /* l'échelle vient du cadrage par type (R3D_FOOT_PX) */
     int kind = (tower_index >= 0 && tower_index < MAX_TOWERS) ? g_rt_kind[tower_index] : -1;
-    if (kind == 1) {
-        /* Sniper : haut et ancré par le bas (dépasse au-dessus de la case). */
-        float w = box * SN_DST_SCALE;
-        float h = w * ((float)SN_RT_H / (float)SN_RT_W);
-        return (Rectangle){ cx - w*0.5f, cy + box*0.5f - h*SN_DST_YANCHOR, w, h };
+    if (kind < 0) return (Rectangle){ cx, cy, 0, 0 };
+    /* Pied du modèle (origine projetée) posé sur le centre de la case. */
+    const KindFrame *f = &g_kf[kind];
+    return (Rectangle){ cx - f->anchor.x * f->k, cy + R3D_GROUND_DY - f->anchor.y * f->k,
+                        f->rt_w * f->k, f->rt_h * f->k };
+}
+
+void render3d_blit_outlined(Texture2D t, Rectangle dst, Color tint, float flash) {
+    if (t.id == 0) return;
+    float texel[2] = { 1.0f / (float)t.width, 1.0f / (float)t.height };
+    int   shaded   = (g_outline.id != 0);
+    if (shaded) {
+        if (g_loc_texel >= 0) SetShaderValue(g_outline, g_loc_texel, texel, SHADER_UNIFORM_VEC2);
+        if (g_loc_flash >= 0) SetShaderValue(g_outline, g_loc_flash, &flash, SHADER_UNIFORM_FLOAT);
+        BeginShaderMode(g_outline);
     }
-    if (kind == 2) {
-        /* Tesla : stout, ancré par le bas (l'orbe dépasse un peu). */
-        float w = box * TE_DST_SCALE;
-        float h = w * ((float)TE_RT_H / (float)TE_RT_W);
-        return (Rectangle){ cx - w*0.5f, cy + box*0.5f - h*TE_DST_YANCHOR, w, h };
-    }
-    if (kind == 3) {
-        /* Flamme : large (canon), ancré par le bas. */
-        float w = box * FL_DST_SCALE;
-        float h = w * ((float)FL_RT_H / (float)FL_RT_W);
-        return (Rectangle){ cx - w*0.5f, cy + box*0.5f - h*FL_DST_YANCHOR, w, h };
-    }
-    return (Rectangle){ cx - box*0.5f, cy - box*0.5f, box, box };
+    /* RenderTexture raylib : verticalement retournée → hauteur source négative */
+    DrawTexturePro(t, (Rectangle){0, 0, (float)t.width, -(float)t.height}, dst,
+                   (Vector2){0, 0}, 0.0f, tint);
+    if (shaded) EndShaderMode();
+}
+
+void render3d_tower_blit(int tower_index, Rectangle dst, Color tint) {
+    render3d_blit_outlined(render3d_tower_tex(tower_index), dst, tint, 0.0f);
+}
+
+int render3d_tower_muzzle(int tower_index, Rectangle dst, int next, Vector2 *out) {
+    if (!g_loaded || tower_index < 0 || tower_index >= MAX_TOWERS ||
+        !g_used[tower_index] || out == NULL) return 0;
+    const KindFrame *f = &g_kf[g_rt_kind[tower_index]];
+    Vector2 m = next ? g_muz_next[tower_index] : g_muz_fire[tower_index];
+    out->x = dst.x + m.x * dst.width  / (float)f->rt_w;
+    out->y = dst.y + m.y * dst.height / (float)f->rt_h;
+    return 1;
+}
+
+float render3d_tower_fire_k(int tower_index) {
+    if (!g_loaded || tower_index < 0 || tower_index >= MAX_TOWERS || !g_used[tower_index])
+        return 0.0f;
+    int kind = g_rt_kind[tower_index];
+    float dur = (kind == 1) ? SN_RECOIL_DUR : (kind == 3) ? FL_FIRE_DUR : R3D_RECOIL_DUR;
+    float k = g_fire_t[tower_index] / dur;
+    return (k > 1.0f) ? 1.0f : k;
 }
 
 /* ════════════════════════════════════════════════════

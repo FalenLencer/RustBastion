@@ -112,5 +112,7 @@ void tb_paint_ground(Image *im, const Map *map, unsigned int seed);
 void tb_paint_details(Image *im, const Map *map, unsigned int seed);
 /* Sol des ruines : amas de gravats / broussailles sous les sprites. */
 void tb_paint_ruin_floor(Image *im, const Map *map, unsigned int seed);
+/* Sol minéralisé autour des filons (terrain_ore.c). */
+void tb_paint_ore_floor(Image *im, const Map *map, unsigned int seed);
 /* Rampe de sol du thème (partagée : rives, bas-côtés). */
 void tb_ground_ramp(ThemeID th, Color out[TB_RAMP]);

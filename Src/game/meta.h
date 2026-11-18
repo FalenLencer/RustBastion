@@ -130,9 +130,15 @@ void meta_campaign_theme_order(int seed, int out_themes[CAMPAIGN_STAGES]);
 int  meta_upgrade_cost(const MetaProgress *meta, int upgrade_id);
 int  meta_upgrade     (MetaProgress *meta, int upgrade_id);
 
-// Mode endless
-int  meta_endless_score(int wave, float mult);
-void meta_endless_end  (MetaProgress *meta, int wave, float mult, int extracted);
+// Mode endless — règles de l'extraction (SOURCE UNIQUE : écran + effet)
+#define ENDLESS_EXTRACT_EVERY 10  // un point d'extraction toutes les N vagues
+#define ENDLESS_SCRAP_MAX  200    // ferraille max d'une extraction
+#define ENDLESS_MULT_STEP  1.5f   // « continuer » multiplie le multiplicateur…
+#define ENDLESS_MULT_MAX   6.0f   // … plafonné ici
+int   meta_endless_score    (int wave, float mult);
+int   meta_endless_scrap    (int wave, float mult);   // ferraille si extraction
+float meta_endless_next_mult(float mult);             // multiplicateur si on continue
+void  meta_endless_end      (MetaProgress *meta, int wave, float mult, int extracted);
 
 // Enregistre le résultat d'un acte et retourne les étoiles (1 ou 2)
 int  meta_record_act(MetaProgress *meta, int stage_index,

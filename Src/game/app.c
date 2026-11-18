@@ -246,13 +246,20 @@ static void game_do_update(AppContext *ctx, float dt) {
     // suivent le jeu au lieu de trainer a x1 (et de saturer le pool de popups).
     fx_update(dt * (float)ctx->gs.ui.speed_mult);
 
-    /* Déclenchement extraction endless toutes les 10 vagues (désactivé en MP) */
+    /* Déclenchement extraction endless toutes les ENDLESS_EXTRACT_EVERY vagues
+       (désactivé en MP). Le palier reste « traité » tant qu'on n'a pas QUITTÉ
+       la vague-palier : « continuer » régénère la carte SANS avancer le
+       compteur, et remettre le drapeau à 0 rouvrait l'écran à la frame
+       suivante (le joueur ne pouvait jamais continuer). */
+    if (ctx->gs.endless_pending_extract &&
+        ctx->gs.wave_manager.number % ENDLESS_EXTRACT_EVERY != 0)
+        ctx->gs.endless_pending_extract = 0;
     if (!ctx->mp_in_game                  &&
         ctx->gs.is_endless               &&
         !ctx->gs.endless_pending_extract  &&
         ctx->gs.phase == PHASE_PREP       &&
         ctx->gs.wave_manager.number > 0   &&
-        ctx->gs.wave_manager.number % 10 == 0)
+        ctx->gs.wave_manager.number % ENDLESS_EXTRACT_EVERY == 0)
     {
         ctx->gs.endless_pending_extract = 1;
         ctx->interlude = INTER_EXTRACT;

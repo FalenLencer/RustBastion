@@ -23,6 +23,8 @@
 #define SEL_FADE_DUR     0.18f   // entrée du contenu (s)
 #define SEL_PORTRAIT_DUR 0.22f   // pop du portrait (s)
 #define SEL_SLIDE_PX     10.0f   // glissement horizontal du texte (px)
+#define SEL_FS           12      // lignes de la fiche d'unité (PV, état…)
+#define SEL_BTN_FS        8      // libellés des boutons de comportement
 
 static int   g_sel_dx = 0;       // offset x courant des textes du panneau
 static float g_sel_al = 1.0f;    // facteur alpha courant du contenu
@@ -138,10 +140,12 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
             static float disp_hr = 0.0f;
             if (hp_snap) { disp_hr = hr; hp_snap = 0; }
             disp_hr += (hr - disp_hr) * fminf(1.0f, ui_dt() * 2.5f);
+            /* Pas verticaux = fh() (un pas de 14 px sous un texte de 21 px
+               posait la barre de PV sur le libellé). */
             snprintf(buf, sizeof(buf), "PV   %.0f / %.0f", u->hp, u->max_hp);
-            hud_sel_txt(buf, rx, py, 13, hc); py += 14;
+            hud_sel_txt(buf, rx, py, SEL_FS, hc); py += fh(SEL_FS);
             hud_draw_bar(rx, py, max_w, 6, fmaxf(disp_hr, 0.0f), hc, (Color){16,16,16,200});
-            py += 13;
+            py += 6 + 4;
 
             // État
             if (u->type == UNIT_WORKER) {
@@ -154,7 +158,7 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
                     case USTATE_CLEARING:     ss = "Déblaiement..."; break;
                     default:                  ss = "En attente";   break;
                 }
-                hud_sel_txt(ss, rx, py, 13, UI_TEXT_DIM); py += 17;
+                hud_sel_txt(ss, rx, py, SEL_FS, UI_TEXT_DIM); py += fh(SEL_FS);
                 /* Ligne de statut : avance py (sinon la ligne d'aide suivante
                    se dessinait par-dessus). Pas vertical = fh(11). */
                 if (!gs->units.mining_enabled) {
@@ -187,15 +191,17 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
                 };
                 int beh = (int)u->behavior;
                 if (beh < 0 || beh > 4) beh = 0;
-                hud_sel_txt(BNAMES[beh], rx, py, 13, BCOLS[beh]); py += 17;
+                hud_sel_txt(BNAMES[beh], rx, py, SEL_FS, BCOLS[beh]); py += fh(SEL_FS);
             }
 
             if (u->has_material && u->carried_mat != MAT_NONE) {
                 hud_sel_txt(TextFormat("Porte  %s", MATERIAL_NAMES[u->carried_mat]),
-                         rx, py, 13, UI_INFO); py += 17;
+                         rx, py, SEL_FS, UI_INFO); py += fh(SEL_FS);
             }
 
-            if (u->type == UNIT_WORKER) {
+            /* Ligne d'aide seulement si elle tient au-dessus de RENVOYER */
+            if (u->type == UNIT_WORKER &&
+                py + fh(11) <= (int)ui->unit_sell_btn.y - 2) {
                 /* Une seule ligne d'aide (le minage est automatique ; cliquer
                    un gisement ne sert qu'à en CHOISIR un autre). */
                 char _cb[64];
@@ -224,11 +230,12 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
                     DrawRectangleRounded(*_br, 0.20f, 4, _bg);
                     DrawRectangleRoundedLinesEx(*_br, 0.20f, 4,
                         _active ? 2.0f : 1.0f, hud_sel_col(_brd));
-                    int _tw4 = mtxt(BLBL[_b], 10);
+                    /* Mesuré à la taille DESSINÉE (centrage exact) */
+                    int _tw4 = mtxt(BLBL[_b], SEL_BTN_FS);
                     dtxt(BLBL[_b],
                          (int)(_br->x + _br->width/2 - _tw4/2),
-                         (int)(_br->y + _br->height/2 - 5),
-                         8, _active ? BCOL[_b] : (Color){110,90,55,220});
+                         (int)(_br->y + _br->height/2 - fh(SEL_BTN_FS)/2),
+                         SEL_BTN_FS, _active ? BCOL[_b] : (Color){110,90,55,220});
                 }
                 /* 5e bouton : SUIVRE (médic uniquement) */
                 if (u->type == UNIT_MEDIC) {
@@ -246,11 +253,11 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
                     DrawRectangleRoundedLinesEx(*_br5, 0.20f, 4,
                         _act5 ? 2.0f : 1.0f, hud_sel_col(_brd5));
                     const char *_lbl5 = "SUIVRE UNITÉ";
-                    int _tw5 = mtxt(_lbl5, 10);
+                    int _tw5 = mtxt(_lbl5, SEL_BTN_FS);
                     dtxt(_lbl5,
                          (int)(_br5->x + _br5->width/2 - _tw5/2),
-                         (int)(_br5->y + _br5->height/2 - 5),
-                         8, _act5 ? _sc5 : (Color){110,90,55,220});
+                         (int)(_br5->y + _br5->height/2 - fh(SEL_BTN_FS)/2),
+                         SEL_BTN_FS, _act5 ? _sc5 : (Color){110,90,55,220});
                 }
             }
 
@@ -268,7 +275,7 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
                 snprintf(buf, sizeof(buf), "Renvoyer  +%d or", refund);
                 int bw = mtxt(buf, 13);
                 dtxt(buf, (int)(ub.x + ub.width/2 - bw/2),
-                         (int)(ub.y + ub.height/2 - 7),
+                         (int)(ub.y + ub.height/2 - fh(13)/2),
                          13, (Color){192,90,58,255});
             }
 
@@ -299,11 +306,11 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
             if (info->dmg > 0.0f) {
                 hud_sel_txt(TextFormat("Dégâts %.0f",  info->dmg),
                          rx,  py, 13, sc2);
-                hud_sel_txt(s_rng2, cx2, py, 13, sc2);   py += 17;
+                hud_sel_txt(s_rng2, cx2, py, 13, sc2);   py += fh(13);
                 hud_sel_txt(TextFormat("Cadence %.1f/s",info->rate),
-                         rx,  py, 13, sc2);  py += 17;
+                         rx,  py, 13, sc2);  py += fh(13);
             } else {                                   /* ouvrier : ne combat pas */
-                hud_sel_txt("Non combatif", rx, py, 13, sc2);  py += 34;
+                hud_sel_txt("Non combatif", rx, py, 13, sc2);  py += fh(13) * 2;
             }
 
             if (ui_tool_is_tower(ui->selected_tool) &&
@@ -317,14 +324,14 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
                                == TILE_RUIN);
                 if (is_ruin) {
                     hud_sel_txt(TextFormat("Coût  %d or (x2)", real_cost),
-                             rx, py, 13, (Color){205,108,22,255}); py += 17;
+                             rx, py, 13, (Color){205,108,22,255}); py += fh(13);
                 } else {
                     hud_sel_txt(TextFormat("Coût  %d or", real_cost),
-                             rx, py, 13, UI_ACCENT_DIM); py += 17;
+                             rx, py, 13, UI_ACCENT_DIM); py += fh(13);
                 }
             } else {
                 hud_sel_txt(TextFormat("Coût  %d or", info->cost),
-                         rx, py, 13, UI_ACCENT_DIM); py += 17;
+                         rx, py, 13, UI_ACCENT_DIM); py += fh(13);
             }
             py += 3;
             clip_text(info->desc, max_w, 12, buf, sizeof(buf));
@@ -332,10 +339,10 @@ void hud_render_selection(const UIState *ui, const GameState *gs) {
 
         } else {
             panel_right_empty:
-            dtxt("Clic sur",    rx, py, 13, (Color){50,40,25,255}); py += 17;
-            dtxt("un outil",    rx, py, 13, (Color){50,40,25,255}); py += 17;
-            dtxt("ou une tour", rx, py, 13, (Color){50,40,25,255}); py += 17;
-            dtxt("posée.",      rx, py, 13, (Color){50,40,25,255});
+            /* Invite sur 2 lignes (le panneau est large) au pas fh() */
+            dtxt("Cliquez sur un outil",   rx, py, 13, (Color){80, 64, 40, 255});
+            py += fh(13);
+            dtxt("ou sur une tour posée.", rx, py, 13, (Color){80, 64, 40, 255});
         }
 
         /* Fin du panneau droit : helpers redevenus neutres pour le reste */

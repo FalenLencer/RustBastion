@@ -41,8 +41,11 @@ void      render3d_units_set_fog(Color col, float density);
 
 /* Texture de l'unité i (sprite 3D pré-rendu), .id==0 si non dispo.     */
 Texture2D render3d_unit_tex(int unit_index);
-/* Rectangle de blit (centré sur cx,cy=position monde, ancré par le bas).*/
+/* Rectangle de blit : PIED du modèle posé sous (cx,cy) = position monde,
+   à l'échelle commune (taille ∝ size). Blit avec render3d_blit_outlined.  */
 Rectangle render3d_unit_dst(int unit_index, float cx, float cy, float size);
+/* Ordonnée (monde) du SOMMET du modèle dans ce blit (barre de vie).       */
+float     render3d_unit_head_y(int unit_index, Rectangle dst);
 
 /* MODE HÉROS : dessine l'unité `type` DIRECTEMENT dans la scène 3D courante
    (BeginMode3D actif) — anim + gain + orientation gérés ici. heading_rad =

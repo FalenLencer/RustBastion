@@ -279,6 +279,18 @@ int meta_endless_score(int wave, float mult) {
     return (int)((float)wave * mult * 10.0f);
 }
 
+// Ferraille d'une extraction = score / 10, plafonnée.
+int meta_endless_scrap(int wave, float mult) {
+    int earned = meta_endless_score(wave, mult) / 10;
+    return earned > ENDLESS_SCRAP_MAX ? ENDLESS_SCRAP_MAX : earned;
+}
+
+// Multiplicateur de la série suivante (« continuer »), plafonné.
+float meta_endless_next_mult(float mult) {
+    float m = mult * ENDLESS_MULT_STEP;
+    return m > ENDLESS_MULT_MAX ? ENDLESS_MULT_MAX : m;
+}
+
 // Enregistre si c'est un nouveau record
 void meta_endless_end(MetaProgress *meta, int wave, float mult,
                       int extracted)
@@ -297,9 +309,7 @@ void meta_endless_end(MetaProgress *meta, int wave, float mult,
         meta->endless_best_score = score;
         meta->endless_best_wave  = wave;
     }
-    // Ferraille = score / 10 (plafonné à 200)
-    int earned = score / 10;
-    if (earned > 200) earned = 200;
+    int earned = meta_endless_scrap(wave, mult);
     meta->scrap              += earned;
     meta->total_scrap_earned += earned;
     meta_save(meta);

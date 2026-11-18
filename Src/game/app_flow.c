@@ -405,16 +405,10 @@ void game_handle_extract(AppContext *ctx) {
     /* Souris virtuelle (offset + échelle de présentation) */
     Vector2 vm = virt_mouse();
 
-    /* Rectangles des boutons — doivent correspondre à interlude_render_extract */
+    /* Rectangles des boutons : source unique partagée avec le rendu. */
     {
-        int vw = g_canvas_virt_w, vh = g_canvas_virt_h;
-        int cx = vw / 2, cy = vh / 2;
-        int ph = 260, bw = 160, bh = 32, ms = 8;
-        int by2 = cy + ph / 2 - ms - bh;
-        Rectangle extract_btn  = {(float)(cx - bw - ms), (float)by2,
-                                   (float)bw,             (float)bh};
-        Rectangle continue_btn = {(float)(cx + ms),      (float)by2,
-                                   (float)bw,             (float)bh};
+        Rectangle extract_btn, continue_btn;
+        interlude_extract_buttons(g_canvas_virt_w, g_canvas_virt_h, &extract_btn, &continue_btn);
         int click = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
         int extract_clicked  = click && CheckCollisionPointRec(vm, extract_btn);
         int continue_clicked = click && CheckCollisionPointRec(vm, continue_btn);
@@ -434,11 +428,10 @@ void game_handle_extract(AppContext *ctx) {
             return;
         }
         if (IsKeyPressed(KEY_SPACE) || continue_clicked) {
-            ctx->gs.endless_multiplier *= 1.5f;
-            if (ctx->gs.endless_multiplier > 6.0f)
-                ctx->gs.endless_multiplier = 6.0f;
+            ctx->gs.endless_multiplier = meta_endless_next_mult(ctx->gs.endless_multiplier);
             ctx->gs.endless_series++;
-            ctx->gs.endless_pending_extract = 0;
+            /* endless_pending_extract RESTE à 1 : ce palier est traité ; il se
+               ré-arme en quittant la vague-palier (app_update). */
             game_init_map(&ctx->gs,
                           (ThemeID)((ctx->gs.map.theme + 1) % THEME_COUNT),
                           0);  // arcade : nombre de bases aléatoire

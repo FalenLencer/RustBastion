@@ -42,6 +42,10 @@ extern FxSystem g_fx;
 void  fx_reset(void);
 // Met à jour particules / popups / secousse.
 void  fx_update(float dt);
+// Horloge d'animation : temps de SIMULATION cumulé (s), avancé par fx_update
+// (×vitesse de jeu, figé en pause / fiche / focus perdu). Monotone (jamais
+// remis à zéro). Les pré-passes 3D en tirent leur pas (render3d_skin.h).
+double fx_clock(void);
 
 // Gerbe de `n` particules depuis (x,y), couleur `col`, vitesse ~`speed`.
 void  fx_burst(float x, float y, Color col, int n, float speed);

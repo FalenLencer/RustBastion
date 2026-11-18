@@ -73,7 +73,7 @@ int hud_sel_tower(const UIState *ui, const GameState *gs,
             ? "Synergie : corrodé -> +25% phys/feu"
             : (tw->material != MAT_NONE)
             ? TextFormat("Minerai : %s", MATERIAL_NAMES[tw->material])
-            : "Frappe + fort les ennemis geles / corrodes";
+            : "Frappe + fort les ennemis gelés / corrodés";
         Color hc = (tw->material != MAT_NONE) ? matc
                                               : (Color){120, 200, 140, 230};
         clip_text(hint, text_w, 9, buf, sizeof(buf));

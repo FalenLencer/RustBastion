@@ -6,8 +6,8 @@
 
 // renderer.c
 #include "renderer.h"
-#include "tile_art.h"   // pixel-art procédural : spawns, bunkers, minerais
-#include "terrain.h"    // terrain peint au pixel (sol, liquides, routes, ruines)
+#include "tile_art.h"   // pixel-art procédural : spawns, bunkers
+#include "terrain.h"    // terrain peint au pixel (sol, liquides, routes, ruines, filons)
 #include "render3d.h"   // rendu 3D des tours (textures pré-rendues)
 #include "render3d_units.h"   // rendu 3D des unités (mode de vue 3D)
 #include "render3d_enemies.h" // rendu 3D des ennemis (mode de vue 3D)
@@ -175,10 +175,19 @@ static Color PATH_COLORS[MAX_PATHS] = {
    qu'il n'y a JAMAIS plus de MAX_TOWERS tours à marquer. On inverse donc
    la boucle : on efface la grille puis on pose les ≤64 tours. */
 static unsigned char g_tower_occ[MAX_MAP_H][MAX_MAP_W];
+/* Filon de la tuile (indice + 1, 0 = aucun) — même principe, ≤ 20 filons. */
+static unsigned char g_ore_occ[MAX_MAP_H][MAX_MAP_W];
 
 static void tower_occ_build(const Map *map, const TowerPool *tp) {
-    for (int y = 0; y < map->h; y++)
+    for (int y = 0; y < map->h; y++) {
         memset(g_tower_occ[y], 0, (size_t)map->w);
+        memset(g_ore_occ[y], 0, (size_t)map->w);
+    }
+    for (int i = 0; i < map->deposit_count; i++) {
+        const MaterialDeposit *d = &map->deposits[i];
+        if (d->tile_x >= 0 && d->tile_x < map->w && d->tile_y >= 0 && d->tile_y < map->h)
+            g_ore_occ[d->tile_y][d->tile_x] = (unsigned char)(i + 1);
+    }
     if (!tp) return;
     for (int i = 0; i < MAX_TOWERS; i++) {
         const Tower *tw = &tp->towers[i];
@@ -214,10 +223,22 @@ void render_map(const Map *map, const TowerPool *tp, int cull_to_view) {
 
     /* Sol + liquides + routes : UNE texture peinte au pixel (terrain.h). */
     terrain_draw_base(map);
+    /* Socles + ombres des tours : SUR le sol mais SOUS les ruines voisines
+       (le socle déborde de sa case ; il ne doit pas recouvrir un arbre). */
+    if (tp) tower_fx_draw_ground(tp, map);
     float t = (float)GetTime();
     for (int y = y0; y < y1; y++)
         for (int x = x0; x < x1; x++) {
             TileType ty = map->tiles[y][x].type;
+            /* Filon : remplace la ruine de sa case, au même rang de profondeur.
+               Une tour sur un filon épuisé déblaie les gravats. */
+            if (g_ore_occ[y][x]) {
+                const MaterialDeposit *d = &map->deposits[g_ore_occ[y][x] - 1];
+                OreState st = d->active ? ORE_ACTIVE : d->mined ? ORE_MINED : ORE_DORMANT;
+                if (!g_tower_occ[y][x])
+                    terrain_draw_ore(map->theme, x, y, (int)d->type, st, t);
+                continue;
+            }
             /* Une tour sur la ruine la déblaie : sprite non dessiné. */
             if (ty == TILE_RUIN && !g_tower_occ[y][x]) terrain_draw_ruin(map, x, y);
             else if (ty == TILE_WATER) terrain_draw_liquid_fx(map, x, y, t);
@@ -308,51 +329,32 @@ void render_paths(const PathSet *ps) {
 }
 
 // ════════════════════════════════════════════════════
-// DÉPÔTS DE MATÉRIAUX
+// DÉPÔTS DE MATÉRIAUX — repères par-dessus les filons
+// (les filons eux-mêmes sont peints par render_map → terrain_draw_ore)
 // ════════════════════════════════════════════════════
+#define DEP_TAG_FS    9                           // police du repère « V5 »
+#define DEP_TAG_BG    ((Color){14, 11, 8, 215})
+#define DEP_TAG_TXT   ((Color){232, 214, 160, 255})
 void render_deposits(const Map *map, const TowerPool *tp,
                      int hover_tx, int hover_ty, int wave_num) {
-    static const char *MAT_ICONS[MAT_COUNT] = {
-        [MAT_IRON]  = "Fe",
-        [MAT_ACID]  = "Ac",
-        [MAT_PLASMA]= "Pl",
-        [MAT_CRYO]  = "Cr",
-        [MAT_NANO]  = "Na",
-    };
-
-    float t = (float)GetTime();
-
+    (void)tp;   /* tour sur filon épuisé : gérée par render_map */
     for (int i = 0; i < map->deposit_count; i++) {
         const MaterialDeposit *d = &map->deposits[i];
         int px = d->tile_x * TILE_SIZE;
         int py = d->tile_y * TILE_SIZE;
 
-        // Filon actif : pixel-art plein qui remplace la tuile.
-        if (d->active) {
-            tile_art_draw_deposit(px, py, d->type, t);
-            continue;
-        }
-        // Filon épuisé : roche minée (difficile à construire). Une tour
-        // posée dessus déblaie le cratère (sol nu, dessiné par render_map).
-        if (d->mined) {
-            if (!tower_at_tile(tp, d->tile_x, d->tile_y))
-                tile_art_draw_mined_rock(px, py);
-            continue;
-        }
-        // Filon verrouillé (apparaît à une vague future) : indicateur discret
-        // teinté de la couleur du minerai à venir, par-dessus la tuile de ruine.
-        if (d->spawn_wave > 0) {
-            int cx = px + TILE_SIZE / 2, cy = py + TILE_SIZE / 2;
+        // Filon dormant (s'ouvre à une vague future) : petite plaque « V5 »
+        // au pied de la roche, liserée de la couleur du minerai à venir.
+        if (!d->active && !d->mined && d->spawn_wave > 0) {
+            int cx = px + TILE_SIZE / 2;
             Color mc = MATERIAL_COLORS[d->type];
-            DrawCircle(cx, cy, TILE_SIZE / 2 - 6, (Color){18, 14, 8, 175});
-            DrawCircleLines(cx, cy, TILE_SIZE / 2 - 4, (Color){mc.r, mc.g, mc.b, 130});
-            int iw = mtxt(MAT_ICONS[d->type], 9);
-            dtxt(MAT_ICONS[d->type], cx - iw/2, cy - 9, 9,
-                 (Color){mc.r, mc.g, mc.b, 160});
-            char _wbuf[8];
+            char _wbuf[16];
             snprintf(_wbuf, sizeof(_wbuf), "V%d", d->spawn_wave);
-            int ww = mtxt(_wbuf, 9);
-            dtxt(_wbuf, cx - ww/2, cy + 1, 9, (Color){150, 130, 70, 210});
+            int ww = mtxt(_wbuf, DEP_TAG_FS), th = fh(DEP_TAG_FS);
+            int bx = px + TILE_SIZE - ww - 6, by = py + TILE_SIZE - th + 1;
+            DrawRectangle(bx, by, ww + 6, th, DEP_TAG_BG);
+            DrawRectangleLines(bx, by, ww + 6, th, (Color){mc.r, mc.g, mc.b, 170});
+            dtxt(_wbuf, bx + 3, by, DEP_TAG_FS, DEP_TAG_TXT);
 
             /* Survol : « V5 » seul est cryptique → phrase explicite. */
             if (d->tile_x == hover_tx && d->tile_y == hover_ty) {

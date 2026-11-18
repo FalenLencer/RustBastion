@@ -18,14 +18,19 @@
    ════════════════════════════════════════════════════════════════ */
 #include "raylib.h"
 #include "../combat/enemy.h"
+#include "../combat/unit.h"
+#include "../combat/tower.h"
 
 void      render3d_enemies_init(void);
 void      render3d_enemies_shutdown(void);
 int       render3d_enemies_available(void);          /* 1 = au moins un modèle chargé */
 int       render3d_enemy_has_model(int enemy_type);  /* type a-t-il un modèle 3D ?     */
 
-/* Pré-passe : rend chaque ennemi actif (avec modèle) dans sa texture. */
-void      render3d_enemies_prepass(const EnemyPool *ep);
+/* Pré-passe : rend chaque ennemi actif (avec modèle) dans sa texture. Un
+   ennemi qui frappe joue son anim d'attaque et FAIT FACE à sa cible (unité,
+   tour visée par l'artillerie…) — d'où les pools d'unités et de tours. */
+void      render3d_enemies_prepass(const EnemyPool *ep, const UnitPool *up,
+                                   const TowerPool *tp);
 
 /* Brouillard de distance (MODE HÉROS) sur le shader des ennemis —
    density 0 = coupé (remis à 0 par la pré-passe 2D à chaque frame). */
@@ -35,9 +40,12 @@ void      render3d_enemies_set_fog(Color col, float density);
    Verticalement retournée (convention RenderTexture raylib). */
 Texture2D render3d_enemy_tex(int enemy_index);
 
-/* Rectangle de destination pour blitter la texture 3D de l'ennemi i
-   (centre x,y ; rayon size px). Cadrage propre à chaque type. */
+/* Rectangle de destination pour blitter la texture 3D de l'ennemi i : PIED
+   du modèle posé sous (x,y), à l'échelle commune (taille ∝ size). Blit avec
+   render3d_blit_outlined (grain pixel art + contour). */
 Rectangle render3d_enemy_dst(int enemy_index, float x, float y, float size);
+/* Ordonnée (monde) du SOMMET du modèle dans ce blit (barre de vie). */
+float     render3d_enemy_head_y(int enemy_index, Rectangle dst);
 
 /* MODE HÉROS : dessine l'ennemi `type` DIRECTEMENT dans la scène 3D courante
    (BeginMode3D actif). heading_rad = cap monde (atan2(x, z)) ; anim_kind :

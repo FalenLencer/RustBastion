@@ -17,8 +17,7 @@
  *      en fin de fonction : elles passent PAR-DESSUS le contenu au lieu de
  *      le pousser hors du panneau. Quand une liste est ouverte, les autres
  *      widgets ignorent les clics (ui_locked) ; un clic hors liste ferme.
- *    • Pas d'accents dans les chaînes UI (la police gère mal certains
- *      glyphes) — convention projet.
+ *    • Chaînes UI accentuées (Rajdhani couvre le Latin-1 + œ).
  */
 
 #include "menu_internal.h"
@@ -35,6 +34,13 @@
 #define OPT_PANEL_H 580
 #define DD_ITEM_H  26   // hauteur d'un item de liste déroulante
 #define DD_ITEM_SP 30   // pas vertical entre items
+/* Onglet Commandes : curseur = libellé encadré + piste + bouton rond
+   (≈ 40 px) ; touches sur 2 colonnes. */
+#define OPT_SLIDER_STEP  44   // pas vertical entre deux curseurs
+#define OPT_KEY_ROW_H    22   // hauteur d'un bouton de touche
+#define OPT_KEY_ROW_SP   28   // pas vertical entre deux touches
+#define OPT_KEY_W       110   // largeur d'un bouton de touche
+#define OPT_KEY_COL_GAP  24   // écart entre les 2 colonnes de touches
 
 // ── Choix des listes déroulantes ─────────────────────────────────
 static const int   FPS_OPTS[5] = {30, 60, 120, 165, 0};
@@ -341,33 +347,37 @@ MenuAction draw_options(MenuState *m, int vw, int vh) {
                     if (m->opts.hero_sens_y < 5) m->opts.hero_sens_y = 5;
                 }
             }
-            y += 32;
+            y += OPT_SLIDER_STEP;
             if (draw_volume_slider("Accélération (50 = x1.0, linéaire)",
                                    content_x, y, content_w,
                                    m->opts.hero_accel, &m->opts.hero_accel)) {
                 if (m->opts.hero_accel < 5) m->opts.hero_accel = 5;
             }
-            y += 32;
+            y += OPT_SLIDER_STEP;
 
+            /* Touches : 2 colonnes de 5 (libellé centré sur son bouton) —
+               une colonne unique de 10 rangées collées était illisible. */
             static const char *KLBL[HK_COUNT] = {
                 "Avancer", "Reculer", "Pas à gauche", "Pas à droite",
                 "Saut", "Sprint (maintenu)", "Interagir (ouvrier)",
                 "Lancer la vague", "Changer d'arme", "Vue 1re / 3e",
             };
-            int row_h = 17, row_sp = 19, key_w = 170;
+            const int rows  = (HK_COUNT + 1) / 2;
+            const int col_w = (content_w - OPT_KEY_COL_GAP) / 2;
             for (int i = 0; i < HK_COUNT; i++) {
-                dtxt(KLBL[i], content_x, y + 4, 10, C_TEXT);
+                int kx = content_x + (i / rows) * (col_w + OPT_KEY_COL_GAP);
+                int ky = y + (i % rows) * OPT_KEY_ROW_SP;
+                dtxt(KLBL[i], kx, ky + OPT_KEY_ROW_H/2 - fh(10)/2, 10, C_TEXT);
                 char kn[24];
                 if (m->opt_rebind == i + 1)
                     snprintf(kn, sizeof(kn), "APPUYEZ...");
                 else
                     opts_key_name(m->opts.hero_keys[i], kn, sizeof(kn));
-                if (draw_btn(kn, content_x + content_w - key_w, y,
-                             key_w, row_h, C_BLUE, m->opt_rebind == i + 1)
+                if (draw_btn(kn, kx + col_w - OPT_KEY_W, ky,
+                             OPT_KEY_W, OPT_KEY_ROW_H, C_BLUE, m->opt_rebind == i + 1)
                     && !ui_locked) {
                     m->opt_rebind = i + 1;   // prochaine touche = assignation
                 }
-                y += row_sp;
             }
         }
         break;

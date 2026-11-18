@@ -21,8 +21,20 @@ void terrain_draw_base(const Map *map);
 void terrain_draw_ruin(const Map *map, int tx, int ty);
 /* Reflets / remous animés d'une tuile de liquide. t = horloge (s). */
 void terrain_draw_liquid_fx(const Map *map, int tx, int ty, float t);
+/* Socle peint sous une tour (terrain_pad.c), centré en (cx, cy) monde.
+   scale/alpha : animation de pose (1 = posé) ; key : variante (hash de case). */
+void terrain_draw_tower_pad(ThemeID th, float cx, float cy, float scale,
+                            float alpha, unsigned key);
+/* Filons de minerai peints (terrain_ore.c) : affleurement de la roche du
+   thème + cristaux, dessiné à son rang de profondeur (comme une ruine). */
+typedef enum { ORE_ACTIVE, ORE_DORMANT, ORE_MINED, ORE_STATE_COUNT } OreState;
+void terrain_draw_ore(ThemeID th, int tx, int ty, int mat, OreState st, float t);
+/* Même filon (actif) mis à l'échelle dans `dst` (fiche de découverte). */
+void terrain_draw_ore_icon(Rectangle dst, int mat, float t, unsigned char alpha);
 /* Libère les textures (fermeture du jeu). */
 void terrain_unload(void);
 
-/* Interne terrain*.c : sprites de ruines (terrain_ruins.c). */
+/* Interne terrain*.c : sprites de ruines (terrain_ruins.c), socles, filons. */
 void terrain_ruins_unload(void);
+void terrain_pad_unload(void);
+void terrain_ore_unload(void);

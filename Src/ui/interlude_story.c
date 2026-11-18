@@ -22,6 +22,7 @@
 #include "ui_utils.h"
 #include "ui_anim.h"
 #include "ui_palette.h"
+#include "ui_plate.h"
 #include "../game/campaign_data.h"
 #include "../game/runperks.h"
 #include "../engine/audio.h"
@@ -35,7 +36,12 @@
 #define IS_VIG_H      208   /* bandeau (multiple de STORY_VIGNETTE_PX)   */
 #define IS_BOX_H      150   /* boîte de dialogue                         */
 #define IS_GAP        10
-#define IS_INFO_H     86    /* briefing : objectif + doctrines           */
+#define IS_INFO_H     100   /* briefing : plaques objectif + doctrines   */
+#define IS_IN_X       12    /* marge intérieure des plaques (px)         */
+#define IS_IN_Y       8
+#define IS_LINER_A    0.40f /* liseré d'une plaque au repos              */
+#define IS_LINE_BG    ((Color){8, 6, 4, 210})   /* fond d'une ligne de titre : masque
+                                                   les notifications du jeu dessous */
 #define IS_ORDER_H    76    /* carte d'ordre du jour                     */
 #define IS_STRIP_H    30    /* bilan : ferraille / objectif / déblocage  */
 #define IS_CHOICE_H   118   /* carte de doctrine                         */
@@ -67,13 +73,11 @@ static int confirm_pressed(void) {
     return IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER);
 }
 
-static void keycap(int x, int y, const char *lbl, Color col) {
-    int w = mtxt(lbl, 9) + 10, h = fh(9) + 4;
-    DrawRectangleRounded((Rectangle){(float)x, (float)y, (float)w, (float)h},
-                         0.3f, 4, (Color){22, 17, 9, 255});
-    DrawRectangleRoundedLinesEx((Rectangle){(float)x, (float)y, (float)w, (float)h},
-                                0.3f, 4, 1.0f, col);
-    dtxt(lbl, x + 5, y + 2, 9, col);
+#define IS_HINT_GAP 22   /* entre deux indications de touches (px) */
+
+/* Voile qui grise une plaque entière (carte inaccessible). */
+static void plate_veil(Rectangle r) {
+    plate_chamfer_fill(r, PLATE_CHAMFER_S, (Color){8, 6, 4, 150});
 }
 
 /* Bandeau illustré + titre (glisse et apparaît à l'ouverture). */
@@ -89,19 +93,18 @@ static void header(Rectangle v, ThemeID th, int node, const char *kicker,
     dtxt_o(title,  (int)v.x + 16 + dx, y + 14 + fh(9) + 1, 22, fade(tcol, a));
 }
 
-/* Bouton d'action principal (bas-droite). Retourne 1 si cliqué. */
+/* Bouton d'action principal (bas-droite), plaque de métal. 1 si cliqué. */
 static int action_button(Rectangle b, const char *lbl, const char *key,
                          Vector2 vm, int enabled, int input_ok) {
     int hov = enabled && CheckCollisionPointRec(vm, b);
-    Color bc = enabled ? (hov ? UI_ACCENT : UI_ACCENT_DIM) : UI_BORDER;
-    DrawRectangleRounded(b, 0.25f, 6, hov ? (Color){40, 26, 8, 255} : (Color){20, 13, 5, 255});
-    DrawRectangleRoundedLinesEx(b, 0.25f, 6, hov ? 2.0f : 1.5f, bc);
+    plate_button(b, UI_ACCENT, hov, enabled);
     int kw = mtxt(key, 9) + 10;
     int lw = mtxt(lbl, 11);
     int x  = (int)(b.x + (b.width - (float)(lw + 10 + kw)) * 0.5f);
     dtxt(lbl, x, (int)(b.y + (b.height - (float)fh(11)) * 0.5f), 11,
-         enabled ? UI_TEXT : UI_TEXT_DIM);
-    keycap(x + lw + 10, (int)(b.y + (b.height - (float)(fh(9) + 4)) * 0.5f), key, bc);
+         enabled ? (hov ? UI_ACCENT : UI_TEXT) : UI_TEXT_DIM);
+    plate_keycap(x + lw + 10, (int)(b.y + (b.height - (float)(fh(9) + 4)) * 0.5f) - 1, key,
+                 enabled ? UI_ACCENT : UI_BORDER);
     return enabled && input_ok && hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
 }
 
@@ -118,20 +121,25 @@ static void dialogue_input(int input_ok) {
 // ════════════════════════════════════════════════════════════════
 // BRIEFING
 // ════════════════════════════════════════════════════════════════
+/* Deux plaques côte à côte : l'objectif (+ mutateur du chapitre), et les
+   doctrines en vigueur. */
 static void draw_info(const GameState *gs, int x, int y, int w) {
     const ActData *act = campaign_act_get(gs->campaign_stage);
-    int colw = (w - IS_GAP) / 2;
+    int colw = (w - IS_GAP) / 2, inw = colw - 2 * IS_IN_X;
     char buf[160];
 
-    /* Objectif (+ mutateur du chapitre) */
-    dtxt("OBJECTIF", x, y, 9, (Color){90, 170, 90, 255});
-    clip_text(act->objective.description, colw, 12, buf, sizeof(buf));
-    dtxt(buf, x, y + fh(9) + 2, 12, (Color){160, 228, 160, 255});
+    Rectangle ro = {(float)x, (float)y, (float)colw, (float)IS_INFO_H};
+    plate_panel(ro, PLATE_CHAMFER_S, IS_COL_GAIN, IS_LINER_A);
+    int cx = x + IS_IN_X, cy = y + IS_IN_Y;
+    plate_section(cx, cy, inw, "OBJECTIF", IS_COL_GAIN);
+    cy += fh(9) + 8;
+    clip_text(act->objective.description, inw, 12, buf, sizeof(buf));
+    dtxt(buf, cx, cy, 12, (Color){170, 232, 170, 255});
     const char *mut = campaign_mutator_name(campaign_mutator_for_stage(
                           campaign_difficulty_stage(gs->campaign_stage)));
     if (mut) {
-        clip_text(mut, colw, 9, buf, sizeof(buf));
-        dtxt(buf, x, y + fh(9) + 2 + fh(12) + 6, 9, (Color){230, 140, 70, 240});
+        clip_text(mut, inw, 9, buf, sizeof(buf));
+        dtxt(buf, cx, cy + fh(12) + 6, 9, (Color){230, 140, 70, 240});
     }
 
     /* Doctrines : ce que vos choix passés coûtent et rapportent, RAPPELÉ
@@ -140,15 +148,19 @@ static void draw_info(const GameState *gs, int x, int y, int w) {
     const DoctrineDef *doc[CAMPAIGN_DOCTRINES];
     int nd = campaign_doctrines_active(gs->campaign_flags, doc, CAMPAIGN_DOCTRINES);
     int dx = x + colw + IS_GAP;
-    dtxt(nd ? "DOCTRINES EN VIGUEUR" : "AUCUNE DOCTRINE (pas encore de décision)",
-         dx, y, 9, (Color){170, 140, 70, 230});
-    int dy = y + fh(9) + 2;
-    for (int i = 0; i < nd && dy + fh(9) <= y + IS_INFO_H; i++, dy += fh(9) + 2) {
+    Color gold = {200, 160, 80, 255};
+    plate_panel((Rectangle){(float)dx, (float)y, (float)colw, (float)IS_INFO_H},
+                PLATE_CHAMFER_S, gold, IS_LINER_A);
+    dx += IS_IN_X;
+    plate_section(dx, y + IS_IN_Y, inw, nd ? "DOCTRINES EN VIGUEUR" : "AUCUNE DOCTRINE", gold);
+    int dy = y + IS_IN_Y + fh(9) + 8;
+    if (!nd) dtxt("Pas encore de décision.", dx, dy, 9, UI_TEXT_DIM);
+    for (int i = 0; i < nd && dy + fh(9) <= y + IS_INFO_H - IS_IN_Y; i++, dy += fh(9) + 2) {
         Color tc = doc[i]->methodical ? IS_COL_METHOD : IS_COL_RISK;
         int nw = mtxt(doc[i]->name, 9);
         dtxt(doc[i]->name, dx, dy, 9, tc);
-        clip_text(doc[i]->effect, colw - nw - 10, 9, buf, sizeof(buf));
-        dtxt(buf, dx + nw + 10, dy, 9, (Color){160, 142, 108, 230});
+        clip_text(doc[i]->effect, inw - nw - 10, 9, buf, sizeof(buf));
+        dtxt(buf, dx + nw + 10, dy, 9, (Color){170, 150, 112, 235});
     }
 }
 
@@ -172,28 +184,33 @@ static void order_card(const GameState *gs, int node, int idx, Rectangle r,
     int aff    = campaign_order_affordable(o, gs->gold, gs->lives, gs->run.renfort);
     int picked = (story_scene_pick() == idx);
     int hov    = clickable && aff && CheckCollisionPointRec(vm, r);
-    float a    = aff ? 1.0f : 0.45f;
     Rectangle d = r;
     if (hov) d.y -= IS_HOVER_LIFT;
 
-    Color edge = picked ? UI_SUCCESS : hov ? UI_ACCENT : UI_BORDER;
-    DrawRectangleRounded(d, 0.12f, 6, picked ? (Color){10, 26, 14, 250} : UI_PANEL_BG);
-    DrawRectangleRoundedLinesEx(d, 0.12f, 6, picked || hov ? 2.0f : 1.2f, fade(edge, a));
+    /* Plaque : liseré vert si retenue, couleur d'accent au survol. */
+    Color edge = picked ? UI_SUCCESS : hov ? UI_ACCENT : UI_ACCENT_DIM;
+    if (hov || picked)
+        plate_chamfer_line(plate_inset(d, -2.0f), PLATE_CHAMFER_S + 1.0f, fade(edge, 0.40f));
+    plate_panel(d, PLATE_CHAMFER_S, edge, picked || hov ? 1.0f : IS_LINER_A);
+    if (picked)                                     /* panneau teinté de vert */
+        plate_chamfer_fill(plate_inset(d, PLATE_BORDER + 1.0f), PLATE_CHAMFER_S - 3.0f,
+                           (Color){UI_SUCCESS.r, UI_SUCCESS.g, UI_SUCCESS.b, 22});
 
     char key[12];
     snprintf(key, sizeof(key), "%d", idx + 1);
-    keycap((int)d.x + 10, (int)d.y + 9, key, fade(edge, a));
-    dtxt(o->title, (int)d.x + 34, (int)d.y + 8, 12, fade(UI_TEXT, a));
-    draw_order_effect(o, (int)d.x + 34, (int)d.y + 8 + fh(12) + 4, a);
+    int kx = (int)d.x + IS_IN_X, ky = (int)d.y + IS_IN_Y + 2;
+    int tx = kx + plate_keycap(kx, ky, key, edge) + 10;
+    dtxt(o->title, tx, (int)d.y + IS_IN_Y, 12, UI_TEXT);
+    draw_order_effect(o, tx, (int)d.y + IS_IN_Y + fh(12) + 3, 1.0f);
 
     const char *who = o->speaker;
     const char *tag = !aff ? "ressources insuffisantes"
                     : picked ? "RETENU — recliquer pour annuler" : who;
     Color tc = !aff ? IS_COL_COST : picked ? UI_SUCCESS
              : story_speaker_color(story_speaker_from_name(who));
-    dtxt(tag, (int)d.x + 34, (int)(d.y + d.height) - fh(9) - 7, 9, fade(tc, 0.85f));
+    dtxt(tag, tx, (int)(d.y + d.height) - fh(9) - IS_IN_Y, 9, fade(tc, 0.9f));
 
-    if (!aff) return;
+    if (!aff) { plate_veil(d); return; }            /* grisée, non cliquable */
     int hit = input_ok && clickable &&
               ((hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) || key_pressed_n(idx + 1));
     if (!hit) return;
@@ -239,19 +256,22 @@ int interlude_render_dialog_before(const GameState *gs, Vector2 vm, int input_ok
     Rectangle btn = { (float)(x + pw - IS_BTN_W),
                       (float)(y + fh(9) + 4 + IS_ORDER_H + IS_GAP),
                       (float)IS_BTN_W, (float)IS_BTN_H };
+    int hy = (int)btn.y + (IS_BTN_H - fh(9) - 4) / 2;
     if (open) {
-        dtxt("ORDRE DU JOUR  —  une consigne avant l'assaut (facultatif)",
-             x, y, 9, (Color){200, 160, 80, 235});
+        DrawRectangle(x, y - 4, pw, fh(9) + 6, IS_LINE_BG);
+        plate_section(x, y - 2, pw, "ORDRE DU JOUR  —  une consigne avant l'assaut (facultatif)",
+                      (Color){200, 160, 80, 235});
         int cw = (pw - IS_GAP) / 2;
         for (int i = 0; i < CAMPAIGN_ORDER_CHOICES; i++)
             order_card(gs, node, i,
                        (Rectangle){(float)(x + i * (cw + IS_GAP)), (float)(y + fh(9) + 4),
                                    (float)cw, (float)IS_ORDER_H},
                        vm, clickable, input_ok);
-        dtxt("1 / 2 : consigne", x, (int)btn.y + (IS_BTN_H - fh(9)) / 2, 9, UI_TEXT_DIM);
+        int hx = x + plate_keycap(x, hy, "1", UI_ACCENT_DIM) + 4;
+        plate_key_hint(hx, hy, "2", "consigne", 1);
     } else {
-        dtxt("ESPACE ou clic : suite      TAB : passer le briefing",
-             x, (int)btn.y + (IS_BTN_H - fh(9)) / 2, 9, UI_TEXT_DIM);
+        int hx = x + plate_key_hint(x, hy, "ESPACE", "ou clic : suite", 1) + IS_HINT_GAP;
+        plate_key_hint(hx, hy, "TAB", "passer le briefing", 1);
     }
 
     int ready   = open && story_scene_done();
@@ -293,19 +313,21 @@ static void doctrine_card(const GameState *gs, int node, int idx, Rectangle r,
     Rectangle c = r;
     if (hov) c.y -= IS_HOVER_LIFT;
 
-    DrawRectangleRounded(c, 0.08f, 6, hov ? (Color){20, 14, 6, 255} : UI_PANEL_BG);
-    DrawRectangleRoundedLinesEx(c, 0.08f, 6, hov ? 2.2f : 1.4f, fade(fam, hov ? 1.0f : 0.6f));
-    /* Bande de famille */
-    DrawRectangle((int)c.x + 2, (int)c.y + 2, (int)c.width - 4, fh(9) + 6,
-                  fade(fam, 0.18f));
+    if (hov) plate_chamfer_line(plate_inset(c, -2.0f), PLATE_CHAMFER_S + 1.0f, fade(fam, 0.40f));
+    plate_panel(c, PLATE_CHAMFER_S, fam, hov ? 1.0f : 0.6f);
+    /* Bande de famille (sous l'arête haute de la plaque) */
+    int band = fh(9) + 6;
+    DrawRectangle((int)(c.x + PLATE_BORDER + 2), (int)(c.y + PLATE_BORDER + 1),
+                  (int)(c.width - 2.0f * PLATE_BORDER - 4), band, fade(fam, 0.18f));
+    DrawRectangle((int)(c.x + PLATE_BORDER + 2), (int)(c.y + PLATE_BORDER + 1), 3, band, fam);
     dtxt(d->methodical ? "MÉTHODIQUE  —  vous bâtissez"
                        : "IMPRÉVISIBLE  —  vous jouez le tempo",
-         (int)c.x + 10, (int)c.y + 5, 9, fam);
+         (int)c.x + IS_IN_X + 2, (int)(c.y + PLATE_BORDER + 4), 9, fam);
     char key[12];
     snprintf(key, sizeof(key), "%d", idx + 1);
-    keycap((int)(c.x + c.width) - 28, (int)c.y + 3, key, fam);
+    plate_keycap((int)(c.x + c.width) - 30, (int)(c.y + PLATE_BORDER + 2), key, fam);
 
-    int ty = (int)c.y + fh(9) + 14;
+    int ty = (int)c.y + fh(9) + 16;
     dtxt(act_lbl, (int)c.x + 12, ty, 13, UI_TEXT);
     ty += fh(13) + 2;
     char buf[160];
@@ -365,21 +387,23 @@ void interlude_render_dialog_after(const GameState *gs, int stars, int scrap_ear
 
     /* ── Bilan : ferraille, objectif (il ORIENTE la suite), déblocage ── */
     {
+        Color oc = stars > 0 ? IS_COL_GAIN : UI_WARN;
+        plate_panel((Rectangle){(float)x, (float)y, (float)pw, (float)IS_STRIP_H},
+                    PLATE_CHAMFER_S, oc, IS_LINER_A);
         char b[96];
         snprintf(b, sizeof(b), "+%d ferraille", scrap_earned);
-        int sx = x;
+        int sx = x + IS_IN_X;
         int sy = y + (IS_STRIP_H - fh(11)) / 2;
         dtxt(b, sx, sy, 11, (Color){130, 200, 60, 255});
         sx += mtxt(b, 11) + 26;
         const char *obj = stars > 0 ? "OBJECTIF ATTEINT" : "OBJECTIF MANQUÉ — la route bifurque";
-        dtxt(obj, sx, sy, 11, stars > 0 ? IS_COL_GAIN : UI_WARN);
+        dtxt(obj, sx, sy, 11, oc);
         sx += mtxt(obj, 11) + 26;
         if (act->unlock_msg) {
             char u[96];
-            clip_text(act->unlock_msg, x + pw - sx, 11, u, sizeof(u));
+            clip_text(act->unlock_msg, x + pw - IS_IN_X - sx, 11, u, sizeof(u));
             dtxt(u, sx, sy, 11, (Color){140, 200, 240, 255});
         }
-        DrawLine(x, y + IS_STRIP_H, x + pw, y + IS_STRIP_H, (Color){60, 42, 14, 200});
     }
     y += IS_STRIP_H + IS_GAP;
 
@@ -391,7 +415,11 @@ void interlude_render_dialog_after(const GameState *gs, int stars, int scrap_ear
     int clickable = open && story_scene_since_open() > IS_PICK_GUARD;
     if (has_choice && open) {
         const char *q = campaign_choice_prompt(node);
-        if (q) dtxt(q, x, y, 11, (Color){236, 204, 128, 255});
+        if (q) {                                     /* la question, avec son repère */
+            DrawRectangle(x, y - 3, pw, fh(11) + 6, IS_LINE_BG);
+            DrawRectangle(x, y, 3, fh(11), (Color){236, 204, 128, 255});
+            dtxt(q, x + 8, y, 11, (Color){236, 204, 128, 255});
+        }
         int cw = (pw - IS_GAP) / 2;
         for (int i = 0; i < 2; i++)
             doctrine_card(gs, node, i,
@@ -399,12 +427,19 @@ void interlude_render_dialog_after(const GameState *gs, int stars, int scrap_ear
                                       (float)cw, (float)IS_CHOICE_H},
                           vm, clickable, input_ok);
     } else {
-        const char *hint = !open ? "ESPACE ou clic : suite      TAB : passer"
-                         : last  ? "ESPACE : retour à la carte du monde"
-                                 : "ESPACE : acte suivant";
-        int hw = mtxt(hint, 10);
-        dtxt(hint, x + (pw - hw) / 2, y + (IS_BTN_H - fh(10)) / 2, 10,
-             open ? UI_ACCENT : UI_TEXT_DIM);
+        /* Indications de touches, centrées. */
+        int hy = y + (IS_BTN_H - fh(9) - 4) / 2;
+        if (!open) {
+            int w1 = plate_key_hint(0, 0, "ESPACE", "ou clic : suite", 0);
+            int w  = w1 + IS_HINT_GAP + plate_key_hint(0, 0, "TAB", "passer", 0);
+            int hx = x + (pw - w) / 2;
+            plate_key_hint(hx, hy, "ESPACE", "ou clic : suite", 1);
+            plate_key_hint(hx + w1 + IS_HINT_GAP, hy, "TAB", "passer", 1);
+        } else {
+            const char *nxt = last ? "retour à la carte du monde" : "acte suivant";
+            int w = plate_key_hint(0, 0, "ESPACE", nxt, 0);
+            plate_key_hint(x + (pw - w) / 2, hy, "ESPACE", nxt, 1);
+        }
     }
     /* L'avance du dialogue et la validation sont traitées par
        game_handle_dialog_after (app_flow.c), qui lit aussi la carte

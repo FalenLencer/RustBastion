@@ -13,6 +13,7 @@
 #include "render3d_enemies.h"
 #include "render3d.h"          /* render3d_yaw_for_aim (caméra oblique) */
 #include "render3d_skin.h"     /* helpers jumeaux units/enemies         */
+#include "entity_fx.h"         /* ent_enemy_target (cible d'attaque)    */
 #include "../combat/combat_math.h" /* angle_approach (source unique)    */
 #include "rlgl.h"
 #include <math.h>
@@ -20,14 +21,19 @@
 #include <stddef.h>
 #include <ctype.h>
 
-/* ── Réglages (à régler en jeu : aucun affichage côté outil) ─────── */
-#define E_RT_W        160
-#define E_RT_H        200
+/* ── Réglages ──────────────────────────────────────────────────────
+   Cadrage, échelle, grain pixel art : AUTOMATIQUES (r3d_frame_auto). */
 #define E_YAW_OFF     0.0f
-#define E_REST_PHI    0.0f          /* modèles regardent +Z (raylib) au repos */
 #define E_ANIM_FPS    24.0f
-#define E_MOVE_EPS2   0.30f         /* seuil² (px) « bouge »                   */
-#define E_TURN_SPEED  12.0f         /* vitesse de rotation vers la direction   */
+/* « En marche » = VITESSE (px/s), pas déplacement par image : l'ancien seuil
+   de 0,55 px/image figeait en pose de repos (et sans jamais tourner) le
+   blindé et l'artillerie dès 60 FPS, brute et raider à 165 FPS. */
+#define E_MOVE_SPEED  8.0f          /* px/s de simulation (≈ 0,2 case/s)       */
+#define E_TURN_SPEED  12.0f         /* rad/s de simulation vers la direction   */
+#define E_ATTACK_HOLD 0.55f         /* anim d'attaque tenue après un coup (s)  */
+/* Temps : horloge de SIMULATION (r3d_anim_step) ; marche calée sur la
+   distance parcourue (r3d_stride_step, référence = vitesse de base du type). */
+#define E_TIMER_JUMP  0.02f         /* remontée de minuteur = un coup porté    */
 
 /* (Lumière : R3D_LIGHT_DIR, source unique dans render3d.h.) */
 
@@ -40,8 +46,9 @@ typedef struct {
     ModelAnimation *anims;
     int             anim_count;
     int             a_idle, a_walk, a_attack;
-    Camera3D        cam;
-    float           dst_scale, dst_yanchor;
+    R3dFrame        fr;                            /* caméra + RT + pied      */
+    float           base_size;                     /* rayon logique de réf.   */
+    float           ref_speed;                     /* px/s où la marche joue à 1× */
     float           rest_phi, yaw_off;            /* orientation PAR TYPE */
     float           gain;                          /* normalisation luminosité */
 } EnemyModel;
@@ -60,6 +67,10 @@ static float           g_prev_x [MAX_ENEMIES];
 static float           g_prev_y [MAX_ENEMIES];
 static float           g_facing [MAX_ENEMIES];
 static int             g_first  [MAX_ENEMIES];
+static float           g_atk    [MAX_ENEMIES];   /* fenêtre d'attaque restante (s) */
+static float           g_prev_at[MAX_ENEMIES];   /* atk_timer précédent            */
+static float           g_prev_ar[MAX_ENEMIES];   /* arty_timer précédent           */
+static double          g_clock_last = -1.0;      /* cf. r3d_anim_step              */
 
 /* (Matcher d'anims : skin_anim_match, render3d_skin.h.) */
 
@@ -67,9 +78,9 @@ static int             g_first  [MAX_ENEMIES];
 
 /* (Gain de luminance : skin_model_gain, render3d_skin.h.) */
 
-static void load_enemy(int type, const char *path, Camera3D cam,
-                       float dst_scale, float dst_yanchor,
-                       float rest_phi, float yaw_off) {
+/* Cadrage/échelle automatiques (taille = ENEMY_BASE_STATS.size). */
+static void load_enemy(int type, const char *path, float rest_phi) {
+    const float yaw_off = E_YAW_OFF;
     EnemyModel *em = &g_em[type];
     em->model = LoadModel(path);
     if (em->model.meshCount == 0) { em->have = 0; return; }
@@ -90,7 +101,10 @@ static void load_enemy(int type, const char *path, Camera3D cam,
     em->a_idle   = (ai >= 0) ? ai : 0;
     em->a_walk   = (aw >= 0) ? aw : em->a_idle;
     em->a_attack = (aa >= 0) ? aa : em->a_idle;
-    em->cam = cam; em->dst_scale = dst_scale; em->dst_yanchor = dst_yanchor;
+    em->base_size = ENEMY_BASE_STATS[type].size;
+    em->ref_speed = ENEMY_BASE_STATS[type].speed * TILE_SIZE;   /* cases/s → px/s */
+    BoundingBox bb = GetModelBoundingBox(em->model);
+    em->fr = r3d_frame_auto(bb, r3d_ent_px_per_unit(bb, em->base_size));
     em->rest_phi = rest_phi; em->yaw_off = yaw_off;
     em->have = 1;
 }
@@ -106,59 +120,26 @@ void render3d_enemies_init(void) {
     g_loc_gain = GetShaderLocation(g_shader_vc, "gain");
 
     /* ── Modèles 3D des ennemis (assets/3d/3D_enemies/) ────────────────
-       Cadrage : cible ≈ mi-hauteur du modèle, fovy ≈ hauteur×1.4 → taille
-       écran cohérente. rest_phi : humanoïdes = 0 (regardent -Y → raylib +Z) ;
-       véhicule LONG selon X = π/2. ENEMY_RUNNER n'a pas de modèle → sprite 2D.
-       Valeurs à affiner au playtest. */
-    #define BIPED_CAM(ty) ((Camera3D){ .position = {-3.6f, 3.2f, -4.4f}, \
-        .target = {0.0f, (ty), 0.0f}, .up = {0,1,0}, .projection = CAMERA_ORTHOGRAPHIC })
+       Cadrage/échelle automatiques. rest_phi : humanoïdes = 0 (regardent
+       -Y Blender → raylib +Z) ; véhicule LONG selon X → +X → π/2. Le
+       spectre flotte (ymin 0,28) : son pied reste au sol, il plane au-dessus
+       de son ombre. */
+    load_enemy(ENEMY_RAIDER,      "assets/3d/3D_enemies/voxel-raider.glb",        0.0f);
+    load_enemy(ENEMY_BRUTE,       "assets/3d/3D_enemies/brute_rigged.glb",        0.0f);
+    load_enemy(ENEMY_MUTANT,      "assets/3d/3D_enemies/mutant_rigged.glb",       0.0f);
+    load_enemy(ENEMY_GHOST,       "assets/3d/3D_enemies/wraith_rigged.glb",       0.0f);
+    load_enemy(ENEMY_PATHBREAKER, "assets/3d/3D_enemies/PathBreaker.glb",         0.0f);
+    load_enemy(ENEMY_HEALER,      "assets/3d/3D_enemies/plague_healer.glb",       0.0f);
+    load_enemy(ENEMY_HUNTER,      "assets/3d/3D_enemies/Hunter_voxel_rigged.glb", 0.0f);
+    load_enemy(ENEMY_ARTILLERY,   "assets/3d/3D_enemies/heavy_gunner.glb",        0.0f);
+    load_enemy(ENEMY_RUNNER,      "assets/3d/3D_enemies/runner.glb",              0.0f);
+    load_enemy(ENEMY_VEHICLE,     "assets/3d/3D_enemies/wasteland_rig.glb",       1.5708f);
 
-    Camera3D cam_raider = BIPED_CAM(0.86f); cam_raider.fovy = 2.45f;
-    load_enemy(ENEMY_RAIDER, "assets/3d/3D_enemies/voxel-raider.glb",
-               cam_raider, 2.40f, 0.80f, 0.0f, 0.0f);
-
-    Camera3D cam_brute = BIPED_CAM(0.81f); cam_brute.fovy = 2.70f;   /* large 2.3 */
-    load_enemy(ENEMY_BRUTE, "assets/3d/3D_enemies/brute_rigged.glb",
-               cam_brute, 2.55f, 0.80f, 0.0f, 0.0f);
-
-    Camera3D cam_mutant = BIPED_CAM(0.89f); cam_mutant.fovy = 2.55f;
-    load_enemy(ENEMY_MUTANT, "assets/3d/3D_enemies/mutant_rigged.glb",
-               cam_mutant, 2.40f, 0.80f, 0.0f, 0.0f);
-
-    Camera3D cam_ghost = BIPED_CAM(1.09f); cam_ghost.fovy = 2.40f;   /* flotte (ymin 0.28) */
-    load_enemy(ENEMY_GHOST, "assets/3d/3D_enemies/wraith_rigged.glb",
-               cam_ghost, 2.30f, 0.78f, 0.0f, 0.0f);
-
-    Camera3D cam_pathbreaker = BIPED_CAM(0.90f); cam_pathbreaker.fovy = 2.55f;
-    load_enemy(ENEMY_PATHBREAKER, "assets/3d/3D_enemies/PathBreaker.glb",
-               cam_pathbreaker, 2.45f, 0.80f, 0.0f, 0.0f);
-
-    Camera3D cam_healer = BIPED_CAM(0.99f); cam_healer.fovy = 2.80f;
-    load_enemy(ENEMY_HEALER, "assets/3d/3D_enemies/plague_healer.glb",
-               cam_healer, 2.50f, 0.82f, 0.0f, 0.0f);
-
-    Camera3D cam_hunter = BIPED_CAM(0.81f); cam_hunter.fovy = 2.30f;
-    load_enemy(ENEMY_HUNTER, "assets/3d/3D_enemies/Hunter_voxel_rigged.glb",
-               cam_hunter, 2.30f, 0.80f, 0.0f, 0.0f);
-
-    Camera3D cam_artillery = BIPED_CAM(0.89f); cam_artillery.fovy = 2.55f;
-    load_enemy(ENEMY_ARTILLERY, "assets/3d/3D_enemies/heavy_gunner.glb",
-               cam_artillery, 2.40f, 0.80f, 0.0f, 0.0f);
-
-    Camera3D cam_runner = BIPED_CAM(0.88f); cam_runner.fovy = 2.45f;  /* goule véloce 1.75 */
-    load_enemy(ENEMY_RUNNER, "assets/3d/3D_enemies/runner.glb",
-               cam_runner, 2.35f, 0.80f, 0.0f, 0.0f);
-
-    /* Blindé (wasteland_rig) : GROS véhicule 5.85×4×2.1, LONG selon X →
-       regarde +X → rest_phi = π/2. Caméra reculée + fovy large. */
-    Camera3D cam_vehicle = { .position = {-4.4f, 3.8f, -5.2f}, .target = {0.0f, 1.55f, 0.0f},
-                             .up = {0,1,0}, .fovy = 5.2f, .projection = CAMERA_ORTHOGRAPHIC };
-    load_enemy(ENEMY_VEHICLE, "assets/3d/3D_enemies/wasteland_rig.glb",
-               cam_vehicle, 2.8f, 0.70f, 1.5708f, 0.0f);
-
+    g_clock_last = -1.0;
     for (int i = 0; i < MAX_ENEMIES; i++) {
         g_rt[i].id = 0; g_used[i] = 0; g_rt_type[i] = -1; g_anim_t[i] = 0; g_anim_i[i] = -1;
         g_prev_x[i] = 0; g_prev_y[i] = 0; g_facing[i] = 0; g_first[i] = 1;
+        g_atk[i] = 0; g_prev_at[i] = 0; g_prev_ar[i] = 0;
     }
     for (int i = 0; i < ENEMY_TYPE_COUNT; i++) if (g_em[i].have) g_loaded = 1;
 }
@@ -182,43 +163,57 @@ int render3d_enemy_has_model(int enemy_type) {
     return (enemy_type >= 0 && enemy_type < ENEMY_TYPE_COUNT && g_em[enemy_type].have);
 }
 
-static void ensure_rt(int i) {
-    if (g_rt[i].id != 0) return;
-    g_rt[i] = LoadRenderTexture(E_RT_W, E_RT_H);
-}
-
 void render3d_enemies_set_fog(Color col, float density) {
     if (!g_loaded) return;
     skin_set_fog(g_shader_vc, col, density);
 }
 
-void render3d_enemies_prepass(const EnemyPool *ep) {
+void render3d_enemies_prepass(const EnemyPool *ep, const UnitPool *up,
+                              const TowerPool *tp) {
     if (!g_loaded || ep == NULL) return;
     render3d_enemies_set_fog(BLANK, 0.0f);   /* mode 2D : pas de brouillard */
-    float dt = GetFrameTime();
+    float dt = r3d_anim_step(&g_clock_last);   /* temps de SIMULATION */
 
     for (int i = 0; i < MAX_ENEMIES; i++) {
         const Enemy *e = &ep->enemies[i];
         int has = (e->active && !e->dead && e->spawn_delay <= 0.0f &&
                    render3d_enemy_has_model(e->type));
-        if (!has) { g_used[i] = 0; continue; }
+        if (!has) { g_used[i] = 0; g_first[i] = 1; continue; }
         EnemyModel *em = &g_em[e->type];
 
         if (g_first[i]) { g_prev_x[i] = e->x; g_prev_y[i] = e->y;
-                          g_facing[i] = 1.5708f; g_first[i] = 0; }
+                          g_facing[i] = 1.5708f; g_first[i] = 0; g_atk[i] = 0.0f;
+                          g_anim_i[i] = -1;
+                          g_prev_at[i] = e->atk_timer; g_prev_ar[i] = e->arty_timer; }
         float dx = e->x - g_prev_x[i], dy = e->y - g_prev_y[i];
-        float moved2 = dx*dx + dy*dy;
+        float dist   = sqrtf(dx*dx + dy*dy);
+        int   moving = (dt > 1e-5f) && (dist > E_MOVE_SPEED * dt);
         g_prev_x[i] = e->x; g_prev_y[i] = e->y;
 
-        /* Orientation = direction de déplacement (lissée). */
-        if (moved2 > E_MOVE_EPS2) {
+        /* Coup porté = un minuteur d'attaque REMONTE → anim d'attaque tenue
+           E_ATTACK_HOLD s, l'ennemi FAIT FACE à sa cible pendant ce temps. */
+        if (e->atk_timer  > g_prev_at[i] + E_TIMER_JUMP ||
+            e->arty_timer > g_prev_ar[i] + E_TIMER_JUMP) g_atk[i] = E_ATTACK_HOLD;
+        g_prev_at[i] = e->atk_timer; g_prev_ar[i] = e->arty_timer;
+        g_atk[i] = fmaxf(0.0f, g_atk[i] - dt);
+
+        /* Orientation : vers la cible en combat, sinon direction de marche. */
+        float tx, ty;
+        if (g_atk[i] > 0.0f && ent_enemy_target(e, up, tp, &tx, &ty)) {
+            g_facing[i] = angle_approach(g_facing[i], atan2f(ty - e->y, tx - e->x),
+                                         E_TURN_SPEED * dt);
+        } else if (moving) {
             float desired = atan2f(dy, dx);
             g_facing[i] = angle_approach(g_facing[i], desired, E_TURN_SPEED * dt);
         }
 
-        int aidx = (moved2 > E_MOVE_EPS2) ? em->a_walk : em->a_idle;
+        /* Jeu figé (pause…) : on GARDE l'anim en cours (pas de retombée en repos). */
+        int aidx = (dt <= 0.0f && g_anim_i[i] >= 0) ? g_anim_i[i]
+                 : (g_atk[i] > 0.0f) ? em->a_attack
+                 : moving            ? em->a_walk : em->a_idle;
         if (g_anim_i[i] != aidx) { g_anim_i[i] = aidx; g_anim_t[i] = 0.0f; }
-        g_anim_t[i] += dt;
+        g_anim_t[i] += (moving && aidx == em->a_walk)
+                     ? r3d_stride_step(dist, em->ref_speed, dt) : dt;
 
         if (em->anim_count > 0) {                 /* modèle sans anim → statique */
             int   fc    = em->anims[aidx].keyframeCount;
@@ -226,14 +221,14 @@ void render3d_enemies_prepass(const EnemyPool *ep) {
             UpdateModelAnimation(em->model, em->anims[aidx], frame);
         }
 
-        ensure_rt(i);
+        r3d_ent_ensure_rt(&g_rt[i], em->fr.rt_w, em->fr.rt_h);
         BeginTextureMode(g_rt[i]);
             ClearBackground(BLANK);
-            BeginMode3D(em->cam);
+            BeginMode3D(em->fr.cam);
                 rlDisableBackfaceCulling();       /* double-face (winding importé) */
                 if (g_loc_gain >= 0)
                     SetShaderValue(g_shader_vc, g_loc_gain, &em->gain, SHADER_UNIFORM_FLOAT);
-                float yaw = render3d_yaw_for_aim(em->cam, g_facing[i], em->rest_phi) + em->yaw_off;
+                float yaw = render3d_yaw_for_aim(em->fr.cam, g_facing[i], em->rest_phi) + em->yaw_off;
                 rlPushMatrix();
                     rlRotatef(yaw, 0, 1, 0);
                     DrawModel(em->model, (Vector3){0,0,0}, 1.0f, WHITE);
@@ -251,18 +246,22 @@ Texture2D render3d_enemy_tex(int enemy_index) {
     return g_rt[enemy_index].texture;
 }
 
+static const EnemyModel *em_of_slot(int enemy_index) {
+    if (enemy_index < 0 || enemy_index >= MAX_ENEMIES) return NULL;
+    int t = g_rt_type[enemy_index];
+    return (t >= 0 && t < ENEMY_TYPE_COUNT && g_em[t].have) ? &g_em[t] : NULL;
+}
+
 Rectangle render3d_enemy_dst(int enemy_index, float x, float y, float size) {
-    float ds = 2.4f, ya = 0.80f;
-    if (enemy_index >= 0 && enemy_index < MAX_ENEMIES) {
-        int t = g_rt_type[enemy_index];
-        if (t >= 0 && t < ENEMY_TYPE_COUNT && g_em[t].have) {
-            ds = g_em[t].dst_scale; ya = g_em[t].dst_yanchor;
-        }
-    }
-    float box = size * 2.0f;
-    float w   = box * ds;
-    float h   = w * ((float)E_RT_H / (float)E_RT_W);
-    return (Rectangle){ x - w*0.5f, y + box*0.5f - h*ya, w, h };
+    const EnemyModel *em = em_of_slot(enemy_index);
+    if (!em) return (Rectangle){ x, y, 0, 0 };
+    return r3d_ent_dst(&em->fr, x, y, size, em->base_size);
+}
+
+float render3d_enemy_head_y(int enemy_index, Rectangle dst) {
+    const EnemyModel *em = em_of_slot(enemy_index);
+    if (!em) return dst.y;
+    return dst.y + em->fr.head.y * dst.height / (float)em->fr.rt_h;
 }
 
 /* ════════════════════════════════════════════════════

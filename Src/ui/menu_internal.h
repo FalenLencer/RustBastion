@@ -100,8 +100,10 @@ int     draw_btn(const char *label, int x, int y, int w, int h,
 int     draw_volume_slider(const char *label, int x, int y, int w,
                            int value, int *out_value);
 void    draw_dropdown_arrow(int bx, int by, int bw, int bh, Color col);
-int     draw_nav_btn(const char *icon, const char *title, const char *desc,
-                     Color col, int x, int y, int w, int h);
+// Animation des boutons (menu.c), partagée avec les cartes du hub.
+#define BTN_PRESS_DIM 0.8f   // assombrissement du fond enfoncé (-20 %)
+Color   lerp_col(Color a, Color b, float t);          // a→b, alpha compris
+void    draw_btn_sweep(int x, int y, int w, int h, float sweep);   // reflet
 int     draw_back_btn(int vw, int vh);
 
 // Message temporaire
@@ -114,6 +116,7 @@ void    set_msg(MenuState *m, const char *s);
 // ════════════════════════════════════════════════════
 MenuAction draw_title         (MenuState *m, int vw, int vh);
 MenuAction draw_play_hub      (MenuState *m, const MetaProgress *meta, int vw, int vh);
+MenuAction draw_free_play     (MenuState *m, int vw, int vh);   // menu_hub.c
 MenuAction draw_slot_list     (MenuState *m, int vw, int vh, int is_campaign);
 MenuAction draw_new_campaign  (MenuState *m, const MetaProgress *meta, int vw, int vh);
 MenuAction draw_new_arcade    (MenuState *m, int vw, int vh);

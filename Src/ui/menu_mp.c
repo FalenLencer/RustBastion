@@ -17,7 +17,7 @@ static const char *MP_MODE_NAMES[MP_MODE_COUNT] = {
 };
 static const char *MP_MODE_DESC[MP_MODE_COUNT] = {
     "",
-    "Course : mêmes vagues, plateaux separes. Dernier debout / meilleur score.",
+    "Course : mêmes vagues, plateaux séparés. Dernier debout / meilleur score.",
     "Duel : survivez ET envoyez des ennemis chez l'adversaire (touches Z/C/V).",
     "Asymétrique : l'hôte défend, l'invité commande la horde.",
     "Co-op : tenez ensemble, l'un tombe = tous perdent. Entraide [G].",
@@ -92,11 +92,11 @@ MenuAction draw_mp_hub(MenuState *m, int vw, int vh) {
     py += 38;
 
     // ── Serveur relais (optionnel) ───────────────────────────
-    txt_c("Serveur relais (IP:port)  -  vide = connexion directe", cx, py, 8, C_DIM);
-    py += fh(8) + 3;
+    txt_c("Serveur relais (IP:port)  -  vide = connexion directe", cx, py, 9, C_TEXT);
+    py += fh(9) + 3;
     text_field(m, 4, (Rectangle){(float)(cx - 140), (float)py, 280.0f, 26.0f},
                m->opts.relay_addr, (int)sizeof(m->opts.relay_addr), 3);
-    py += 32;
+    py += 26 + M_SECT;   /* le champ ne colle plus au 1er mode */
 
     // ── Cartes de mode ───────────────────────────────────────
     int bw = 540, bh = 38, gap = 6, bx = cx - bw/2;
@@ -110,8 +110,8 @@ MenuAction draw_mp_hub(MenuState *m, int vw, int vh) {
         py += bh + gap;
     }
     py += 6;
-    txt_c(MP_MODE_DESC[m->mp_mode], cx, py, 9, C_DIM);
-    py += fh(9) + 14;
+    txt_c(MP_MODE_DESC[m->mp_mode], cx, py, 10, C_TEXT);
+    py += fh(10) + 14;
 
     int abw = 256, agap = M_IN, ax = cx - abw - agap/2;
     if (draw_btn("HÉBERGER", ax, py, abw, BTN_H + 6, C_GREEN, 0)) {

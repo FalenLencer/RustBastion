@@ -33,8 +33,8 @@ int hud_click_overlay_drag(UIState *ui, GameState *gs, Vector2 mouse, int HUD_Y)
             {
                 const int _ovp = OVERLAY_OV_P;
                 const int _bw  = 26, _bh = 14;
-                // ty_speed = oy + OV_P+4 + (17+3) + (14+3) + (14+3) + (9+5)
-                const int _by = (int)tr_r.y + _ovp + 4 + 20 + 17 + 17 + 14;
+                // ty_speed = oy + OV_P+GRIP + (17+3) + (14+3) + (14+3) + (9+5)
+                const int _by = (int)tr_r.y + _ovp + OVERLAY_GRIP_H + 20 + 17 + 17 + 14;
                 Rectangle _sbr = {
                     tr_r.x + OVERLAY_W - _ovp - _bw,
                     (float)_by, (float)_bw, (float)_bh

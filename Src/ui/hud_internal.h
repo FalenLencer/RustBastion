@@ -39,8 +39,14 @@
 #define OVERLAY_BL_W   180   /* overlay bas-gauche (bases HP + réparation) */
 #define PORTRAIT_SZ     82   /* taille carrée des portraits splash (px)    */
 #define OVERLAY_OV_P     6
-#define OVERLAY_TL_H   (OVERLAY_OV_P + 17+3 + 17+3 + 14+3 + 14 + OVERLAY_OV_P)  /* or + vies + tours + unites */
-#define OVERLAY_TR_H   (OVERLAY_OV_P + 17+3 + 14+3 + 14+3 + 9+5 + 14 + OVERLAY_OV_P)
+#define OVERLAY_GRIP_H   4   /* poignée : le contenu commence à OV_P + GRIP_H */
+#define OVERLAY_LAST_H  16   /* dernière ligne (taille 10 → fh(10) = 16 px)  */
+/* Hauteurs = poignée + lignes + dernière ligne À SA HAUTEUR RÉELLE (sans la
+   poignée ni fh, « Unités » / « Vitesse » touchaient le bord du cadre). */
+#define OVERLAY_TL_H   (OVERLAY_OV_P + OVERLAY_GRIP_H + 17+3 + 17+3 + 14+3 \
+                        + OVERLAY_LAST_H + OVERLAY_OV_P)  /* or + vies + tours + unites */
+#define OVERLAY_TR_H   (OVERLAY_OV_P + OVERLAY_GRIP_H + 17+3 + 14+3 + 14+3 + 9+5 \
+                        + OVERLAY_LAST_H + OVERLAY_OV_P)
 /* Hauteur dynamique de l'overlay BL — dépend de l'état des bases en jeu */
 int overlay_bl_h(const GameState *gs);
 /* Décale un panneau flottant (dir ±1) tant qu'il masque une base ou un

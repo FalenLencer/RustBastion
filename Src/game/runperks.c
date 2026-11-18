@@ -59,7 +59,7 @@ const PerkDef RUN_PERKS[PERK_COUNT] = {
 
     [PERK_ARSENAL]  = {"Arsenal complet",    "ARSE", "Tours : +30% dégâts, +15% portée & cadence.",RAR_EPIC,1,120},
     [PERK_FORTUNE]  = {"Fortune de guerre",  "FORT", "+8 or/kill ET +120 or au début d'acte.",RAR_EPIC,  1,120},
-    [PERK_LEGION]   = {"Legion",             "LEGI", "Unités : +40% PV ET +40% dégâts.",      RAR_EPIC,  1,120},
+    [PERK_LEGION]   = {"Légion",             "LÉGI", "Unités : +40% PV ET +40% dégâts.",      RAR_EPIC,  1,120},
 
     [PERK_K_FORTRESS] = {"Forteresse",       "BAST", "Tours +50% dégâts, +25% portée. 3 tours de moins.", RAR_KEYSTONE, 1, 150},
     [PERK_K_SPOILS]   = {"Butin de guerre",  "SAC",  "Moitié d'or en début d'acte, +6 or par kill.",      RAR_KEYSTONE, 1, 150},

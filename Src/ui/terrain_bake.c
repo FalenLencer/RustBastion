@@ -7,7 +7,7 @@
 /*  terrain_bake.c ─ Cuisson du terrain d'une carte + liquides + routes.
  *
  *  Ordre des passes (chacune recouvre la précédente) : sol → détails →
- *  liquides (rives ORGANIQUES : champ bilinéaire des tuiles d'eau, bruité,
+ *  sol des ruines → sol minéralisé des filons → liquides (rives ORGANIQUES : champ bilinéaire des tuiles d'eau, bruité,
  *  coupé à 0,5 — la rive tombe sur la frontière de tuile, en courbe) →
  *  routes (distance au réseau de segments centre-à-centre : la chaussée
  *  épouse les virages, ornières et marquages suivent la direction).
@@ -40,6 +40,10 @@ static unsigned map_key(const Map *m) {
     MIX(m->seed); MIX(m->w); MIX(m->h); MIX(m->theme); MIX(m->path_count);
     for (int y = 0; y < m->h; y++)
         for (int x = 0; x < m->w; x++) MIX(m->tiles[y][x].type);
+    MIX(m->deposit_count);                                   // sol minéralisé des filons
+    for (int i = 0; i < m->deposit_count; i++) {
+        MIX(m->deposits[i].tile_x); MIX(m->deposits[i].tile_y); MIX(m->deposits[i].type);
+    }
     #undef MIX
     return h;
 }
@@ -276,6 +280,7 @@ static Texture2D bake(const Map *m) {
     tb_paint_ground(&im, m, s);
     tb_paint_details(&im, m, s);
     tb_paint_ruin_floor(&im, m, s);
+    tb_paint_ore_floor(&im, m, s);
     paint_liquids(&im, m, s);
     paint_roads(&im, m, s);
     Texture2D tex = LoadTextureFromImage(im);
@@ -329,4 +334,6 @@ void terrain_unload(void) {
     for (int i = 0; i < TB_CACHE; i++)
         if (g_slots[i].used) { UnloadTexture(g_slots[i].tex); g_slots[i].used = 0; }
     terrain_ruins_unload();
+    terrain_pad_unload();
+    terrain_ore_unload();
 }

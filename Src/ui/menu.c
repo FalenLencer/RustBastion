@@ -210,7 +210,8 @@ static int g_menu_bg_loaded = 0;
 static Texture2D *menu_bg_for_screen(MenuScreen screen) {
     switch (screen) {
         case MENU_TITLE:      return &g_menu_bg[MENU_BG_TITLE];
-        case MENU_PLAY_HUB:   return &g_menu_bg[MENU_BG_PLAY_HUB];
+        case MENU_PLAY_HUB:
+        case MENU_FREE_PLAY:  return &g_menu_bg[MENU_BG_PLAY_HUB];
         case MENU_CAMPAIGN:   return &g_menu_bg[MENU_BG_CAMPAIGN];
         case MENU_ARCADE:     return &g_menu_bg[MENU_BG_ARCADE];
         case MENU_UPGRADES:   return &g_menu_bg[MENU_BG_UPGRADES];
@@ -338,10 +339,9 @@ void draw_panel(int cx, int cy, int pw, int ph, Color border) {
 // ── Animation des boutons (hover fluide, press, reflet) ─────────
 #define BTN_SWEEP_W     18   // largeur du reflet balayant (px)
 #define BTN_SWEEP_ALPHA 26   // alpha du reflet
-#define BTN_PRESS_DIM   0.8f // assombrissement du fond enfoncé (-20 %)
 
 // Interpolation linéaire entre deux couleurs (alpha compris).
-static Color lerp_col(Color a, Color b, float t) {
+Color lerp_col(Color a, Color b, float t) {
     return (Color){
         (unsigned char)(a.r + (b.r - a.r) * t),
         (unsigned char)(a.g + (b.g - a.g) * t),
@@ -354,7 +354,7 @@ static Color lerp_col(Color a, Color b, float t) {
 // droite à l'entrée en survol. Clip MANUEL aux bords du bouton (pas de
 // BeginScissorMode : il opère en coordonnées écran et se désalignerait
 // du décalage Camera2D — centrage écran large + rise de transition).
-static void draw_btn_sweep(int x, int y, int w, int h, float sweep) {
+void draw_btn_sweep(int x, int y, int w, int h, float sweep) {
     if (sweep >= 1.0f) return;
     float sx  = (float)x + ((float)w + BTN_SWEEP_W) * ea_out_cubic(sweep)
               - BTN_SWEEP_W;
@@ -424,7 +424,7 @@ int draw_volume_slider(const char *label, int x, int y, int w,
     draw_text_boxed(label, x, y, 11, C_GOLD);
     /* Pourcentage aligné à droite sur la même ligne que l'étiquette */
     dtxt(percent_text, x + w - mtxt(percent_text, 11), y, 11, C_TEXT);
-    y += 18;
+    y += fh(11) + 4;   /* sous le cadre du libellé (fh + 3 px), pas dessus */
     Rectangle track = {(float)x, (float)y, (float)w, 12.0f};
     Rectangle hit   = {track.x - 2, track.y - 8, track.width + 4, track.height + 16};
     int dragging = IsMouseButtonDown(MOUSE_LEFT_BUTTON) && vhov_r(hit);
@@ -461,53 +461,6 @@ void draw_dropdown_arrow(int bx, int by, int bw, int bh, Color col) {
         col);
 }
 
-// Grand bouton de navigation avec barre latérale colorée
-int draw_nav_btn(const char *icon, const char *title,
-                 const char *desc, Color col,
-                 int x, int y, int w, int h)
-{
-    Rectangle r = {(float)x,(float)y,(float)w,(float)h};
-    int   hov     = vhov_r(r);
-    float hk      = ui_hover_t(x, y, hov);
-    float sweep   = ui_hover_sweep(x, y, hov);
-    int   pressed = hov && IsMouseButtonDown(MOUSE_LEFT_BUTTON);
-    int   dy      = pressed ? 1 : 0;   // enfoncement du contenu
-    float rnd     = (float)BTN_R / h;
-
-    Color bg = lerp_col(C_PANEL, (Color){col.r/7, col.g/7, col.b/7, 255}, hk);
-    if (pressed)
-        bg = (Color){(unsigned char)(bg.r * BTN_PRESS_DIM),
-                     (unsigned char)(bg.g * BTN_PRESS_DIM),
-                     (unsigned char)(bg.b * BTN_PRESS_DIM), bg.a};
-    float bw = 1.2f + hk * 0.8f;
-    Color bc = lerp_col((Color){col.r/3, col.g/3, col.b/3, 180}, col, hk);
-    DrawRectangleRounded(r, rnd, 6, bg);
-    DrawRectangleRoundedLinesEx(r, rnd, 6, bw, bc);
-
-    /* Barre latérale : s'allume progressivement */
-    DrawRectangleRounded(
-        (Rectangle){(float)x, (float)(y+4), 4, (float)(h-8)},
-        0.5f, 4,
-        (Color){col.r, col.g, col.b, (unsigned char)(110.0f + hk * 145.0f)});
-
-    draw_btn_sweep(x, y, w, h, sweep);
-
-    /* Icône : se décale vers la droite avec rebond au survol */
-    int icon_dx = (int)(3.0f * ea_out_back(hk));
-    dtxt(icon, x + M_PAD + 4 + icon_dx, y + h/2 - fh(26)/2 + dy, 26, col);
-    dtxt(title, x + M_PAD + 36, y + M_IN + 2 + dy, 16,
-             lerp_col(C_TEXT, col, hk));
-    char dbuf[72];
-    clip_text(desc, w - M_PAD - 36 - M_IN, 10, dbuf, sizeof(dbuf));
-    dtxt(dbuf, x + M_PAD + 36, y + M_IN + 22 + dy, 10,
-             lerp_col((Color){130, 110, 72, 255}, C_TEXT, hk));
-    if (vclick_r(r)) {
-        audio_play_sfx(AUDIO_SFX_MENU_CLICK);
-        return 1;
-    }
-    return 0;
-}
-
 // Bouton Retour standard — ÉCHAP équivaut au clic (convention : ÉCHAP =
 // revenir d'un cran). Chaque écran garde SA logique de retour.
 int draw_back_btn(int vw, int vh) {
@@ -523,15 +476,16 @@ void draw_msg(MenuState *m, int vw, int vh) {
     float a = fminf(m->msg_timer / 0.4f, 1.0f);
     int alpha = (int)(a * 220.0f);
     int tw = mtxt(m->msg_buf, 13);
-    int mx = vw/2 - tw/2, my = vh - M_PAD - 20;
     int px = 10, py = 4;
+    /* Cadre à la hauteur RÉELLE du texte (fh), sinon il dépasse en bas */
+    int mx = vw/2 - tw/2, my = vh - M_PAD - fh(13) - py;
     DrawRectangleRounded(
         (Rectangle){(float)(mx - px), (float)(my - py),
-                    (float)(tw + px*2), (float)(13 + py*2)},
+                    (float)(tw + px*2), (float)(fh(13) + py*2)},
         0.3f, 4, (Color){5, 3, 1, (unsigned char)alpha});
     DrawRectangleRoundedLinesEx(
         (Rectangle){(float)(mx - px), (float)(my - py),
-                    (float)(tw + px*2), (float)(13 + py*2)},
+                    (float)(tw + px*2), (float)(fh(13) + py*2)},
         0.3f, 4, 1.2f, (Color){232, 152, 32, (unsigned char)(alpha/2)});
     dtxt(m->msg_buf, mx, my, 13, (Color){232,152,32,(unsigned char)alpha});
 }
@@ -614,10 +568,7 @@ MenuAction menu_update(MenuState *m, const MetaProgress *meta) {
     if (m->screen == MENU_TITLE) {
         if (prev_screen != MENU_TITLE)
             menu_anim_skip(&m->anim);
-        int in_intro = (m->anim.phase == ANIM_PHASE_WALK_IN ||
-                        m->anim.phase == ANIM_PHASE_SLAM    ||
-                        m->anim.phase == ANIM_PHASE_TOWER_POP);
-        if (in_intro && (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) ||
+        if (menu_anim_in_intro(&m->anim) && (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) ||
                          IsKeyPressed(KEY_ENTER) ||
                          IsKeyPressed(KEY_SPACE)))
             menu_anim_skip(&m->anim);
@@ -700,6 +651,7 @@ MenuAction menu_render_and_act(MenuState *m, const MetaProgress *meta,
         switch (m->screen) {
             case MENU_TITLE:        act = draw_title(m, menu_w, vh);              break;
             case MENU_PLAY_HUB:     act = draw_play_hub(m, meta, menu_w, vh);     break;
+            case MENU_FREE_PLAY:    act = draw_free_play(m, menu_w, vh);          break;
             case MENU_CAMPAIGN:     act = draw_slot_list(m, menu_w, vh, 1);       break;
             case MENU_ARCADE:       act = draw_slot_list(m, menu_w, vh, 0);       break;
             case MENU_NEW_CAMPAIGN: act = draw_new_campaign(m, meta, menu_w, vh); break;

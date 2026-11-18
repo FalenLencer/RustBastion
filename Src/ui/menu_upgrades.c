@@ -12,6 +12,14 @@
 
 #include "menu_internal.h"
 
+/* Liste sur un panneau OPAQUE (le fond peint rendait les petits textes
+   illisibles), colonnes FIXES : nom | pastilles | effet | coût. */
+#define UPG_ROW_H     36    // hauteur d'une ligne (texte 12 → fh 19, centré)
+#define UPG_ROW_GAP    4    // écart entre deux lignes
+#define UPG_PIP_COL  210    // début des pastilles (depuis le bord gauche, px)
+#define UPG_DESC_COL 330    // début de l'effet (px)
+#define UPG_COST_W    90    // colonne du coût (bord droit)
+
 // ════════════════════════════════════════════════════
 // AMÉLIORATIONS
 // ════════════════════════════════════════════════════
@@ -53,20 +61,28 @@ MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
                  meta->campaigns_completed, meta->best_wave),
              lx, y, 10, C_TEXT);
     y += fh(10) + 3 + 5;
-    draw_sep(lx, y, rw, C_BORDER);
+    {   /* panneau opaque derrière toute la liste */
+        int lh = UPGRADE_COUNT * (UPG_ROW_H + UPG_ROW_GAP) + M_IN * 2;
+        Rectangle lp = {(float)(lx - M_IN), (float)y, (float)(rw + M_IN * 2), (float)lh};
+        DrawRectangleRounded(lp, (float)PANEL_R / lh, 6, (Color){8, 5, 2, 238});
+        DrawRectangleRoundedLinesEx(lp, (float)PANEL_R / lh, 6, 1.2f, C_BORDER);
+    }
     y += M_IN;
 
     for (int i = 0; i < UPGRADE_COUNT; i++) {
-        int hov = vhov(lx, y, rw, 30);
+        int hov = vhov(lx, y, rw, UPG_ROW_H);
         if (hov) m->sel_upg = i;
         int is_sel = (m->sel_upg == i);
+        int ty = y + UPG_ROW_H/2;               /* axe vertical de la ligne */
 
-        Rectangle row = {(float)lx,(float)y,(float)rw, 30};
-        DrawRectangleRounded(row, (float)PANEL_R/30, 5,
-            is_sel ? (Color){32, 20, 5, 255} : (Color){14, 9, 3, 200});
+        Rectangle row = {(float)lx,(float)y,(float)rw, UPG_ROW_H};
+        DrawRectangleRounded(row, (float)PANEL_R/UPG_ROW_H, 5,
+            is_sel ? (Color){32, 20, 5, 255} : (Color){16, 10, 4, 255});
+        if (is_sel)
+            DrawRectangleRoundedLinesEx(row, (float)PANEL_R/UPG_ROW_H, 5, 1.0f, C_GOLD);
 
-        draw_text_boxed(UPGRADE_NAMES[i], lx + M_IN, y + 9, 12,
-                        is_sel ? C_GOLD : C_TEXT);
+        dtxt(UPGRADE_NAMES[i], lx + M_IN + 4, ty - fh(12)/2, 12,
+             is_sel ? C_GOLD : C_TEXT);
 
         int lvl = 0, maxlvl = 0;
         switch (i) {
@@ -83,39 +99,34 @@ MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
             default: break;
         }
 
-        // Pastilles de niveau — centrées
+        // Pastilles de niveau — colonne fixe, alignées d'une ligne à l'autre
         int pip_w = 13, pip_h = 9, pip_gap = 3;
-        int pip_total = maxlvl * (pip_w + pip_gap) - pip_gap;
-        int pip_x = cx - pip_total/2;
-        int pip_y = y + 11;
+        int pip_x = lx + UPG_PIP_COL;
         for (int s = 0; s < maxlvl; s++) {
             Color pc = (s < lvl) ? C_GOLD : (Color){35,25,8,255};
             Rectangle pip = {(float)(pip_x + s*(pip_w+pip_gap)),
-                             (float)pip_y, (float)pip_w, (float)pip_h};
+                             (float)(ty - pip_h/2), (float)pip_w, (float)pip_h};
             DrawRectangleRounded(pip, 0.4f, 3, pc);
             DrawRectangleRoundedLinesEx(pip, 0.4f, 3, 0.8f, (Color){65,48,15,160});
         }
 
-        // Description clippée à droite du centre
-        int desc_x  = cx + pip_total/2 + M_IN*2;
-        int desc_max = lx + rw - 92 - desc_x - M_IN;
-        if (desc_max > 30) {
-            char udesc[48];
-            clip_text(UPGRADE_DESC[i], desc_max, 9, udesc, sizeof(udesc));
-            dtxt(udesc, desc_x, y + 11, 9, C_TEXT);
-        }
+        // Effet — colonne fixe, rogné avant la colonne du coût
+        int desc_x   = lx + UPG_DESC_COL;
+        int desc_max = lx + rw - UPG_COST_W - desc_x - M_IN;
+        char udesc[48];
+        clip_text(UPGRADE_DESC[i], desc_max, 10, udesc, sizeof(udesc));
+        dtxt(udesc, desc_x, ty - fh(10)/2, 10, is_sel ? C_TEXT : (Color){140, 122, 84, 255});
 
         // Coût / MAX à droite
         int cost = meta_upgrade_cost(meta, i);
-        int cost_x = lx + rw - 82;
+        int cost_x = lx + rw - UPG_COST_W + M_IN;
         if (cost > 0) {
             int can = meta->scrap >= cost;
             char cbuf[12];
             snprintf(cbuf, sizeof(cbuf), "%d", cost);
-            int icon_sz = fh(11);
-            draw_icon(g_icon_scrap, cost_x, y + 8, icon_sz, WHITE);
-            draw_text_boxed(cbuf, cost_x + icon_sz + 2, y + 9, 11,
-                            can ? C_GOLD : C_RED);
+            int icon_sz = fh(12);
+            draw_icon(g_icon_scrap, cost_x, ty - icon_sz/2, icon_sz, WHITE);
+            dtxt(cbuf, cost_x + icon_sz + 4, ty - fh(12)/2, 12, can ? C_GOLD : C_RED);
             if (hov && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                 if (meta_upgrade((MetaProgress*)meta, i))
                     set_msg(m, "Amélioration achetée !");
@@ -123,14 +134,12 @@ MenuAction draw_upgrades(MenuState *m, const MetaProgress *meta,
                     set_msg(m, "Ferraille insuffisante.");
             }
         } else {
-            draw_text_boxed("MAX", cost_x + 10, y + 9, 11, C_GREEN);
+            dtxt("MAX", cost_x + 10, ty - fh(12)/2, 12, C_GREEN);
         }
-
-        draw_sep(lx, y+30, rw, (Color){25,16,5,140});
-        y += 31;
+        y += UPG_ROW_H + UPG_ROW_GAP;
     }
 
-    draw_msg(m, vw, vh);
+    /* (le message temporaire est dessiné par menu_render_and_act) */
     if (draw_back_btn(vw, vh)) {
         m->screen = m->paused ? MENU_PAUSE : m->back_screen;
         if (!m->paused) pop_back_screen(m);

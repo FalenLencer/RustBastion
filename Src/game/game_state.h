@@ -58,7 +58,8 @@ struct GameState {
     int   is_endless;          // 1 = mode arcade endless
     int   endless_series;      // série en cours (0-based, +1 tous les 10 vagues)
     float endless_multiplier;  // multiplicateur de ferraille (1.0, 1.5, 2.0...)
-    int   endless_pending_extract; // 1 = fenêtre extraction à afficher
+    int   endless_pending_extract; // 1 = palier d'extraction courant déjà proposé
+                                   //     (se ré-arme en quittant la vague-palier)
     // ── Suivi objectif de l'acte en cours ─────────────────────
     int act_objective_done;      // 1 = objectif accompli ce stage
     int act_no_unit_lost;        // 1 = aucune unité perdue (pour OBJ_NO_UNIT_LOST)

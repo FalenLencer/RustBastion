@@ -274,10 +274,11 @@ void hud_render_tool_tooltip(const UIState *ui, const GameState *gs) {
         const int TH = locked ? M * 2 + fh(11) + 2 + TL
                               : M * 2 + fh(11) + 2 + TL * 3 + (at_limit ? TL : 0);
 
+        /* Toujours AU-DESSUS du HUD (bas de la carte) : borné dans le HUD,
+           il recouvrait le bouton survolé et ses voisins. */
         int tx = (int)rb->x;
-        int ty = (int)rb->y - TH - GAP;
-        if (ty < HUD_Y + 2) ty = HUD_Y + 2;
-        if (ty + TH > HUD_Y + HUD_H - 2) ty = HUD_Y + HUD_H - TH - 2;
+        int ty = HUD_Y - TH - GAP;
+        if (ty < 2) ty = 2;
         if (tx < UI_LEFT_PANEL_W + M) tx = UI_LEFT_PANEL_W + M;
         if (tx + TW > VIRT_W - UI_PANEL_W - M)
             tx = VIRT_W - UI_PANEL_W - M - TW;
@@ -321,15 +322,15 @@ void hud_render_tool_tooltip(const UIState *ui, const GameState *gs) {
                 dtxt(TextFormat("LIMITE (%d bases)", gs->map.base_count),
                      tx + M, ly, 10, UI_DANGER);
 
-            /* P0.3 — Conseil de contre sous le tooltip (tours only) :
+            /* P0.3 — Conseil de contre au-dessus du tooltip (tours only) :
                « quelle tour pour la vague qui vient ? » */
             if (ui_tool_is_tower((ToolID)ui->hovered_tool)) {
                 char adv[80];
                 if (hud_counter_advice(gs, adv, sizeof(adv))) {
-                    int aw = mtxt(adv, 10);
-                    DrawRectangle(tx, ty + TH + 2, aw + M * 2, fh(10) + 6,
-                                  UI_PANEL_BG_SOFT);
-                    dtxt(adv, tx + M, ty + TH + 5, 10, UI_INFO);
+                    int aw = mtxt(adv, 10), ah = fh(10) + 6;
+                    int ay = ty - ah - 2;
+                    DrawRectangle(tx, ay, aw + M * 2, ah, UI_PANEL_BG_SOFT);
+                    dtxt(adv, tx + M, ay + 3, 10, UI_INFO);
                 }
             }
         }
